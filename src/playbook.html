@@ -1,0 +1,232 @@
+<title>Waymark Playbook</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700;800&family=Figtree:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  :root{
+    --bg:#EDF0F3; --surface:#FFFFFF; --surface-2:#E4E9EE; --ink:#15202B; --ink-soft:#4C5967; --ink-faint:#7D8996; --line:#D3DAE1;
+    --accent:#E2551B; --accent-ink:#FFFFFF; --accent-soft:#FBE4D9; --good:#22946A; --good-soft:#DDF1E8; --warn:#B4541A; --warn-soft:#FBEBDD;
+    --shadow:0 1px 2px rgba(21,32,43,.06),0 8px 24px -14px rgba(21,32,43,.22);
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      color-scheme:dark;
+      --bg:#0F151B; --surface:#172029; --surface-2:#1F2A35; --ink:#E7EDF2; --ink-soft:#A6B3BF; --ink-faint:#74838F; --line:#2A3743;
+      --accent:#FF7A3D; --accent-ink:#1A0A02; --accent-soft:#3A2216; --good:#4CC795; --good-soft:#163328; --warn:#F09A5B; --warn-soft:#3A2717;
+      --shadow:0 1px 2px rgba(0,0,0,.35),0 10px 28px -14px rgba(0,0,0,.6);
+    }
+  }
+  :root[data-theme="dark"]{
+    color-scheme:dark;
+    --bg:#0F151B; --surface:#172029; --surface-2:#1F2A35; --ink:#E7EDF2; --ink-soft:#A6B3BF; --ink-faint:#74838F; --line:#2A3743;
+    --accent:#FF7A3D; --accent-ink:#1A0A02; --accent-soft:#3A2216; --good:#4CC795; --good-soft:#163328; --warn:#F09A5B; --warn-soft:#3A2717;
+    --shadow:0 1px 2px rgba(0,0,0,.35),0 10px 28px -14px rgba(0,0,0,.6);
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:'Figtree',system-ui,sans-serif;font-size:16px;line-height:1.55;-webkit-font-smoothing:antialiased;}
+  .wrap{max-width:940px;margin:0 auto;padding-inline:20px;padding-block:32px 72px;display:flex;flex-direction:column;gap:48px;}
+  h1,h2,h3{font-family:'Barlow Condensed',system-ui,sans-serif;margin:0;text-wrap:balance;letter-spacing:.01em;}
+  h1{font-size:clamp(44px,8vw,76px);font-weight:800;line-height:.92;text-transform:uppercase;}
+  h2{font-size:clamp(26px,4vw,34px);font-weight:700;text-transform:uppercase;letter-spacing:.02em;}
+  h3{font-size:20px;font-weight:700;}
+  p{margin:0;max-width:68ch;}
+  a{color:var(--accent);}
+  .mono{font-family:'IBM Plex Mono',monospace;font-variant-numeric:tabular-nums;}
+  .eyebrow{font-family:'IBM Plex Mono',monospace;font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--accent);font-weight:500;}
+  section{display:flex;flex-direction:column;gap:16px;scroll-margin-top:60px;}
+  .lead{font-size:18px;color:var(--ink-soft);}
+  .muted{color:var(--ink-soft);} .note{font-size:13px;color:var(--ink-faint);}
+
+  header.hero{display:flex;flex-direction:column;gap:16px;}
+  .verdict{background:var(--ink);color:var(--bg);border-radius:6px;padding:18px 20px;display:flex;flex-direction:column;gap:8px;}
+  .verdict .eyebrow{color:var(--accent);}
+  .verdict p{color:var(--bg);font-size:17px;max-width:none;}
+  .cta{display:inline-flex;align-self:flex-start;gap:8px;align-items:center;background:var(--accent);color:var(--accent-ink);text-decoration:none;font-weight:700;padding:11px 16px;border-radius:10px;}
+
+  nav.toc{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--bg);display:flex;gap:6px;overflow-x:auto;padding-block:10px;border-bottom:1px solid var(--line);margin-block:-28px;}
+  nav.toc a{font-family:'IBM Plex Mono',monospace;font-size:12px;text-decoration:none;color:var(--ink-soft);border:1px solid var(--line);background:var(--surface);padding:6px 10px;border-radius:4px;white-space:nowrap;}
+  nav.toc a:hover,nav.toc a:focus-visible{color:var(--accent);border-color:var(--accent);outline:none;}
+
+  .tbl{overflow-x:auto;border:1px solid var(--line);border-radius:6px;background:var(--surface);}
+  table{border-collapse:collapse;width:100%;min-width:760px;}
+  th,td{text-align:left;vertical-align:top;padding:10px 12px;border-bottom:1px solid var(--line);font-size:14px;}
+  thead th{font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-faint);background:var(--surface-2);font-weight:500;}
+  tbody tr:last-child td{border-bottom:none;}
+  tr.us td{background:var(--accent-soft);}
+  td.c{text-align:center;font-weight:700;}
+  .y{color:var(--good);} .p{color:var(--warn);} .n{color:var(--ink-faint);font-weight:400;}
+  td.price{font-family:'IBM Plex Mono',monospace;font-size:13px;white-space:nowrap;}
+
+  .grid3{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:12px;}
+  .opt{background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:16px;display:flex;flex-direction:column;gap:8px;box-shadow:var(--shadow);}
+  .opt.pick{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent),var(--shadow);}
+  .tag{align-self:flex-start;font-family:'IBM Plex Mono',monospace;font-size:11px;padding:2px 8px;border-radius:3px;background:var(--surface-2);color:var(--ink-soft);}
+  .opt.pick .tag{background:var(--accent);color:var(--accent-ink);}
+  .opt ul{margin:0;padding-left:18px;font-size:14.5px;color:var(--ink-soft);display:flex;flex-direction:column;gap:4px;}
+
+  .tiers{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;}
+  .tier{background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:16px;display:flex;flex-direction:column;gap:8px;}
+  .tier .price{font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:34px;line-height:1;}
+  .tier .price small{font-family:'Figtree',sans-serif;font-size:14px;font-weight:500;color:var(--ink-faint);}
+  .tier ul{margin:0;padding-left:18px;font-size:14px;color:var(--ink-soft);display:flex;flex-direction:column;gap:3px;}
+
+  ol.phases{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:10px;counter-reset:p;}
+  ol.phases li{counter-increment:p;display:grid;grid-template-columns:48px 1fr;gap:12px;background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:14px 16px;}
+  ol.phases li::before{content:counter(p);font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:34px;line-height:1;color:var(--accent);}
+  ol.phases .when{font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--ink-faint);}
+  ol.phases p, ol.phases ul{font-size:14.5px;color:var(--ink-soft);}
+  ol.phases ul{margin:6px 0 0;padding-left:18px;}
+  .gate{margin-top:8px;font-size:13.5px;background:var(--good-soft);color:var(--ink);border-radius:4px;padding:6px 10px;}
+
+  .check{display:flex;flex-direction:column;gap:8px;}
+  .check label{display:flex;gap:10px;align-items:flex-start;background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:10px 12px;font-size:15px;cursor:pointer;}
+  .check input{width:18px;height:18px;accent-color:var(--accent);margin-top:2px;flex-shrink:0;}
+  .check small{display:block;color:var(--ink-faint);font-size:13px;}
+
+  .risks{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;}
+  .risk{background:var(--warn-soft);border-radius:6px;padding:14px 16px;display:flex;flex-direction:column;gap:6px;}
+  .risk h3{font-size:18px;}
+  .risk p{font-size:14.5px;color:var(--ink);}
+  ul.src{margin:0;padding-left:18px;font-size:14px;color:var(--ink-soft);display:flex;flex-direction:column;gap:4px;}
+  footer{font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--ink-faint);border-top:1px solid var(--line);padding-top:14px;}
+  @media (prefers-reduced-motion:no-preference){ html{scroll-behavior:smooth;} }
+</style>
+
+<div class="wrap">
+  <header class="hero">
+    <div class="eyebrow">App idea · Market check · Business plan</div>
+    <h1>Waymark Playbook</h1>
+    <p class="lead">An all‑in‑one travel log: the route you took (flights, drives, trains with km), the places you went (food, museums, hikes, hotels) with photos and costs, a world map you build over time, AI "top 10" picks, and a card to share.</p>
+    <div class="verdict">
+      <div class="eyebrow">Recommendation</div>
+      <p>Don't compete head‑on with Polarsteps (20M+ travellers, free). Go narrow: the travel log for <b>active travellers</b>, people who run, hike, train or surf wherever they go. Lead with three things nobody we checked combines: km by mode, real trip cost, and sport‑specific top‑10s (best 10k loop, drop‑in BJJ gym, trailheads). Validate with your own trip, then 20 interviews and a waitlist before spending on a native app.</p>
+    </div>
+    <a class="cta" href="https://claude.ai/artifact/VoEoHtepSYciZXkd8Uvspo" target="_blank" rel="noopener noreferrer">Open the beta app ↗</a>
+  </header>
+
+  <nav class="toc" aria-label="Sections">
+    <a href="#market">Market</a><a href="#edge">Edge</a><a href="#money">Money</a><a href="#launch">Launch</a><a href="#beta">Beta test</a><a href="#risks">Risks</a><a href="#sources">Sources</a>
+  </nav>
+
+  <section id="market">
+    <div class="eyebrow">Is there anything like it?</div>
+    <h2>Market check: popular travel apps</h2>
+    <p>Each part of the idea exists somewhere, but split across apps. Polarsteps is closest (route, journal, stats, sharing). Wanderlog owns planning. TripIt owns bookings. Been and Visited own the "countries visited" map. Lambus pairs planning with expense splitting. None of the apps we checked combines the route log, a cost ledger and AI top‑10s in one place.</p>
+    <div class="tbl">
+      <table>
+        <thead><tr><th>App</th><th>Built for</th><th>Route map + km</th><th>Countries list</th><th>Places + photos</th><th>Costs</th><th>AI top 10</th><th>Share</th><th>Paid tier</th></tr></thead>
+        <tbody>
+          <tr><td><b>Polarsteps</b></td><td>Auto‑tracked journal, printed books; 20M+ travellers</td><td class="c y">✓</td><td class="c y">✓</td><td class="c y">✓</td><td class="c n">—</td><td class="c n">—</td><td class="c y">✓</td><td class="price">Free · Plus €29.99/yr</td></tr>
+          <tr><td><b>Wanderlog</b></td><td>Planning itineraries, collaboration</td><td class="c p">◐</td><td class="c n">—</td><td class="c p">◐</td><td class="c p">◐</td><td class="c y">✓ Pro</td><td class="c y">✓</td><td class="price">Free · Pro $39.99/yr</td></tr>
+          <tr><td><b>TripIt</b></td><td>Organizing bookings from email</td><td class="c p">◐</td><td class="c n">—</td><td class="c n">—</td><td class="c n">—</td><td class="c n">—</td><td class="c p">◐</td><td class="price">Free · Pro $49/yr</td></tr>
+          <tr><td><b>Been</b> / <b>Visited</b></td><td>Countries‑visited maps</td><td class="c n">—</td><td class="c y">✓</td><td class="c n">—</td><td class="c n">—</td><td class="c n">—</td><td class="c y">✓</td><td class="price">Visited $34.99/yr</td></tr>
+          <tr><td><b>Mapstr</b></td><td>Saving favourite places</td><td class="c n">—</td><td class="c n">—</td><td class="c p">◐</td><td class="c n">—</td><td class="c n">—</td><td class="c y">✓</td><td class="price">Free 300 places · $59/yr</td></tr>
+          <tr><td><b>Lambus</b></td><td>Group planning + expense splitting</td><td class="c p">◐</td><td class="c n">—</td><td class="c p">◐</td><td class="c y">✓</td><td class="c n">—</td><td class="c p">◐</td><td class="price">$24.49/yr · $8.99/trip</td></tr>
+          <tr class="us"><td><b>Waymark (beta)</b></td><td>Active travellers' log</td><td class="c y">✓</td><td class="c y">✓</td><td class="c y">✓</td><td class="c y">✓</td><td class="c y">✓</td><td class="c y">✓</td><td class="price">Free beta</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="note">✓ yes · ◐ partly or in a different form · — not found in what we checked. Based on public store listings, product pages and reviews checked Oct 1, 2026; features change often, so re‑check before quoting.</p>
+  </section>
+
+  <section id="edge">
+    <div class="eyebrow">What's the edge?</div>
+    <h2>Three ways to stand out</h2>
+    <div class="grid3">
+      <div class="opt pick"><span class="tag">Recommended</span><h3>Strava meets travel journal</h3>
+        <ul><li>For runners, hikers, climbers, martial artists, surfers who travel</li><li>Km by mode, runs and hikes logged per city, gyms and dojos as places</li><li>Top‑10s tuned to the sport: "best 10k loop", "drop‑in BJJ", "trailheads by transit"</li><li>Ties directly into your sports‑retreat idea: same audience, shared content</li></ul></div>
+      <div class="opt"><span class="tag">Strong add‑on</span><h3>The true cost of a trip</h3>
+        <ul><li>Every leg, night and meal carries a cost; totals by city, day and km</li><li>"This trip cost €X per day" is shareable and useful for planning the next one</li><li>Lambus does splitting, but not tied to a route and a journal</li></ul></div>
+      <div class="opt"><span class="tag">Long game</span><h3>Your own travel reference</h3>
+        <ul><li>Every place you rated becomes a searchable guide you and friends reuse</li><li>"Ask my past trips" with AI: where did we eat in Bilbao that we loved?</li><li>Needs years of data per user, so it's a retention moat, not a launch hook</li></ul></div>
+    </div>
+  </section>
+
+  <section id="money">
+    <div class="eyebrow">How it makes money</div>
+    <h2>Business model</h2>
+    <p>Competitors charge $25–60 a year, and Lambus also sells a one‑off trip pass. Price below the leaders at launch, add a trip pass for occasional travellers, and earn affiliate revenue where the top‑10s already point.</p>
+    <div class="tiers">
+      <div class="tier"><h3>Free</h3><div class="price">$0</div><ul><li>Unlimited trips, legs and places</li><li>World map and countries list</li><li>3 AI top‑10s per trip</li><li>Share card with a small watermark</li></ul></div>
+      <div class="tier"><h3>Trip Pass</h3><div class="price">$6.99 <small>per trip</small></div><ul><li>Unlimited AI top‑10s for one trip</li><li>Full‑resolution photo storage</li><li>Watermark‑free cards and story templates</li></ul></div>
+      <div class="tier"><h3>Waymark Plus</h3><div class="price">$24.99 <small>/ year</small></div><ul><li>Everything in Trip Pass, every trip</li><li>Strava / GPX import, offline mode</li><li>Stats: cost per day, km by mode, years in review</li></ul></div>
+    </div>
+    <div class="tbl">
+      <table style="min-width:600px">
+        <thead><tr><th>Revenue stream</th><th>How</th><th>When</th></tr></thead>
+        <tbody>
+          <tr><td><b>Subscriptions + trip passes</b></td><td>Free tier gets people logging; pay for AI, storage and polish</td><td>Launch</td></tr>
+          <tr><td><b>Affiliate bookings</b></td><td>Links on top‑10 results: tours and tickets, hotels, eSIMs, gear</td><td>Launch, behind the results</td></tr>
+          <tr><td><b>Printed trip books</b></td><td>Polarsteps proves demand (books from €36); use a print‑on‑demand partner</td><td>After 6–12 months</td></tr>
+          <tr><td><b>Retreat and tour operators (B2B)</b></td><td>Organizers give guests a branded Waymark trip; fits your retreat business</td><td>Year 2</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="note">Prices above are proposals to test, not research findings. AI recommendations cost money per call, so cap them on the free tier.</p>
+  </section>
+
+  <section id="launch">
+    <div class="eyebrow">Minimal‑cost launch</div>
+    <h2>Launch plan</h2>
+    <ol class="phases">
+      <li><div><span class="when">Oct 2–14, 2026 · $0</span><h3>Dogfood on your trip</h3><p>Use the beta every day in France and Spain. Note what's slow, what you skip and what you'd pay for. Post 2–3 share cards and watch the reactions.</p><div class="gate">Gate: you logged costs and places on most days without forcing it.</div></div></li>
+      <li><div><span class="when">Oct–Nov 2026 · ~$20–50</span><h3>Validate the niche</h3><ul><li>20 interviews: runners, martial artists, hikers who travel (start with your gyms)</li><li>One‑page site with a waitlist (Carrd or similar) and the share card as the hero</li><li>Test willingness to pay: a "founding member" pre‑sale, refundable</li></ul><div class="gate">Gate: 200+ waitlist sign‑ups or 20+ pre‑sales.</div></div></li>
+      <li><div><span class="when">Dec 2026 – Feb 2027 · ~$150–500</span><h3>Build the MVP as a web app (PWA)</h3><ul><li>Installable from the browser, so no app‑store review to start</li><li>Database and auth on a free tier (Supabase or Firebase); maps on a free tier (Mapbox or MapLibre)</li><li>AI via an API with per‑user caps; photo storage compressed</li><li>Costs: domain, small hosting overages, AI calls (my estimates)</li></ul><div class="gate">Gate: 50 beta users log a full trip; 30% share a card.</div></div></li>
+      <li><div><span class="when">Spring 2027 · ~$125 + time</span><h3>App stores and first revenue</h3><ul><li>Wrap the PWA (Capacitor) for iOS ($99/yr developer fee) and Android ($25 one‑time)</li><li>Turn on Trip Pass, Plus and affiliate links</li><li>Grow through run and hike creators, clubs and race events; Product Hunt launch</li></ul><div class="gate">Gate: 3%+ of active users pay, or affiliate income covers costs.</div></div></li>
+    </ol>
+    <p class="note">Budgets are rough estimates excluding your own time; check current pricing of each service before committing.</p>
+  </section>
+
+  <section id="beta">
+    <div class="eyebrow">While you travel</div>
+    <h2>Beta test checklist</h2>
+    <p>The beta already has your loop loaded: Montreal → Bordeaux → Arcachon → Biarritz → San Sebastián → Bilbao → Pamplona → Pau → Toulouse → Bordeaux. Tick these off as you go; they answer whether the idea works.</p>
+    <div class="check" id="checklist">
+      <label><input type="checkbox" id="c1"><span>Correct the flight date and add the flight number<small>Does editing a leg feel quick?</small></span></label>
+      <label><input type="checkbox" id="c2"><span>Log at least one place and photo per city<small>Did you do it the same day, or forget?</small></span></label>
+      <label><input type="checkbox" id="c3"><span>Add costs: car rental, tolls, hotels, meals<small>Is per‑currency good enough, or do you need conversion to CAD?</small></span></label>
+      <label><input type="checkbox" id="c4"><span>Run a Top 10 in three cities, including "Running routes"<small>Were the picks better than Google Maps? Did you save any?</small></span></label>
+      <label><input type="checkbox" id="c5"><span>Fix one drive's km with the real distance from your maps app<small>Do you care about exact km, or is ≈ fine?</small></span></label>
+      <label><input type="checkbox" id="c6"><span>Share the trip card on Instagram or with friends<small>Did anyone ask what app it was?</small></span></label>
+      <label><input type="checkbox" id="c7"><span>Check "My world" after the trip<small>Would you open this again before your next trip?</small></span></label>
+    </div>
+    <p class="note">Ticks are saved only in this browser.</p>
+  </section>
+
+  <section id="risks">
+    <div class="eyebrow">What could go wrong</div>
+    <h2>Risks</h2>
+    <div class="risks">
+      <div class="risk"><h3>Polarsteps is free and huge</h3><p>20M+ travellers and automatic tracking. Mitigate by owning the active‑traveller niche and costs, not the generic journal.</p></div>
+      <div class="risk"><h3>Logging fatigue</h3><p>Manual entry dies by day 3. Mitigate with photo‑first logging, import from email/Strava, and one‑tap "been here".</p></div>
+      <div class="risk"><h3>AI picks can be wrong</h3><p>Closed restaurants or invented places hurt trust. Mitigate with a places database check and user ratings; show "verify hours".</p></div>
+      <div class="risk"><h3>Costs that scale with users</h3><p>Photo storage and AI calls cost money per user. Mitigate with compression, free‑tier caps and the trip pass.</p></div>
+    </div>
+  </section>
+
+  <section id="sources">
+    <div class="eyebrow">References</div>
+    <h2>Sources</h2>
+    <ul class="src">
+      <li><a href="https://www.polarsteps.com/news/polarsteps-launches-polarsteps-plus-a-new-subscription-for-its-most-dedicated-travelers" target="_blank" rel="noopener noreferrer">Polarsteps: Polarsteps Plus launch</a>: €8.99/month or €29.99/year; 20M+ travellers</li>
+      <li><a href="https://www.overlandsite.com/tools/polarsteps-review/" target="_blank" rel="noopener noreferrer">Overland Site: Polarsteps review 2026</a>: travel books from €36</li>
+      <li><a href="https://monkeyeatingmango.com/blog/wanderlog-pricing-2026/" target="_blank" rel="noopener noreferrer">Monkey Eating Mango: Wanderlog Pro cost 2026</a>: $39.99/year</li>
+      <li><a href="https://monkeyeatingmango.com/blog/tripit-pricing-2026/" target="_blank" rel="noopener noreferrer">Monkey Eating Mango: TripIt Pro cost 2026</a>: $49/year</li>
+      <li><a href="https://apps.apple.com/us/app/visited-travel-tracker-map/id846983349" target="_blank" rel="noopener noreferrer">App Store: Visited</a> and <a href="https://been.app/" target="_blank" rel="noopener noreferrer">been.app</a></li>
+      <li><a href="https://en.mapstr.com/faq" target="_blank" rel="noopener noreferrer">Mapstr FAQ</a>: 300 places free; Plus $59/year</li>
+      <li><a href="https://apps.apple.com/us/app/lambus-travel-planner/id1446178879" target="_blank" rel="noopener noreferrer">App Store: Lambus</a>: $24.49/year, $8.99 per trip, $89.99 lifetime</li>
+    </ul>
+  </section>
+
+  <footer>Prepared Oct 1, 2026. Competitor prices and features change often; re‑check before quoting them.</footer>
+</div>
+
+<script>
+  (function(){
+    var boxes=document.querySelectorAll('#checklist input');
+    var saved={};
+    try{ saved=JSON.parse(localStorage.getItem('waymark-beta-check')||'{}'); }catch(e){}
+    boxes.forEach(function(b){
+      b.checked=!!saved[b.id];
+      b.addEventListener('change',function(){ saved[b.id]=b.checked; try{ localStorage.setItem('waymark-beta-check',JSON.stringify(saved)); }catch(e){} });
+    });
+  })();
+</script>

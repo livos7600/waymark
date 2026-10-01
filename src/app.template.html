@@ -1,0 +1,840 @@
+<title>Waymark</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700;800&family=Figtree:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/topojson/3.0.2/topojson.min.js"></script>
+<style>
+  :root{
+    --bg:#EDF0F3; --surface:#FFFFFF; --surface-2:#E4E9EE; --ink:#15202B; --ink-soft:#4C5967; --ink-faint:#8693A0;
+    --line:#D3DAE1; --accent:#E2551B; --accent-ink:#FFFFFF; --accent-soft:#FBE4D9;
+    --land:#D9DFE5; --land-visited:#F5C6AE; --sea:#F6F8FA; --border-land:#FFFFFF;
+    --plane:#2F6FED; --car:#E2551B; --train:#22946A; --bus:#8E55C9; --ferry:#0E9BAD; --walk:#8A7F70;
+    --good:#22946A; --shadow:0 1px 2px rgba(21,32,43,.06),0 8px 24px -12px rgba(21,32,43,.22);
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      color-scheme:dark;
+      --bg:#0F151B; --surface:#172029; --surface-2:#1F2A35; --ink:#E7EDF2; --ink-soft:#A6B3BF; --ink-faint:#6E7D8A;
+      --line:#2A3743; --accent:#FF7A3D; --accent-ink:#1A0A02; --accent-soft:#3A2216;
+      --land:#25313C; --land-visited:#6B3A24; --sea:#121A21; --border-land:#0F151B;
+      --plane:#6F9BFF; --car:#FF7A3D; --train:#4CC795; --bus:#B98BEB; --ferry:#3CC6D6; --walk:#B5AA9B;
+      --good:#4CC795; --shadow:0 1px 2px rgba(0,0,0,.35),0 10px 28px -12px rgba(0,0,0,.6);
+    }
+  }
+  :root[data-theme="dark"]{
+    color-scheme:dark;
+    --bg:#0F151B; --surface:#172029; --surface-2:#1F2A35; --ink:#E7EDF2; --ink-soft:#A6B3BF; --ink-faint:#6E7D8A;
+    --line:#2A3743; --accent:#FF7A3D; --accent-ink:#1A0A02; --accent-soft:#3A2216;
+    --land:#25313C; --land-visited:#6B3A24; --sea:#121A21; --border-land:#0F151B;
+    --plane:#6F9BFF; --car:#FF7A3D; --train:#4CC795; --bus:#B98BEB; --ferry:#3CC6D6; --walk:#B5AA9B;
+    --good:#4CC795; --shadow:0 1px 2px rgba(0,0,0,.35),0 10px 28px -12px rgba(0,0,0,.6);
+  }
+  *{box-sizing:border-box;}
+  html,body{height:100%;}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:'Figtree',system-ui,-apple-system,sans-serif;font-size:15px;line-height:1.45;-webkit-font-smoothing:antialiased;}
+  button,input,select,textarea{font:inherit;color:inherit;}
+  .mono{font-family:'IBM Plex Mono',ui-monospace,monospace;font-variant-numeric:tabular-nums;}
+  h1,h2,h3{font-family:'Barlow Condensed',system-ui,sans-serif;margin:0;text-wrap:balance;letter-spacing:.01em;}
+
+  .app{max-width:760px;margin:0 auto;min-height:100%;display:flex;flex-direction:column;padding-bottom:calc(72px + env(safe-area-inset-bottom,0px));}
+  header.top{position:sticky;top:env(safe-area-inset-top,0px);z-index:20;background:color-mix(in srgb,var(--bg) 90%,transparent);backdrop-filter:blur(10px);
+    display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--line);}
+  .brand{font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:24px;letter-spacing:.04em;text-transform:uppercase;}
+  .brand b{color:var(--accent);}
+  .top h1{font-size:22px;font-weight:700;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .icon-btn{flex-shrink:0;width:38px;height:38px;border-radius:10px;border:1px solid var(--line);background:var(--surface);display:flex;align-items:center;justify-content:center;cursor:pointer;}
+  .icon-btn:hover{border-color:var(--accent);}
+  .icon-btn svg{width:18px;height:18px;}
+  main{padding:16px;display:flex;flex-direction:column;gap:18px;}
+  .status{padding:48px 16px;text-align:center;color:var(--ink-faint);}
+
+  nav.tabs{position:fixed;left:0;right:0;bottom:0;z-index:30;background:var(--surface);border-top:1px solid var(--line);
+    display:flex;justify-content:center;padding:6px 8px calc(6px + env(safe-area-inset-bottom,0px));}
+  nav.tabs .in{display:flex;gap:4px;max-width:760px;width:100%;}
+  nav.tabs button{flex:1;border:none;background:none;padding:6px 4px;border-radius:10px;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:2px;
+    font-size:11.5px;font-weight:600;color:var(--ink-faint);}
+  nav.tabs button svg{width:22px;height:22px;}
+  nav.tabs button.on{color:var(--accent);}
+
+  .btn{border:1px solid var(--line);background:var(--surface);border-radius:10px;padding:10px 14px;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:6px;justify-content:center;}
+  .btn:hover{border-color:var(--accent);}
+  .btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);}
+  .btn.small{padding:6px 10px;font-size:13px;border-radius:8px;}
+  .btn.ghost{background:transparent;}
+  .btn.danger{color:#C2412D;border-color:#C2412D;background:transparent;}
+  .btn:disabled{opacity:.55;cursor:default;}
+  .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;}
+  .between{display:flex;justify-content:space-between;align-items:center;gap:10px;}
+  .sec-title{display:flex;justify-content:space-between;align-items:baseline;gap:10px;}
+  .sec-title h2{font-size:21px;font-weight:700;text-transform:uppercase;letter-spacing:.03em;}
+  .muted{color:var(--ink-soft);} .faint{color:var(--ink-faint);font-size:13px;}
+  :focus-visible{outline:2px solid var(--accent);outline-offset:2px;}
+
+  /* cards */
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);}
+  .trip-card{padding:14px 16px;cursor:pointer;display:flex;flex-direction:column;gap:6px;}
+  .trip-card:hover{border-color:var(--accent);}
+  .trip-card h3{font-size:22px;font-weight:700;}
+  .pill{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:600;padding:3px 9px;border-radius:999px;background:var(--surface-2);color:var(--ink-soft);}
+  .pill.accent{background:var(--accent-soft);color:var(--ink);}
+  .dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;}
+
+  /* stat strip — boarding-pass style */
+  .pass{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));border:1px solid var(--line);border-radius:14px;background:var(--surface);overflow:hidden;}
+  .pass .cell{padding:10px 12px;border-right:1px dashed var(--line);}
+  .pass .cell:last-child{border-right:none;}
+  .pass .k{font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-faint);font-weight:700;}
+  .pass .v{font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:26px;line-height:1.1;}
+  @media (max-width:480px){ .pass{grid-template-columns:repeat(2,minmax(0,1fr));} .pass .cell:nth-child(2){border-right:none;} .pass .cell:nth-child(-n+2){border-bottom:1px dashed var(--line);} }
+
+  .map-wrap{position:relative;border-radius:14px;overflow:hidden;border:1px solid var(--line);background:var(--sea);}
+  .map-wrap svg{display:block;width:100%;height:auto;}
+  .legend{display:flex;gap:10px;flex-wrap:wrap;font-size:12.5px;color:var(--ink-soft);}
+  .legend span{display:inline-flex;align-items:center;gap:5px;}
+
+  /* legs list */
+  .legs{display:flex;flex-direction:column;}
+  .leg{display:grid;grid-template-columns:36px 1fr auto;gap:10px;align-items:center;padding:11px 14px;border-bottom:1px solid var(--line);cursor:pointer;}
+  .leg:last-child{border-bottom:none;}
+  .leg:hover{background:var(--surface-2);}
+  .mode-badge{width:34px;height:34px;border-radius:10px;display:flex;align-items:center;justify-content:center;color:#fff;}
+  .mode-badge svg{width:18px;height:18px;}
+  .leg .route{font-weight:600;}
+  .leg .meta{font-size:12.5px;color:var(--ink-faint);}
+  .leg .km{text-align:right;font-family:'IBM Plex Mono',monospace;font-size:13px;}
+
+  /* cities grid */
+  .cities{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px;}
+  .city{padding:12px 14px;cursor:pointer;display:flex;flex-direction:column;gap:4px;min-height:96px;}
+  .city:hover{border-color:var(--accent);}
+  .city h3{font-size:20px;font-weight:700;}
+  .city .thumbs{display:flex;gap:4px;margin-top:auto;}
+  .city .thumbs img{width:34px;height:34px;object-fit:cover;border-radius:6px;}
+
+  /* places */
+  .chips{display:flex;gap:6px;overflow-x:auto;padding-bottom:2px;scrollbar-width:none;}
+  .chip{flex-shrink:0;border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:6px 12px;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;}
+  .chip.on{background:var(--ink);color:var(--bg);border-color:var(--ink);}
+  .place{padding:12px 14px;display:flex;flex-direction:column;gap:6px;}
+  .place .head{display:flex;justify-content:space-between;gap:10px;align-items:flex-start;}
+  .place h3{font-family:'Figtree',sans-serif;font-size:16px;font-weight:700;letter-spacing:0;}
+  .place .notes{font-size:14px;color:var(--ink-soft);white-space:pre-wrap;}
+  .photos{display:flex;gap:6px;overflow-x:auto;}
+  .photos img{width:84px;height:84px;object-fit:cover;border-radius:10px;cursor:zoom-in;flex-shrink:0;background:var(--surface-2);}
+  .stars{color:var(--accent);letter-spacing:1px;font-size:14px;}
+  .status-tag{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;padding:2px 7px;border-radius:5px;}
+  .status-tag.want{background:var(--surface-2);color:var(--ink-soft);}
+  .status-tag.done{background:var(--good);color:#fff;}
+
+  /* budget */
+  .budget-row{display:flex;justify-content:space-between;padding:9px 14px;border-bottom:1px solid var(--line);font-size:14.5px;}
+  .budget-row:last-child{border-bottom:none;}
+  .budget-row .amt{font-family:'IBM Plex Mono',monospace;}
+  .bar{height:6px;background:var(--surface-2);border-radius:3px;overflow:hidden;margin-top:4px;}
+  .bar i{display:block;height:100%;background:var(--accent);}
+
+  /* discover */
+  .reco{padding:12px 14px;display:grid;grid-template-columns:30px 1fr;gap:10px;}
+  .reco .n{font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:26px;color:var(--accent);line-height:1;}
+  .reco h3{font-family:'Figtree',sans-serif;font-size:15.5px;font-weight:700;}
+  .reco p{margin:3px 0 0;font-size:14px;color:var(--ink-soft);}
+  .reco .tip{font-size:13px;color:var(--ink);background:var(--surface-2);border-radius:8px;padding:6px 9px;margin-top:6px;}
+
+  /* world */
+  .countries{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px;}
+  .country{padding:10px 12px;display:flex;gap:8px;align-items:center;font-weight:600;}
+  .country .flag{font-size:22px;}
+
+  /* sheet */
+  .backdrop{position:fixed;inset:0;z-index:50;background:rgba(10,15,20,.55);display:flex;align-items:flex-end;justify-content:center;}
+  @media (min-width:640px){ .backdrop{align-items:center;} }
+  .sheet{background:var(--surface);width:100%;max-width:560px;max-height:92vh;overflow-y:auto;border-radius:18px 18px 0 0;
+    padding:18px 18px calc(18px + env(safe-area-inset-bottom,0px));display:flex;flex-direction:column;gap:12px;}
+  @media (min-width:640px){ .sheet{border-radius:18px;} }
+  .sheet h2{font-size:24px;font-weight:700;}
+  .field{display:flex;flex-direction:column;gap:5px;}
+  .field label{font-size:11.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-faint);}
+  .field input,.field select,.field textarea{width:100%;border:1px solid var(--line);background:var(--surface-2);border-radius:10px;padding:10px 12px;font-size:16px;}
+  .field textarea{min-height:84px;resize:vertical;}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+  .grid3{display:grid;grid-template-columns:2fr 1fr;gap:10px;}
+  .modes{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;}
+  .modes button{border:1px solid var(--line);background:var(--surface-2);border-radius:10px;padding:9px 6px;font-weight:600;font-size:13px;cursor:pointer;display:flex;gap:6px;align-items:center;justify-content:center;}
+  .modes button svg{width:16px;height:16px;}
+  .modes button.on{border-color:var(--accent);background:var(--accent-soft);}
+  .rating{display:flex;gap:4px;}
+  .rating button{border:none;background:none;font-size:24px;cursor:pointer;color:var(--line);padding:0 2px;}
+  .rating button.on{color:var(--accent);}
+  .hint{font-size:12.5px;color:var(--ink-faint);}
+  .err{font-size:13px;color:#C2412D;}
+  .confirm{background:var(--accent-soft);border-radius:10px;padding:10px 12px;font-size:14px;display:flex;flex-direction:column;gap:8px;}
+
+  .lightbox{position:fixed;inset:0;z-index:60;background:rgba(0,0,0,.9);display:flex;align-items:center;justify-content:center;padding:16px;}
+  .lightbox img{max-width:100%;max-height:100%;border-radius:8px;}
+  .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(84px + env(safe-area-inset-bottom,0px));z-index:70;background:var(--ink);color:var(--bg);padding:9px 14px;border-radius:10px;font-size:14px;font-weight:600;box-shadow:var(--shadow);}
+  .share-preview{width:100%;border-radius:12px;border:1px solid var(--line);}
+  .empty{padding:28px 16px;text-align:center;color:var(--ink-soft);display:flex;flex-direction:column;gap:10px;align-items:center;}
+</style>
+
+<div class="app">
+  <header class="top" id="topbar"></header>
+  <main id="main"><div class="status">Loading your trips…</div></main>
+</div>
+<nav class="tabs" aria-label="Sections"><div class="in" id="tabs"></div></nav>
+<div id="layer"></div>
+
+<script>
+const WORLD = __WORLD__;
+(function(){
+  // ---------- state ----------
+  const S = { trips:[], stops:[], legs:[], places:[], expenses:[] };
+  let db = null, assets = null, sample = null, downloads = null;
+  let ready = { db:false };
+  let R = { tab:'trips', tripId:null, stopId:null, placeCat:'all' };
+  let discover = { city:'', interests:['Museums'], vibe:'Authentic', results:null, loading:false, error:'', forStopId:null };
+  const $ = s => document.querySelector(s);
+  const main = $('#main'), top = $('#topbar'), layer = $('#layer');
+
+  const MODES = {
+    plane:{label:'Flight', color:'var(--plane)', icon:'<path d="M2 16l20-8-2-2-8 3-5-6-2 1 3 6-4 1.5-2-2-1 .5 2 4z" fill="currentColor"/>'},
+    car:{label:'Drive', color:'var(--car)', icon:'<path d="M5 11l1.5-4.5A2 2 0 0 1 8.4 5h7.2a2 2 0 0 1 1.9 1.5L19 11v6h-2v-2H7v2H5z M7.5 13.5a1 1 0 1 0 0-.01M16.5 13.5a1 1 0 1 0 0-.01M6.7 10h10.6l-1-3H7.7z" fill="currentColor" fill-rule="evenodd"/>'},
+    train:{label:'Train', color:'var(--train)', icon:'<path d="M7 3h10a3 3 0 0 1 3 3v9a3 3 0 0 1-2 2.8l2 2.2h-2.5l-1.8-2H8.3l-1.8 2H4l2-2.2A3 3 0 0 1 4 15V6a3 3 0 0 1 3-3zm-1 4v4h12V7zm2 8.5a1 1 0 1 0 0-.01m8 0a1 1 0 1 0 0-.01" fill="currentColor" fill-rule="evenodd"/>'},
+    bus:{label:'Bus', color:'var(--bus)', icon:'<path d="M6 3h12a2 2 0 0 1 2 2v12h-1v2h-3v-2H8v2H5v-2H4V5a2 2 0 0 1 2-2zm0 3v5h12V6zm1.5 8a1 1 0 1 0 0-.01m9 0a1 1 0 1 0 0-.01" fill="currentColor" fill-rule="evenodd"/>'},
+    ferry:{label:'Boat', color:'var(--ferry)', icon:'<path d="M11 3h2v3h4l2 6-7-2-7 2 2-6h4zM3 17c2 0 3-1.5 4.5-1.5S10 17 12 17s3-1.5 4.5-1.5S19 17 21 17v2c-2 0-3-1.5-4.5-1.5S14 19 12 19s-3-1.5-4.5-1.5S5 19 3 19z" fill="currentColor"/>'},
+    walk:{label:'Walk/Bike', color:'var(--walk)', icon:'<path d="M13 4a2 2 0 1 1-.01 0zM10 8l3-1 3 4 3 1-1 2-4-1-1 3 3 3v4h-2v-3l-3-2-1 5H8l2-9-2 1v3H6V9z" fill="currentColor"/>'}
+  };
+  const CATS = [
+    ['food','Food & drink'],['restaurant','Restaurant'],['museum','Museum'],['attraction','Attraction'],['hike','Hike'],['run','Run'],
+    ['hotel','Hotel'],['nightlife','Nightlife'],['shopping','Shopping'],['other','Other']
+  ];
+  const CAT_LABEL = Object.fromEntries(CATS);
+  const CURRENCIES = ['EUR','CAD','USD','GBP','CHF','JPY','MXN'];
+  const INTERESTS = ['Museums','Restaurants','Local food','Cafés','Running routes','Hikes','Hotels','Nightlife & clubs','Attractions','Day trips',
+    'Ways to save money','Airport to city','Uber vs taxi vs transit','High-end shopping','Thrifting & markets','Family-friendly','Rainy day'];
+  const VIBES = ['Authentic','Touristy classics','Mix of both'];
+
+  const ICON = {
+    back:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>',
+    plus:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>',
+    edit:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4L19 9l-4-4L4 16z"/></svg>',
+    share:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V3M7 8l5-5 5 5M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6"/></svg>',
+    trips:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16v12H4z M9 7V5h6v2"/></svg>',
+    world:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3.5 3 14.5 0 18M12 3c-3 3.5-3 14.5 0 18"/></svg>',
+    spark:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 3l2.2 5.8L20 11l-5.8 2.2L12 19l-2.2-5.8L4 11l5.8-2.2z"/></svg>',
+    camera:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>'
+  };
+  const modeIcon = (m) => '<svg viewBox="0 0 24 24">' + (MODES[m]||MODES.car).icon + '</svg>';
+
+  // ---------- helpers ----------
+  const esc = s => String(s==null?'':s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const now = () => new Date().toISOString();
+  const pad2 = n => String(n).padStart(2,'0');
+  const todayStr = () => { const d=new Date(); return d.getFullYear()+'-'+pad2(d.getMonth()+1)+'-'+pad2(d.getDate()); };
+  function fmtDate(s, opts){ if(!s) return ''; const [y,m,d]=s.split('-').map(Number); return new Date(y,m-1,d).toLocaleDateString(undefined, opts||{month:'short',day:'numeric'}); }
+  function dayCount(a,b){ if(!a||!b) return 0; const A=new Date(a+'T12:00'),B=new Date(b+'T12:00'); return Math.round((B-A)/864e5)+1; }
+  const fmtKm = n => Math.round(n).toLocaleString();
+  function fmtMoney(amt, cur){ try{ return new Intl.NumberFormat(undefined,{style:'currency',currency:cur||'EUR',maximumFractionDigits:0}).format(amt||0); }catch(e){ return (cur||'')+' '+Math.round(amt||0); } }
+  function haversine(a,b){ const R=6371, toR=x=>x*Math.PI/180; const dLat=toR(b.lat-a.lat), dLon=toR(b.lon-a.lon);
+    const h=Math.sin(dLat/2)**2+Math.cos(toR(a.lat))*Math.cos(toR(b.lat))*Math.sin(dLon/2)**2; return 2*R*Math.asin(Math.sqrt(h)); }
+  const ROAD_FACTOR = { car:1.25, bus:1.25, train:1.2, ferry:1.1, walk:1.2, plane:1 };
+  function flag(a2){ if(!a2||a2.length!==2) return ''; return String.fromCodePoint(...a2.toUpperCase().split('').map(c=>127397+c.charCodeAt(0))); }
+  const norm = s => String(s||'').trim().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'');
+  const tripOf = id => S.trips.find(t=>t.id===id);
+  const stopOf = id => S.stops.find(s=>s.id===id);
+  const tripStops = tid => S.stops.filter(s=>s.tripId===tid).sort((a,b)=>(a.arrive||'').localeCompare(b.arrive||'')||(a.order||0)-(b.order||0));
+  const tripLegs = tid => S.legs.filter(l=>l.tripId===tid).sort((a,b)=>(a.date||'').localeCompare(b.date||'')||(a.order||0)-(b.order||0));
+  function toast(msg){ const t=document.createElement('div'); t.className='toast'; t.textContent=msg; document.body.appendChild(t); setTimeout(()=>t.remove(),2600); }
+
+  function costLines(tid){
+    const out=[];
+    tripLegs(tid).forEach(l=>{ if(l.cost) out.push({cat:'Transport', label:(MODES[l.mode]||{}).label+': '+(stopOf(l.fromId)||{}).city+' → '+(stopOf(l.toId)||{}).city, amount:+l.cost, cur:l.currency||'EUR'}); });
+    S.places.filter(p=>p.tripId===tid && p.cost).forEach(p=>{
+      const cat = p.category==='hotel'?'Lodging':(p.category==='food'||p.category==='restaurant')?'Food & drink':(p.category==='shopping')?'Shopping':'Activities';
+      out.push({cat, label:p.name, amount:+p.cost, cur:p.currency||'EUR'}); });
+    S.expenses.filter(e=>e.tripId===tid).forEach(e=>out.push({cat:e.category||'Other', label:e.label, amount:+e.amount, cur:e.currency||'EUR', id:e.id}));
+    return out;
+  }
+  function totalsByCur(lines){ const m={}; lines.forEach(l=>{ m[l.cur]=(m[l.cur]||0)+l.amount; }); return m; }
+  function tripStats(tid){
+    const legs=tripLegs(tid), stops=tripStops(tid);
+    const byMode={}; let km=0;
+    legs.forEach(l=>{ const k=+l.km||0; km+=k; byMode[l.mode]=(byMode[l.mode]||0)+k; });
+    const cities=new Set(stops.filter(s=>!s.home).map(s=>norm(s.city)));
+    const countries=new Set(stops.filter(s=>!s.home).map(s=>s.countryA2).filter(Boolean));
+    const t=tripOf(tid)||{};
+    return { km, byMode, cities:cities.size, countries:countries.size, days:dayCount(t.startDate,t.endDate), totals:totalsByCur(costLines(tid)) };
+  }
+
+  // ---------- data layer ----------
+  const COLS = ['trips','stops','legs','places','expenses'];
+  async function init(){
+    renderTabs();
+    if(!window.claude || !window.claude.use){ main.innerHTML='<div class="status">Open this page from claude.ai to load your trips.</div>'; return; }
+    window.claude.use('sample').then(x=>{ sample=x; render(); });
+    window.claude.use('assets').then(x=>{ assets=x; render(); });
+    window.claude.use('downloads').then(x=>{ downloads=x; });
+    db = await window.claude.use('db');
+    if(!db){ main.innerHTML='<div class="status">Storage isn\'t available in this view. Sign in on claude.ai and reopen.</div>'; return; }
+    COLS.forEach(c=>{
+      db.collection(c).onSnapshot(snap=>{ S[c]=snap.docs.map(d=>Object.assign({id:d.id}, d.data()||{})); ready.db=true; schedule(); },
+        err=>{ console.error(c, err); });
+    });
+  }
+  async function put(col, id, data){ if(!db) throw new Error('offline'); return id ? db.collection(col).doc(id).set(data) : db.collection(col).add(data); }
+  async function patch(col, id, data){ return db.collection(col).doc(id).update(data); }
+  async function del(col, id){ return db.collection(col).doc(id).delete(); }
+
+  // Find coordinates for a city: reuse any stop we already know, else ask Claude.
+  async function geocode(name){
+    const n=norm(name);
+    const known=S.stops.find(s=>norm(s.city)===n && s.lat!=null);
+    if(known) return {city:known.city, country:known.country, countryA2:known.countryA2, countryN3:known.countryN3, lat:known.lat, lon:known.lon};
+    if(!sample) return null;
+    const r = await sample.json('Give the location of this place a traveller typed: "'+name.slice(0,120)+'". Reply with only a JSON object '
+      +'{"city": string (proper name), "country": string (English short name), "countryA2": string (ISO 3166-1 alpha-2), "countryN3": string (ISO 3166-1 numeric, 3 digits), "lat": number, "lon": number}. '
+      +'Example: {"city":"Bilbao","country":"Spain","countryA2":"ES","countryN3":"724","lat":43.263,"lon":-2.935}', {modelTier:'quick', cache:{gcTime:86400000}});
+    if(!r || typeof r.lat!=='number' || typeof r.lon!=='number') return null;
+    return {city:String(r.city||name), country:String(r.country||''), countryA2:String(r.countryA2||'').toUpperCase().slice(0,2), countryN3:String(r.countryN3||'').padStart(3,'0').slice(-3), lat:r.lat, lon:r.lon};
+  }
+
+  // ---------- render ----------
+  let pending=false;
+  function schedule(){ if(pending) return; pending=true; requestAnimationFrame(()=>{ pending=false; render(); }); }
+  function go(next){ Object.assign(R, next); window.scrollTo(0,0); render(); }
+
+  function renderTabs(){
+    const tabs=[['trips','Trips',ICON.trips],['world','My world',ICON.world],['discover','Top 10',ICON.spark]];
+    $('#tabs').innerHTML = tabs.map(([k,l,i])=>'<button type="button" data-tab="'+k+'" class="'+(R.tab===k?'on':'')+'" aria-current="'+(R.tab===k?'page':'false')+'">'+i+'<span>'+l+'</span></button>').join('');
+    $('#tabs').querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>go({tab:b.dataset.tab, tripId:null, stopId:null}));
+  }
+  function setTop(title, opts){
+    opts=opts||{};
+    top.innerHTML = (opts.back?'<button class="icon-btn" id="tBack" aria-label="Back">'+ICON.back+'</button>':'')
+      + (title?'<h1>'+esc(title)+'</h1>':'<div class="brand" style="flex:1">Way<b>mark</b></div>')
+      + (opts.actions||'');
+    if(opts.back) $('#tBack').onclick=opts.back;
+  }
+  function render(){
+    renderTabs();
+    if(!ready.db){ return; }
+    if(R.tab==='trips'){ if(R.stopId) return renderCity(); if(R.tripId) return renderTrip(); return renderTrips(); }
+    if(R.tab==='world') return renderWorld();
+    if(R.tab==='discover') return renderDiscover();
+  }
+
+  // ---------- map ----------
+  const worldFeat = topojson.feature(WORLD, WORLD.objects.countries);
+  function drawMap(container, opts){
+    const W=opts.width||720, H=opts.height||420;
+    const stops=opts.stops||[], legs=opts.legs||[];
+    const visited=new Set(opts.visitedN3||[]);
+    let proj;
+    if(opts.world){
+      proj=d3.geoNaturalEarth1().fitExtent([[6,6],[W-6,H-6]],{type:'Sphere'});
+    } else {
+      const pts=stops.filter(s=>s.lat!=null).map(s=>[s.lon,s.lat]);
+      proj=d3.geoMercator();
+      if(pts.length>=2){ proj.fitExtent([[40,36],[W-40,H-36]],{type:'MultiPoint',coordinates:pts}); }
+      else if(pts.length===1){ proj.center(pts[0]).scale(1600).translate([W/2,H/2]); }
+      else { proj=d3.geoNaturalEarth1().fitExtent([[6,6],[W-6,H-6]],{type:'Sphere'}); }
+      if(proj.scale()>9000) proj.scale(9000);
+    }
+    const path=d3.geoPath(proj);
+    const svg=d3.create('svg').attr('viewBox',[0,0,W,H]).attr('role','img').attr('aria-label',opts.label||'Map');
+    svg.append('rect').attr('width',W).attr('height',H).attr('fill','var(--sea)');
+    svg.append('g').selectAll('path').data(worldFeat.features).join('path').attr('d',path)
+      .attr('fill',d=>visited.has(String(d.id))?'var(--land-visited)':'var(--land)').attr('stroke','var(--border-land)').attr('stroke-width',.6);
+    const gl=svg.append('g').attr('fill','none').attr('stroke-linecap','round');
+    legs.forEach(l=>{
+      const a=stopOf(l.fromId), b=stopOf(l.toId); if(!a||!b||a.lat==null||b.lat==null) return;
+      gl.append('path').attr('d',path({type:'LineString',coordinates:[[a.lon,a.lat],[b.lon,b.lat]]}))
+        .attr('stroke',(MODES[l.mode]||MODES.car).color).attr('stroke-width',opts.world?1.6:3)
+        .attr('stroke-dasharray',l.mode==='plane'?'6 5':l.mode==='train'?'2 4':null).attr('opacity',.95);
+    });
+    const seen=new Set();
+    const gs=svg.append('g');
+    stops.forEach(s=>{
+      if(s.lat==null) return; const k=norm(s.city); const p=proj([s.lon,s.lat]); if(!p) return;
+      gs.append('circle').attr('cx',p[0]).attr('cy',p[1]).attr('r',opts.world?3:5).attr('fill','var(--surface)').attr('stroke','var(--ink)').attr('stroke-width',opts.world?1.2:2);
+      if(!opts.world && !seen.has(k) && !s.home){
+        seen.add(k);
+        gs.append('text').attr('x',p[0]+8).attr('y',p[1]-7).text(s.city).attr('font-family','Figtree, sans-serif').attr('font-size',13).attr('font-weight',700)
+          .attr('fill','var(--ink)').attr('paint-order','stroke').attr('stroke','var(--sea)').attr('stroke-width',3);
+      }
+    });
+    container.innerHTML=''; container.appendChild(svg.node());
+  }
+  function legendHtml(modes){
+    return '<div class="legend">'+modes.map(m=>'<span><i class="dot" style="background:'+MODES[m].color+'"></i>'+MODES[m].label+'</span>').join('')+'</div>';
+  }
+
+  // ---------- trips list ----------
+  function renderTrips(){
+    setTop('', {actions:'<button class="btn small primary" id="newTrip">'+ICON.plus+' Trip</button>'});
+    $('#newTrip').onclick=()=>tripSheet(null);
+    const trips=S.trips.slice().sort((a,b)=>(b.startDate||'').localeCompare(a.startDate||''));
+    if(!trips.length){
+      main.innerHTML='<div class="card empty"><h2 style="font-size:26px">Your first trip</h2><p>Add a trip, then the flights, drives and trains between cities. Waymark maps the route and adds it to your world.</p><button class="btn primary" id="emptyNew">'+ICON.plus+' New trip</button></div>';
+      $('#emptyNew').onclick=()=>tripSheet(null); return;
+    }
+    const t0=todayStr();
+    main.innerHTML='<div class="sec-title"><h2>Trips</h2><span class="faint">'+trips.length+' trip'+(trips.length===1?'':'s')+'</span></div>'
+      + trips.map(t=>{
+        const st=tripStats(t.id); const live = t.startDate<=t0 && t0<=t.endDate; const soon = t.startDate>t0;
+        const money=Object.entries(st.totals).map(([c,a])=>fmtMoney(a,c)).join(' · ');
+        return '<div class="card trip-card" data-trip="'+t.id+'"><div class="between"><h3>'+esc(t.name)+'</h3>'
+          + (live?'<span class="pill accent">On the road</span>':soon?'<span class="pill">Upcoming</span>':'')+'</div>'
+          + '<div class="faint">'+fmtDate(t.startDate,{month:'short',day:'numeric'})+' – '+fmtDate(t.endDate,{month:'short',day:'numeric',year:'numeric'})+' · '+st.days+' days</div>'
+          + '<div class="row"><span class="pill mono">'+fmtKm(st.km)+' km</span><span class="pill">'+st.cities+' cities</span><span class="pill">'+st.countries+' countr'+(st.countries===1?'y':'ies')+'</span>'+(money?'<span class="pill">'+money+'</span>':'')+'</div></div>';
+      }).join('');
+    main.querySelectorAll('[data-trip]').forEach(el=>el.onclick=()=>go({tripId:el.dataset.trip}));
+  }
+
+  // ---------- trip detail ----------
+  function renderTrip(){
+    const t=tripOf(R.tripId); if(!t){ go({tripId:null}); return; }
+    setTop(t.name, {back:()=>go({tripId:null}), actions:'<button class="icon-btn" id="shareBtn" aria-label="Share trip">'+ICON.share+'</button><button class="icon-btn" id="editTrip" aria-label="Edit trip">'+ICON.edit+'</button>'});
+    $('#editTrip').onclick=()=>tripSheet(t); $('#shareBtn').onclick=()=>shareSheet(t);
+    const st=tripStats(t.id), legs=tripLegs(t.id), stops=tripStops(t.id);
+    const modesUsed=Object.keys(st.byMode);
+    const money=Object.entries(st.totals);
+    const visitedN3=[...new Set(stops.map(s=>s.countryN3).filter(Boolean))];
+    // unique city cards (merge repeat visits)
+    const cityMap=new Map();
+    stops.filter(s=>!s.home).forEach(s=>{ const k=norm(s.city); if(!cityMap.has(k)) cityMap.set(k,[]); cityMap.get(k).push(s); });
+    main.innerHTML =
+      '<div class="faint">'+fmtDate(t.startDate,{weekday:'short',month:'short',day:'numeric'})+' – '+fmtDate(t.endDate,{weekday:'short',month:'short',day:'numeric',year:'numeric'})+(t.notes?' · '+esc(t.notes):'')+'</div>'
+      + '<div class="pass"><div class="cell"><div class="k">Distance</div><div class="v mono">'+fmtKm(st.km)+'<small style="font-size:14px"> km</small></div></div>'
+      + '<div class="cell"><div class="k">Days</div><div class="v">'+st.days+'</div></div>'
+      + '<div class="cell"><div class="k">Cities</div><div class="v">'+st.cities+'</div></div>'
+      + '<div class="cell"><div class="k">Spent</div><div class="v" style="font-size:'+(money.length>1?'18px':'26px')+'">'+(money.length?money.map(([c,a])=>fmtMoney(a,c)).join('<br>'):'—')+'</div></div></div>'
+      + '<div><div class="map-wrap" id="tripMap"></div><div style="margin-top:8px" class="between">'+legendHtml(modesUsed.length?modesUsed:['plane','car'])
+      + '<span class="faint mono">'+modesUsed.map(m=>MODES[m].label+' '+fmtKm(st.byMode[m])+' km').join(' · ')+'</span></div></div>'
+      + '<div class="sec-title"><h2>Route</h2><button class="btn small" id="addLeg">'+ICON.plus+' Leg</button></div>'
+      + (legs.length?'<div class="card legs">'+legs.map(l=>{
+          const a=stopOf(l.fromId)||{}, b=stopOf(l.toId)||{};
+          return '<div class="leg" data-leg="'+l.id+'"><div class="mode-badge" style="background:'+(MODES[l.mode]||MODES.car).color+'">'+modeIcon(l.mode)+'</div>'
+            + '<div><div class="route">'+esc(a.city||'?')+' → '+esc(b.city||'?')+'</div><div class="meta">'+fmtDate(l.date,{weekday:'short',month:'short',day:'numeric'})+(l.cost?' · '+fmtMoney(l.cost,l.currency):'')+(l.notes?' · '+esc(l.notes):'')+'</div></div>'
+            + '<div class="km">'+(l.kmEstimated?'≈':'')+fmtKm(l.km||0)+' km</div></div>';
+        }).join('')+'</div>':'<div class="card empty"><p>Add your first flight, drive or train.</p></div>')
+      + '<div class="sec-title"><h2>Cities</h2><span class="faint">Tap a city to log places & photos</span></div>'
+      + (cityMap.size?'<div class="cities">'+[...cityMap.values()].map(list=>{
+          const s=list[0]; const ids=list.map(x=>x.id);
+          const places=S.places.filter(p=>ids.includes(p.stopId));
+          const photos=[].concat(...list.map(x=>x.photoIds||[]), ...places.map(p=>p.photoIds||[])).slice(0,4);
+          const dates=list.map(x=>fmtDate(x.arrive)).join(' & ');
+          return '<div class="card city" data-stop="'+s.id+'"><h3>'+flag(s.countryA2)+' '+esc(s.city)+'</h3><div class="faint">'+dates+'</div>'
+            + '<div class="faint">'+places.length+' place'+(places.length===1?'':'s')+'</div>'
+            + (photos.length?'<div class="thumbs">'+photos.map(id=>'<img alt="" src="/_blob/'+id+'">').join('')+'</div>':'')+'</div>';
+        }).join('')+'</div>':'<div class="faint">Cities appear as you add legs.</div>')
+      + '<div class="sec-title"><h2>Budget</h2><button class="btn small" id="addExp">'+ICON.plus+' Expense</button></div>'
+      + budgetHtml(t.id)
+      + '<div class="row"><button class="btn ghost small" id="discoverHere">'+ICON.spark+' Top 10 for a city on this trip</button></div>';
+    drawMap($('#tripMap'), {stops, legs, visitedN3, label:'Route map for '+t.name});
+    $('#addLeg').onclick=()=>legSheet(t, null);
+    $('#addExp').onclick=()=>expenseSheet(t, null);
+    $('#discoverHere').onclick=()=>{ const s=stops.find(x=>!x.home); discover.city=s?s.city:''; discover.forStopId=s?s.id:null; go({tab:'discover', tripId:null}); };
+    main.querySelectorAll('[data-leg]').forEach(el=>el.onclick=()=>legSheet(t, S.legs.find(l=>l.id===el.dataset.leg)));
+    main.querySelectorAll('[data-stop]').forEach(el=>el.onclick=()=>go({stopId:el.dataset.stop, placeCat:'all'}));
+    main.querySelectorAll('[data-exp]').forEach(el=>el.onclick=()=>expenseSheet(t, S.expenses.find(e=>e.id===el.dataset.exp)));
+  }
+  function whoPaidHtml(list){
+    const m={}; list.filter(e=>e.paidBy).forEach(e=>{ const k=e.paidBy; m[k]=m[k]||{}; m[k][e.currency||'EUR']=(m[k][e.currency||'EUR']||0)+(+e.amount||0); });
+    const names=Object.keys(m); if(!names.length) return '';
+    return '<div class="sec-title"><h2 style="font-size:18px">Who paid</h2><span class="faint">Expenses only</span></div><div class="card">'
+      + names.sort().map(n=>'<div class="budget-row"><span>'+esc(n)+'</span><span class="amt">'+Object.entries(m[n]).map(([c,a])=>fmtMoney(a,c)).join(' + ')+'</span></div>').join('')+'</div>';
+  }
+  function budgetHtml(tid){
+    const lines=costLines(tid);
+    if(!lines.length) return '<div class="card empty"><p>Add a cost to any leg, place or expense and the trip total builds here.</p></div>';
+    const tot=totalsByCur(lines);
+    const byCat={}; lines.forEach(l=>{ const k=l.cat+'|'+l.cur; byCat[k]=(byCat[k]||0)+l.amount; });
+    const max=Math.max(...Object.values(byCat));
+    const other=S.expenses.filter(e=>e.tripId===tid);
+    return '<div class="card">'+Object.entries(byCat).sort((a,b)=>b[1]-a[1]).map(([k,a])=>{ const [cat,cur]=k.split('|');
+        return '<div class="budget-row" style="display:block"><div class="between"><span>'+esc(cat)+'</span><span class="amt">'+fmtMoney(a,cur)+'</span></div><div class="bar"><i style="width:'+Math.round(a/max*100)+'%"></i></div></div>'; }).join('')
+      + '<div class="budget-row" style="font-weight:700"><span>Total</span><span class="amt">'+Object.entries(tot).map(([c,a])=>fmtMoney(a,c)).join(' + ')+'</span></div></div>'
+      + (other.length?'<div class="card">'+other.sort((a,b)=>(b.date||'').localeCompare(a.date||'')).map(e=>'<div class="budget-row" data-exp="'+e.id+'" style="cursor:pointer;gap:10px"><span style="min-width:0">'+esc(e.label)+' <span class="faint">· '+esc(e.category||'Other')+(e.date?' · '+fmtDate(e.date):'')+(e.paidBy?' · paid by '+esc(e.paidBy):'')+'</span>'
+          + (e.notes?'<span class="faint" style="display:block;white-space:pre-wrap">'+esc(e.notes)+'</span>':'')+'</span><span class="amt">'+fmtMoney(e.amount,e.currency)+'</span></div>').join('')+'</div>':'')
+      + whoPaidHtml(other)
+      + '<div class="faint">Totals are kept per currency; no exchange rates are applied.</div>';
+  }
+
+  // ---------- city ----------
+  function renderCity(){
+    const s=stopOf(R.stopId); if(!s){ go({stopId:null}); return; }
+    const t=tripOf(s.tripId);
+    const twins=S.stops.filter(x=>x.tripId===s.tripId && norm(x.city)===norm(s.city)); const ids=twins.map(x=>x.id);
+    setTop(s.city, {back:()=>go({stopId:null}), actions:'<button class="icon-btn" id="editStop" aria-label="Edit city">'+ICON.edit+'</button>'});
+    $('#editStop').onclick=()=>stopSheet(s);
+    let places=S.places.filter(p=>ids.includes(p.stopId)).sort((a,b)=>(a.status==='done'?0:1)-(b.status==='done'?0:1)||(b.date||'').localeCompare(a.date||''));
+    const cats=[...new Set(places.map(p=>p.category))];
+    if(R.placeCat!=='all') places=places.filter(p=>p.category===R.placeCat);
+    const cityPhotos=[].concat(...twins.map(x=>x.photoIds||[]));
+    const spent=totalsByCur(S.places.filter(p=>ids.includes(p.stopId)&&p.cost).map(p=>({amount:+p.cost,cur:p.currency||'EUR'})));
+    main.innerHTML =
+      '<div class="faint">'+flag(s.countryA2)+' '+esc(s.country||'')+' · '+twins.map(x=>fmtDate(x.arrive)+(x.depart&&x.depart!==x.arrive?' – '+fmtDate(x.depart):'')).join(' & ')+(t?' · '+esc(t.name):'')+'</div>'
+      + '<div class="row"><button class="btn primary" id="addPlace">'+ICON.plus+' Place</button>'
+      + (assets?'<label class="btn" for="cityPhotoIn">'+ICON.camera+' Photos</label><input id="cityPhotoIn" type="file" accept="image/*" multiple hidden>':'')
+      + '<button class="btn" id="topHere">'+ICON.spark+' Top 10 here</button></div>'
+      + (cityPhotos.length?'<div class="photos">'+cityPhotos.map(id=>'<img alt="Photo in '+esc(s.city)+'" src="/_blob/'+id+'" data-photo="'+id+'">').join('')+'</div>':'')
+      + (Object.keys(spent).length?'<div class="faint">Spent here: '+Object.entries(spent).map(([c,a])=>fmtMoney(a,c)).join(' + ')+'</div>':'')
+      + (cats.length>1?'<div class="chips"><button class="chip '+(R.placeCat==='all'?'on':'')+'" data-cat="all">All</button>'+cats.map(c=>'<button class="chip '+(R.placeCat===c?'on':'')+'" data-cat="'+c+'">'+esc(CAT_LABEL[c]||c)+'</button>').join('')+'</div>':'')
+      + (places.length?places.map(p=>'<div class="card place" data-place="'+p.id+'"><div class="head"><div><h3>'+esc(p.name)+'</h3><div class="faint">'+esc(CAT_LABEL[p.category]||p.category)+(p.date?' · '+fmtDate(p.date):'')+(p.cost?' · '+fmtMoney(p.cost,p.currency):'')+'</div></div>'
+          + '<span class="status-tag '+(p.status==='done'?'done':'want')+'">'+(p.status==='done'?'Been':'Want')+'</span></div>'
+          + (p.rating?'<div class="stars" aria-label="'+p.rating+' of 5">'+'★'.repeat(p.rating)+'<span style="color:var(--line)">'+'★'.repeat(5-p.rating)+'</span></div>':'')
+          + (p.notes?'<div class="notes">'+esc(p.notes)+'</div>':'')
+          + ((p.photoIds||[]).length?'<div class="photos">'+p.photoIds.map(id=>'<img alt="" src="/_blob/'+id+'" data-photo="'+id+'">').join('')+'</div>':'')
+          + '</div>').join('')
+        : '<div class="card empty"><p>Log restaurants, museums, hikes, hotels, anything you do here, with a rating, cost and photos.</p></div>');
+    $('#addPlace').onclick=()=>placeSheet(s, null);
+    $('#topHere').onclick=()=>{ discover.city=s.city; discover.forStopId=s.id; discover.results=null; go({tab:'discover', tripId:null, stopId:null}); };
+    const pin=$('#cityPhotoIn'); if(pin) pin.onchange=async()=>{ const ids2=await uploadPhotos(pin.files); if(ids2.length){ await patch('stops', s.id, {photoIds:(s.photoIds||[]).concat(ids2)}); toast(ids2.length+' photo'+(ids2.length>1?'s':'')+' added'); } };
+    main.querySelectorAll('[data-cat]').forEach(b=>b.onclick=()=>go({placeCat:b.dataset.cat}));
+    main.querySelectorAll('[data-place]').forEach(el=>el.onclick=e=>{ if(e.target.dataset.photo) return; placeSheet(s, S.places.find(p=>p.id===el.dataset.place)); });
+    main.querySelectorAll('[data-photo]').forEach(img=>img.onclick=e=>{ e.stopPropagation(); lightbox(img.dataset.photo); });
+  }
+
+  // ---------- world ----------
+  function renderWorld(){
+    setTop('My world');
+    const stops=S.stops, legs=S.legs;
+    const visited=new Map();
+    stops.filter(s=>s.countryA2).forEach(s=>{ if(!visited.has(s.countryA2)) visited.set(s.countryA2,{name:s.country,a2:s.countryA2,n3:s.countryN3,cities:new Set(),trips:new Set()}); const v=visited.get(s.countryA2); if(!s.home) v.cities.add(norm(s.city)); v.trips.add(s.tripId); });
+    const km=legs.reduce((a,l)=>a+(+l.km||0),0); const byMode={}; legs.forEach(l=>byMode[l.mode]=(byMode[l.mode]||0)+(+l.km||0));
+    const cities=new Set(stops.filter(s=>!s.home).map(s=>norm(s.city)));
+    const pct = (worldFeat.features.length? Math.round(visited.size/195*1000)/10 : 0);
+    main.innerHTML =
+      '<div class="pass"><div class="cell"><div class="k">Countries</div><div class="v">'+visited.size+'</div></div><div class="cell"><div class="k">Cities</div><div class="v">'+cities.size+'</div></div>'
+      + '<div class="cell"><div class="k">Trips</div><div class="v">'+S.trips.length+'</div></div><div class="cell"><div class="k">Distance</div><div class="v mono" style="font-size:22px">'+fmtKm(km)+' km</div></div></div>'
+      + '<div><div class="map-wrap" id="worldMap"></div><div style="margin-top:8px" class="between">'+legendHtml(Object.keys(byMode).length?Object.keys(byMode):['plane','car'])+'<span class="faint">'+pct+'% of 195 countries · '+(km/40075).toFixed(2)+'× around Earth</span></div></div>'
+      + '<div class="sec-title"><h2>By mode</h2></div><div class="card">'+(Object.keys(byMode).length?Object.entries(byMode).sort((a,b)=>b[1]-a[1]).map(([m,k])=>'<div class="budget-row"><span><i class="dot" style="display:inline-block;background:'+MODES[m].color+';margin-right:8px"></i>'+MODES[m].label+'</span><span class="amt">'+fmtKm(k)+' km</span></div>').join(''):'<div class="budget-row faint">No legs yet</div>')+'</div>'
+      + '<div class="sec-title"><h2>Countries</h2></div>'
+      + (visited.size?'<div class="countries">'+[...visited.values()].sort((a,b)=>a.name.localeCompare(b.name)).map(v=>'<div class="card country"><span class="flag">'+flag(v.a2)+'</span><div><div>'+esc(v.name)+'</div><div class="faint">'+v.cities.size+' cit'+(v.cities.size===1?'y':'ies')+'</div></div></div>').join('')+'</div>':'<div class="faint">Countries fill in as you add trips.</div>');
+    drawMap($('#worldMap'), {world:true, stops, legs, visitedN3:[...visited.values()].map(v=>v.n3), width:720, height:380, label:'World map of your travels'});
+  }
+
+  // ---------- discover ----------
+  function renderDiscover(){
+    setTop('Top 10');
+    const cityOptions=[...new Map(S.stops.filter(s=>!s.home).map(s=>[norm(s.city),s])).values()];
+    main.innerHTML =
+      '<div class="card" style="padding:14px 16px;display:flex;flex-direction:column;gap:12px">'
+      + '<div class="field"><label for="dCity">City</label><input id="dCity" list="dCities" value="'+esc(discover.city)+'" placeholder="e.g. San Sebastián"><datalist id="dCities">'+cityOptions.map(s=>'<option value="'+esc(s.city)+'">').join('')+'</datalist></div>'
+      + '<div class="field"><label>Looking for</label><div class="row">'+INTERESTS.map(i=>'<button type="button" class="chip '+(discover.interests.includes(i)?'on':'')+'" data-int="'+esc(i)+'">'+esc(i)+'</button>').join('')+'</div></div>'
+      + '<div class="field"><label>Vibe</label><div class="row">'+VIBES.map(v=>'<button type="button" class="chip '+(discover.vibe===v?'on':'')+'" data-vibe="'+esc(v)+'">'+esc(v)+'</button>').join('')+'</div></div>'
+      + '<div class="field"><label for="dExtra">Anything else (optional)</label><input id="dExtra" placeholder="e.g. travelling solo, vegetarian, mid-October" value="'+esc(discover.extra||'')+'"></div>'
+      + (sample?'<button class="btn primary" id="dGo" '+(discover.loading?'disabled':'')+'>'+ICON.spark+(discover.loading?' Thinking…':' Get my top 10')+'</button>'
+        :'<div class="faint">Recommendations need Claude, which isn\'t available in this view.</div>')
+      + (discover.error?'<div class="err">'+esc(discover.error)+'</div>':'')
+      + '</div>'
+      + (discover.results?'<div class="sec-title"><h2>'+esc(discover.resultsTitle||'Top 10')+'</h2><span class="faint">From Claude · verify hours & prices</span></div>'
+        + discover.results.map((r,i)=>'<div class="card reco"><div class="n">'+(i+1)+'</div><div><div class="between"><h3>'+esc(r.name)+'</h3>'+(r.price?'<span class="pill">'+esc(r.price)+'</span>':'')+'</div>'
+          + '<p>'+esc(r.why||'')+'</p>'+(r.area?'<div class="faint">'+esc(r.area)+(r.category?' · '+esc(r.category):'')+'</div>':'')
+          + (r.tip?'<div class="tip">'+esc(r.tip)+'</div>':'')
+          + '<div class="row" style="margin-top:8px"><button class="btn small" data-save="'+i+'">'+ICON.plus+' Save to my list</button></div></div></div>').join('')
+        : '');
+    $('#dCity').oninput=e=>{ discover.city=e.target.value; discover.forStopId=null; };
+    $('#dExtra').oninput=e=>{ discover.extra=e.target.value; };
+    main.querySelectorAll('[data-int]').forEach(b=>b.onclick=()=>{ const v=b.dataset.int; discover.interests=discover.interests.includes(v)?discover.interests.filter(x=>x!==v):discover.interests.concat(v); b.classList.toggle('on'); });
+    main.querySelectorAll('[data-vibe]').forEach(b=>b.onclick=()=>{ discover.vibe=b.dataset.vibe; main.querySelectorAll('[data-vibe]').forEach(x=>x.classList.toggle('on',x===b)); });
+    const goBtn=$('#dGo'); if(goBtn) goBtn.onclick=runDiscover;
+    main.querySelectorAll('[data-save]').forEach(b=>b.onclick=()=>saveReco(discover.results[+b.dataset.save]));
+  }
+  let discoverCtl=null;
+  async function runDiscover(){
+    if(!discover.city.trim()){ discover.error='Type a city first.'; render(); return; }
+    if(!discover.interests.length){ discover.error='Pick at least one thing you\'re looking for.'; render(); return; }
+    discover.loading=true; discover.error=''; render();
+    discoverCtl=new AbortController();
+    const prompt='You are a sharp local travel guide. City: '+discover.city.slice(0,80)+'. The traveller wants: '+discover.interests.join(', ')+'. Vibe: '+discover.vibe+'.'
+      + (discover.extra?' Extra context: '+discover.extra.slice(0,200)+'.':'')
+      + ' Give exactly 10 specific, real recommendations (named places, routes or concrete tactics), ranked best first. For practical topics (airport transfer, Uber vs taxi, saving money) give concrete options with typical prices. '
+      + 'Reply with only a JSON array of 10 objects: {"name": string, "category": string (one of: food, restaurant, museum, attraction, hike, run, hotel, nightlife, shopping, transport, tip), "why": string (max 25 words), "area": string (neighbourhood or distance), "price": string (e.g. "€", "€€€", "~€18", "free"), "tip": string (one insider tip, max 20 words)}.';
+    try{
+      const r=await sample.json(prompt,{signal:discoverCtl.signal, cache:{gcTime:3600000}});
+      if(!Array.isArray(r)||!r.length) throw {code:'invalid_json'};
+      discover.results=r.slice(0,10).map(x=>({name:String(x.name||''),category:String(x.category||''),why:String(x.why||''),area:String(x.area||''),price:String(x.price||''),tip:String(x.tip||'')}));
+      discover.resultsTitle='Top 10 · '+discover.city;
+    }catch(e){
+      const c=e&&e.code;
+      discover.error = c==='not_granted'||c==='sampling_disabled'?'Claude isn\'t allowed for this page, so recommendations are off.'
+        : c==='rate_limited'?'Too many requests right now. Try again in a minute.'
+        : c==='cancelled'?'' : c==='invalid_json'?'The answer came back in the wrong format. Try again.':'Couldn\'t get recommendations. Check your connection and try again.';
+    }finally{ discover.loading=false; render(); }
+  }
+  async function saveReco(r){
+    let stop = discover.forStopId && stopOf(discover.forStopId);
+    if(!stop || norm(stop.city)!==norm(discover.city)) stop = S.stops.find(s=>norm(s.city)===norm(discover.city) && !s.home);
+    if(!stop){ toast('Add '+discover.city+' to a trip first, then save'); return; }
+    const catMap={transport:'other',tip:'other'};
+    const cat = CAT_LABEL[r.category] ? r.category : (catMap[r.category]||'other');
+    await put('places', null, {tripId:stop.tripId, stopId:stop.id, name:r.name, category:cat, status:'want', notes:[r.why, r.tip?'Tip: '+r.tip:'', r.area?'Where: '+r.area:''].filter(Boolean).join('\n'), price:r.price||'', source:'top10', createdAt:now(), updatedAt:now()});
+    toast('Saved to '+stop.city);
+  }
+
+  // ---------- sheets ----------
+  function openSheet(html, bind){
+    layer.innerHTML='<div class="backdrop" id="bd"><form class="sheet" id="sheet" novalidate>'+html+'</form></div>';
+    const bd=$('#bd'); bd.onclick=e=>{ if(e.target===bd) closeSheet(); };
+    document.addEventListener('keydown', escClose);
+    bind($('#sheet'));
+  }
+  function escClose(e){ if(e.key==='Escape') closeSheet(); }
+  function closeSheet(){ layer.innerHTML=''; document.removeEventListener('keydown', escClose); }
+  const val = id => ($('#'+id)||{}).value||'';
+  function curSelect(id, cur){ return '<select id="'+id+'">'+CURRENCIES.map(c=>'<option'+(c===cur?' selected':'')+'>'+c+'</option>').join('')+'</select>'; }
+  function confirmDelete(form, label, onYes){
+    const box=document.createElement('div'); box.className='confirm';
+    box.innerHTML='<div>Delete '+esc(label)+'? This can\'t be undone.</div><div class="row"><button type="button" class="btn small danger" id="cYes">Delete</button><button type="button" class="btn small" id="cNo">Keep</button></div>';
+    form.appendChild(box); box.scrollIntoView({block:'nearest'});
+    box.querySelector('#cNo').onclick=()=>box.remove();
+    box.querySelector('#cYes').onclick=async()=>{ await onYes(); closeSheet(); };
+  }
+
+  function tripSheet(t){
+    openSheet('<h2>'+(t?'Edit trip':'New trip')+'</h2>'
+      + '<div class="field"><label for="tName">Name</label><input id="tName" required value="'+esc(t?t.name:'')+'" placeholder="e.g. Japan spring 2027"></div>'
+      + '<div class="grid2"><div class="field"><label for="tStart">Start</label><input id="tStart" type="date" value="'+esc(t?t.startDate:todayStr())+'"></div><div class="field"><label for="tEnd">End</label><input id="tEnd" type="date" value="'+esc(t?t.endDate:todayStr())+'"></div></div>'
+      + '<div class="field"><label for="tCur">Main currency</label>'+curSelect('tCur', t?t.currency:'EUR')+'</div>'
+      + '<div class="field"><label for="tNotes">Note (optional)</label><input id="tNotes" value="'+esc(t?t.notes||'':'')+'"></div>'
+      + '<div class="err" id="fErr" hidden></div>'
+      + '<div class="row"><button class="btn primary" type="submit">Save</button><button class="btn" type="button" id="xCancel">Cancel</button>'+(t?'<button class="btn danger" type="button" id="xDel" style="margin-left:auto">Delete</button>':'')+'</div>',
+    form=>{
+      $('#xCancel').onclick=closeSheet;
+      if(t) $('#xDel').onclick=()=>confirmDelete(form,'this trip and everything in it', async()=>{
+        for(const c of ['legs','stops','places','expenses']) for(const x of S[c].filter(x=>x.tripId===t.id)) await del(c,x.id);
+        await del('trips', t.id); go({tripId:null});
+      });
+      form.onsubmit=async e=>{ e.preventDefault();
+        const name=val('tName').trim(), a=val('tStart'), b=val('tEnd');
+        if(!name||!a||!b){ const er=$('#fErr'); er.hidden=false; er.textContent='Add a name and both dates.'; return; }
+        const data={name, startDate:a<=b?a:b, endDate:a<=b?b:a, currency:val('tCur'), notes:val('tNotes').trim(), updatedAt:now()};
+        if(t){ await patch('trips', t.id, data); closeSheet(); }
+        else { const ref=await put('trips', null, Object.assign({createdAt:now()}, data)); closeSheet(); go({tripId:ref.id}); }
+      };
+    });
+  }
+
+  async function ensureStop(trip, name, dateArrive, dateDepart){
+    const n=norm(name);
+    // reuse a stop in this trip if the dates touch it
+    const existing=tripStops(trip.id).filter(s=>norm(s.city)===n);
+    const hit=existing.find(s=>(dateArrive&&(s.arrive===dateArrive||s.depart===dateArrive))||(dateDepart&&(s.depart===dateDepart||s.arrive===dateDepart)))
+      || (existing.length===1 && !dateArrive ? existing[0] : null);
+    if(hit){
+      const up={}; if(dateArrive && (!hit.arrive||dateArrive<hit.arrive)) up.arrive=dateArrive; if(dateDepart && (!hit.depart||dateDepart>hit.depart)) up.depart=dateDepart;
+      if(Object.keys(up).length) await patch('stops', hit.id, up);
+      return Object.assign({}, hit, up);
+    }
+    const g=await geocode(name);
+    if(!g) throw new Error('Couldn\'t find "'+name+'". Check the spelling, or add country (e.g. "Pau, France").');
+    const data=Object.assign(g,{tripId:trip.id, arrive:dateArrive||dateDepart||'', depart:dateDepart||dateArrive||'', order:Date.now(), photoIds:[], createdAt:now()});
+    const ref=await put('stops', null, data);
+    return Object.assign({id:ref.id}, data);
+  }
+
+  function legSheet(trip, l){
+    const a=l?stopOf(l.fromId):null, b=l?stopOf(l.toId):null;
+    const prevLeg=tripLegs(trip.id).slice(-1)[0];
+    const defaultFrom = a? a.city : (prevLeg? (stopOf(prevLeg.toId)||{}).city||'' : '');
+    let mode=l?l.mode:'car';
+    const known=[...new Set(S.stops.map(s=>s.city))];
+    openSheet('<h2>'+(l?'Edit leg':'Add a leg')+'</h2>'
+      + '<div class="modes" id="modes">'+Object.keys(MODES).map(m=>'<button type="button" data-mode="'+m+'" class="'+(m===mode?'on':'')+'">'+modeIcon(m)+MODES[m].label+'</button>').join('')+'</div>'
+      + '<div class="grid2"><div class="field"><label for="lFrom">From</label><input id="lFrom" list="kc" value="'+esc(defaultFrom)+'" placeholder="City"></div><div class="field"><label for="lTo">To</label><input id="lTo" list="kc" value="'+esc(b?b.city:'')+'" placeholder="City"></div></div>'
+      + '<datalist id="kc">'+known.map(c=>'<option value="'+esc(c)+'">').join('')+'</datalist>'
+      + '<div class="grid2"><div class="field"><label for="lDate">Date</label><input id="lDate" type="date" value="'+esc(l?l.date:(prevLeg?prevLeg.date:trip.startDate))+'"></div>'
+      + '<div class="field"><label for="lKm">Distance km (optional)</label><input id="lKm" inputmode="numeric" value="'+esc(l&&!l.kmEstimated?l.km:'')+'" placeholder="'+(l&&l.kmEstimated?'≈'+fmtKm(l.km):'Auto')+'"></div></div>'
+      + '<div class="grid3"><div class="field"><label for="lCost">Cost (optional)</label><input id="lCost" inputmode="decimal" value="'+esc(l&&l.cost?l.cost:'')+'"></div><div class="field"><label for="lCur">Currency</label>'+curSelect('lCur', l?l.currency:trip.currency)+'</div></div>'
+      + '<div class="field"><label for="lNotes">Notes (optional)</label><input id="lNotes" value="'+esc(l?l.notes||'':'')+'" placeholder="Flight number, rental car, scenic route…"></div>'
+      + '<div class="hint">Leave distance blank: flights use straight‑line km, drives and trains an estimate (≈) you can correct later.</div>'
+      + '<div class="err" id="fErr" hidden></div>'
+      + '<div class="row"><button class="btn primary" type="submit" id="lSave">Save</button><button class="btn" type="button" id="xCancel">Cancel</button>'+(l?'<button class="btn danger" type="button" id="xDel" style="margin-left:auto">Delete</button>':'')+'</div>',
+    form=>{
+      $('#xCancel').onclick=closeSheet;
+      $('#modes').querySelectorAll('[data-mode]').forEach(btn=>btn.onclick=()=>{ mode=btn.dataset.mode; $('#modes').querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===btn)); });
+      if(l) $('#xDel').onclick=()=>confirmDelete(form,'this leg', ()=>del('legs', l.id));
+      form.onsubmit=async e=>{ e.preventDefault();
+        const er=$('#fErr'); er.hidden=true;
+        const from=val('lFrom').trim(), to=val('lTo').trim(), date=val('lDate');
+        if(!from||!to||!date){ er.hidden=false; er.textContent='Add both cities and a date.'; return; }
+        const btn=$('#lSave'); btn.disabled=true; btn.textContent='Finding cities…';
+        try{
+          const A=await ensureStop(trip, from, null, date);
+          const B=await ensureStop(trip, to, date, null);
+          const kmIn=parseFloat(val('lKm').replace(',','.'));
+          const straight=haversine(A,B);
+          const km = isFinite(kmIn)&&kmIn>0 ? kmIn : Math.round(straight*(ROAD_FACTOR[mode]||1.2));
+          const costIn=parseFloat(val('lCost').replace(',','.'));
+          const data={tripId:trip.id, mode, fromId:A.id, toId:B.id, date, km, kmEstimated:!(isFinite(kmIn)&&kmIn>0)&&mode!=='plane',
+            cost:isFinite(costIn)?costIn:0, currency:val('lCur'), notes:val('lNotes').trim(), updatedAt:now()};
+          if(l) await patch('legs', l.id, data); else await put('legs', null, Object.assign({order:Date.now(), createdAt:now()}, data));
+          closeSheet();
+        }catch(err){ er.hidden=false; er.textContent=(err&&err.message)||'Couldn\'t save. Try again.'; btn.disabled=false; btn.textContent='Save'; }
+      };
+    });
+  }
+
+  function stopSheet(s){
+    openSheet('<h2>Edit city</h2>'
+      + '<div class="field"><label for="sCity">City</label><input id="sCity" value="'+esc(s.city)+'"></div>'
+      + '<div class="grid2"><div class="field"><label for="sArr">Arrive</label><input id="sArr" type="date" value="'+esc(s.arrive||'')+'"></div><div class="field"><label for="sDep">Leave</label><input id="sDep" type="date" value="'+esc(s.depart||'')+'"></div></div>'
+      + '<div class="grid2"><div class="field"><label for="sLat">Latitude</label><input id="sLat" inputmode="decimal" value="'+esc(s.lat)+'"></div><div class="field"><label for="sLon">Longitude</label><input id="sLon" inputmode="decimal" value="'+esc(s.lon)+'"></div></div>'
+      + '<div class="hint">Coordinates place the city on the map. Only change them if the pin is wrong.</div>'
+      + '<div class="row"><button class="btn primary" type="submit">Save</button><button class="btn" type="button" id="xCancel">Cancel</button></div>',
+    form=>{ $('#xCancel').onclick=closeSheet;
+      form.onsubmit=async e=>{ e.preventDefault(); const lat=parseFloat(val('sLat')), lon=parseFloat(val('sLon'));
+        await patch('stops', s.id, {city:val('sCity').trim()||s.city, arrive:val('sArr'), depart:val('sDep'), lat:isFinite(lat)?lat:s.lat, lon:isFinite(lon)?lon:s.lon}); closeSheet(); };
+    });
+  }
+
+  function placeSheet(stop, p){
+    const trip=tripOf(stop.tripId)||{};
+    let rating=p?p.rating||0:0, status=p?p.status||'done':'done', photoIds=p?(p.photoIds||[]).slice():[];
+    openSheet('<h2>'+(p?'Edit place':'Add a place in '+esc(stop.city))+'</h2>'
+      + '<div class="field"><label for="pName">Name</label><input id="pName" value="'+esc(p?p.name:'')+'" placeholder="e.g. La Cuchara de San Telmo"></div>'
+      + '<div class="grid2"><div class="field"><label for="pCat">Type</label><select id="pCat">'+CATS.map(([k,l])=>'<option value="'+k+'"'+((p?p.category:'restaurant')===k?' selected':'')+'>'+l+'</option>').join('')+'</select></div>'
+      + '<div class="field"><label for="pDate">Date</label><input id="pDate" type="date" value="'+esc(p?p.date||'':(stop.arrive||''))+'"></div></div>'
+      + '<div class="field"><label>Status</label><div class="row"><button type="button" class="chip '+(status==='done'?'on':'')+'" data-st="done">Been there</button><button type="button" class="chip '+(status==='want'?'on':'')+'" data-st="want">Want to go</button></div></div>'
+      + '<div class="field"><label>Rating</label><div class="rating" id="rating">'+[1,2,3,4,5].map(i=>'<button type="button" data-r="'+i+'" aria-label="'+i+' stars" class="'+(i<=rating?'on':'')+'">★</button>').join('')+'</div></div>'
+      + '<div class="grid3"><div class="field"><label for="pCost">Cost (optional)</label><input id="pCost" inputmode="decimal" value="'+esc(p&&p.cost?p.cost:'')+'"></div><div class="field"><label for="pCur">Currency</label>'+curSelect('pCur', p?p.currency:trip.currency)+'</div></div>'
+      + '<div class="field"><label for="pNotes">Notes</label><textarea id="pNotes" placeholder="What you ordered, best time to go, would you return?">'+esc(p?p.notes||'':'')+'</textarea></div>'
+      + (assets?'<div class="field"><label>Photos</label><div class="photos" id="pPhotos"></div><label class="btn small" for="pPhotoIn" style="align-self:flex-start">'+ICON.camera+' Add photos</label><input id="pPhotoIn" type="file" accept="image/*" multiple hidden><div class="hint" id="pUp"></div></div>':'')
+      + '<div class="err" id="fErr" hidden></div>'
+      + '<div class="row"><button class="btn primary" type="submit" id="pSave">Save</button><button class="btn" type="button" id="xCancel">Cancel</button>'+(p?'<button class="btn danger" type="button" id="xDel" style="margin-left:auto">Delete</button>':'')+'</div>',
+    form=>{
+      $('#xCancel').onclick=closeSheet;
+      const drawPhotos=()=>{ const el=$('#pPhotos'); if(el) el.innerHTML=photoIds.map(id=>'<img alt="" src="/_blob/'+id+'">').join(''); };
+      drawPhotos();
+      form.querySelectorAll('[data-st]').forEach(b=>b.onclick=()=>{ status=b.dataset.st; form.querySelectorAll('[data-st]').forEach(x=>x.classList.toggle('on',x===b)); });
+      $('#rating').querySelectorAll('[data-r]').forEach(b=>b.onclick=()=>{ const r=+b.dataset.r; rating = rating===r?0:r; $('#rating').querySelectorAll('button').forEach(x=>x.classList.toggle('on', +x.dataset.r<=rating)); });
+      const pin=$('#pPhotoIn'); if(pin) pin.onchange=async()=>{ $('#pUp').textContent='Uploading…'; $('#pSave').disabled=true; const ids=await uploadPhotos(pin.files); photoIds=photoIds.concat(ids); drawPhotos(); $('#pUp').textContent=ids.length?ids.length+' added':''; $('#pSave').disabled=false; };
+      if(p) $('#xDel').onclick=()=>confirmDelete(form,'"'+p.name+'"', ()=>del('places', p.id));
+      form.onsubmit=async e=>{ e.preventDefault();
+        const name=val('pName').trim(); if(!name){ const er=$('#fErr'); er.hidden=false; er.textContent='Give the place a name.'; return; }
+        const c=parseFloat(val('pCost').replace(',','.'));
+        const data={tripId:stop.tripId, stopId:stop.id, name, category:val('pCat'), date:val('pDate'), status, rating, cost:isFinite(c)?c:0, currency:val('pCur'), notes:val('pNotes').trim(), photoIds, updatedAt:now()};
+        if(p) await patch('places', p.id, data); else await put('places', null, Object.assign({createdAt:now()}, data));
+        closeSheet();
+      };
+    });
+  }
+
+  function payers(tid){ const set=new Set(['Me']); S.expenses.filter(e=>e.tripId===tid&&e.paidBy).forEach(e=>set.add(e.paidBy)); return [...set]; }
+  function lastPayer(tid){ const l=S.expenses.filter(e=>e.tripId===tid&&e.paidBy).sort((a,b)=>(b.updatedAt||'').localeCompare(a.updatedAt||''))[0]; return l?l.paidBy:'Me'; }
+
+  function expenseSheet(trip, x){
+    const cats=['Transport','Lodging','Food & drink','Activities','Shopping','Fees & insurance','Other'];
+    openSheet('<h2>'+(x?'Edit expense':'Add an expense')+'</h2>'
+      + '<div class="field"><label for="eLabel">What</label><input id="eLabel" value="'+esc(x?x.label:'')+'" placeholder="e.g. Car rental, tolls, SIM card"></div>'
+      + '<div class="grid3"><div class="field"><label for="eAmt">Amount</label><input id="eAmt" inputmode="decimal" value="'+esc(x?x.amount:'')+'"></div><div class="field"><label for="eCur">Currency</label>'+curSelect('eCur', x?x.currency:trip.currency)+'</div></div>'
+      + '<div class="grid2"><div class="field"><label for="eCat">Category</label><select id="eCat">'+cats.map(c=>'<option'+((x?x.category:'Other')===c?' selected':'')+'>'+c+'</option>').join('')+'</select></div><div class="field"><label for="eDate">Date</label><input id="eDate" type="date" value="'+esc(x?x.date||'':todayStr())+'"></div></div>'
+      + '<div class="field"><label for="ePaid">Paid by</label><input id="ePaid" list="payers" autocomplete="off" value="'+esc(x?x.paidBy||'':lastPayer(trip.id))+'" placeholder="e.g. Me, Sam, split"><datalist id="payers">'+payers(trip.id).map(n=>'<option value="'+esc(n)+'">').join('')+'</datalist></div>'
+      + '<div class="field"><label for="eNote">Note (optional)</label><textarea id="eNote" placeholder="Receipt details, what it covered, who owes what…">'+esc(x?x.notes||'':'')+'</textarea></div>'
+      + '<div class="err" id="fErr" hidden></div>'
+      + '<div class="row"><button class="btn primary" type="submit">Save</button><button class="btn" type="button" id="xCancel">Cancel</button>'+(x?'<button class="btn danger" type="button" id="xDel" style="margin-left:auto">Delete</button>':'')+'</div>',
+    form=>{ $('#xCancel').onclick=closeSheet;
+      if(x) $('#xDel').onclick=()=>confirmDelete(form,'this expense', ()=>del('expenses', x.id));
+      form.onsubmit=async e=>{ e.preventDefault(); const a=parseFloat(val('eAmt').replace(',','.')); const label=val('eLabel').trim();
+        if(!label||!isFinite(a)){ const er=$('#fErr'); er.hidden=false; er.textContent='Add what it was and an amount.'; return; }
+        const data={tripId:trip.id, label, amount:a, currency:val('eCur'), category:val('eCat'), date:val('eDate'), paidBy:val('ePaid').trim(), notes:val('eNote').trim(), updatedAt:now()};
+        if(x) await patch('expenses', x.id, data); else await put('expenses', null, Object.assign({createdAt:now()}, data));
+        closeSheet(); };
+    });
+  }
+
+  // ---------- photos ----------
+  async function shrink(file){
+    try{
+      const bmp=await createImageBitmap(file, {imageOrientation:'from-image'});
+      const max=1600, k=Math.min(1, max/Math.max(bmp.width,bmp.height));
+      const c=document.createElement('canvas'); c.width=Math.round(bmp.width*k); c.height=Math.round(bmp.height*k);
+      c.getContext('2d').drawImage(bmp,0,0,c.width,c.height);
+      return await new Promise(r=>c.toBlob(b=>r(b||file),'image/jpeg',0.82));
+    }catch(e){ return file; }
+  }
+  async function uploadPhotos(files){
+    if(!assets||!files||!files.length) return [];
+    const ids=[];
+    for(const f of Array.from(files).slice(0,12)){
+      try{ const blob=await shrink(f); const r=await assets.upload(blob,{type:blob.type&&blob.type.startsWith('image/')?blob.type:'image/jpeg'}); ids.push(r.id); }
+      catch(e){ toast(e&&e.code==='quota_or_state'?'Photo storage is full':'A photo failed to upload'); }
+    }
+    return ids;
+  }
+  function lightbox(id){
+    layer.innerHTML='<div class="lightbox" id="lb" role="dialog" aria-label="Photo"><img alt="" src="/_blob/'+id+'"></div>';
+    $('#lb').onclick=()=>{ layer.innerHTML=''; };
+  }
+
+  // ---------- share card ----------
+  function cssVar(n){ return getComputedStyle(document.documentElement).getPropertyValue(n).trim(); }
+  async function makeCard(t){
+    const W=1080, H=1350, c=document.createElement('canvas'); c.width=W; c.height=H; const g=c.getContext('2d');
+    try{ await document.fonts.load('700 40px "Barlow Condensed"'); await document.fonts.load('600 20px Figtree'); }catch(e){}
+    const st=tripStats(t.id), stops=tripStops(t.id), legs=tripLegs(t.id);
+    g.fillStyle='#101820'; g.fillRect(0,0,W,H);
+    // map
+    const mapTop=300, mapH=760;
+    const pts=stops.filter(s=>s.lat!=null&&!s.home).map(s=>[s.lon,s.lat]);
+    const proj=d3.geoMercator(); if(pts.length>=2) proj.fitExtent([[80,mapTop+60],[W-80,mapTop+mapH-60]],{type:'MultiPoint',coordinates:pts}); else if(pts.length) proj.center(pts[0]).scale(2000).translate([W/2,mapTop+mapH/2]);
+    g.save(); g.beginPath(); g.rect(0,mapTop,W,mapH); g.clip();
+    g.fillStyle='#16222D'; g.fillRect(0,mapTop,W,mapH);
+    const path=d3.geoPath(proj,g);
+    const visited=new Set(stops.map(s=>s.countryN3).filter(Boolean));
+    worldFeat.features.forEach(f=>{ g.beginPath(); path(f); g.fillStyle=visited.has(String(f.id))?'#3B2A22':'#24313D'; g.fill(); g.strokeStyle='#101820'; g.lineWidth=1.5; g.stroke(); });
+    const colors={plane:'#6F9BFF',car:'#FF7A3D',train:'#4CC795',bus:'#B98BEB',ferry:'#3CC6D6',walk:'#B5AA9B'};
+    legs.forEach(l=>{ const a=stopOf(l.fromId), b=stopOf(l.toId); if(!a||!b||a.home||b.home) return;
+      g.beginPath(); path({type:'LineString',coordinates:[[a.lon,a.lat],[b.lon,b.lat]]}); g.strokeStyle=colors[l.mode]||'#FF7A3D'; g.lineWidth=7; g.lineCap='round'; g.setLineDash(l.mode==='plane'?[18,14]:[]); g.stroke(); });
+    g.setLineDash([]);
+    const seen=new Set();
+    stops.forEach(s=>{ if(s.home||s.lat==null) return; const p=proj([s.lon,s.lat]); g.beginPath(); g.arc(p[0],p[1],11,0,7); g.fillStyle='#fff'; g.fill(); g.lineWidth=5; g.strokeStyle='#101820'; g.stroke();
+      const k=norm(s.city); if(seen.has(k)) return; seen.add(k); g.font='600 30px Figtree, sans-serif'; g.lineWidth=8; g.strokeStyle='#16222D'; g.strokeText(s.city,p[0]+18,p[1]-14); g.fillStyle='#fff'; g.fillText(s.city,p[0]+18,p[1]-14); });
+    g.restore();
+    // header
+    g.fillStyle='#FF7A3D'; g.font='700 30px "Barlow Condensed", sans-serif'; g.fillText('WAYMARK · '+fmtDate(t.startDate,{month:'short',day:'numeric'}).toUpperCase()+' – '+fmtDate(t.endDate,{month:'short',day:'numeric',year:'numeric'}).toUpperCase(), 80, 110);
+    g.fillStyle='#fff'; g.font='700 92px "Barlow Condensed", sans-serif';
+    const words=t.name.split(' '); let line='', y=205; const lines=[];
+    words.forEach(w=>{ const tryL=line?line+' '+w:w; if(g.measureText(tryL).width>W-160&&line){ lines.push(line); line=w; } else line=tryL; }); lines.push(line);
+    lines.slice(0,2).forEach((l,i)=>g.fillText(l,80,y+i*0- (lines.length>1?40:0)+i*92));
+    // stats strip
+    const stats=[[fmtKm(st.km)+' km','DISTANCE'],[String(st.days),'DAYS'],[String(st.cities),'CITIES'],[String(st.countries),'COUNTRIES']];
+    const sy=mapTop+mapH+40, cw=(W-160)/4;
+    stats.forEach(([v,k],i)=>{ const x=80+i*cw; g.fillStyle='#fff'; g.font='700 72px "Barlow Condensed", sans-serif'; g.fillText(v,x,sy+70); g.fillStyle='#8FA0AF'; g.font='700 24px Figtree, sans-serif'; g.fillText(k,x,sy+108); });
+    const modes=Object.entries(st.byMode).sort((a,b)=>b[1]-a[1]).map(([m,k])=>MODES[m].label+' '+fmtKm(k)+' km').join('  ·  ');
+    g.fillStyle='#C9D3DC'; g.font='500 28px Figtree, sans-serif'; g.fillText(modes, 80, sy+170);
+    return c;
+  }
+  function caption(t){
+    const st=tripStats(t.id); const cities=[...new Map(tripStops(t.id).filter(s=>!s.home).map(s=>[norm(s.city),s.city])).values()];
+    const top=S.places.filter(p=>p.tripId===t.id && p.status==='done' && p.rating>=4).slice(0,3).map(p=>p.name);
+    return t.name+' ✦ '+fmtKm(st.km)+' km, '+st.days+' days, '+st.cities+' cities\n'+cities.join(' → ')+(top.length?'\nFavourites: '+top.join(', '):'')+'\n#travel #roadtrip';
+  }
+  async function shareSheet(t){
+    openSheet('<h2>Share this trip</h2><div class="hint">A 4:5 image for Instagram or stories, plus a caption.</div><div id="cardBox" class="faint">Drawing your card…</div>'
+      + '<div class="field"><label for="cap">Caption</label><textarea id="cap">'+esc(caption(t))+'</textarea></div>'
+      + '<div class="row"><button class="btn primary" type="button" id="saveImg" disabled>Save image</button><button class="btn" type="button" id="copyCap">Copy caption</button><button class="btn" type="button" id="xCancel">Close</button></div>'
+      + '<div class="hint" id="shareHint"></div>',
+    async ()=>{
+      $('#xCancel').onclick=closeSheet;
+      $('#copyCap').onclick=async()=>{ const txt=val('cap'); try{ await navigator.clipboard.writeText(txt); toast('Caption copied'); }catch(e){ const ta=$('#cap'); ta.focus(); ta.select(); $('#shareHint').textContent='Press copy on your keyboard to copy the selected caption.'; } };
+      const canvas=await makeCard(t);
+      const url=canvas.toDataURL('image/png');
+      $('#cardBox').innerHTML='<img class="share-preview" alt="Share card for '+esc(t.name)+'" src="'+url+'">';
+      const btn=$('#saveImg');
+      if(!downloads){ btn.hidden=true; $('#shareHint').textContent='Saving isn\'t available here: long‑press the image to save it.'; return; }
+      btn.disabled=false;
+      btn.onclick=async()=>{
+        btn.disabled=true;
+        canvas.toBlob(async blob=>{
+          try{ await downloads.save({filename:(t.name.replace(/[^\w\- ]+/g,'').trim()||'trip')+'.png', data:blob}); toast('Saved'); }
+          catch(e){ if(e&&e.code!=='declined') $('#shareHint').textContent='Couldn\'t save the image. Long‑press it to save instead.'; }
+          finally{ btn.disabled=false; }
+        },'image/png');
+      };
+    });
+  }
+
+  init();
+})();
+</script>
