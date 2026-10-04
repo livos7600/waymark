@@ -57,6 +57,7 @@
 
   .btn{border:1px solid var(--line);background:var(--surface);border-radius:10px;padding:10px 14px;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:6px;justify-content:center;}
   .btn:hover{border-color:var(--accent);}
+  .btn svg{width:16px;height:16px;flex-shrink:0;}
   .btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);}
   .btn.small{padding:6px 10px;font-size:13px;border-radius:8px;}
   .btn.ghost{background:transparent;}
@@ -188,6 +189,7 @@ const WORLD = __WORLD__;
   // ---------- state ----------
   const S = { trips:[], stops:[], legs:[], places:[], expenses:[] };
   let db = null, assets = null, sample = null, downloads = null;
+  let sampleImages = 0; // how many images one Claude call can take here (0: none)
   let ready = { db:false };
   let R = { tab:'trips', tripId:null, stopId:null, placeCat:'all' };
   let discover = { city:'', interests:['Museums'], vibe:'Authentic', results:null, loading:false, error:'', forStopId:null };
@@ -269,7 +271,8 @@ const WORLD = __WORLD__;
   async function init(){
     renderTabs();
     if(!window.claude || !window.claude.use){ main.innerHTML='<div class="status">Open this page from claude.ai to load your trips.</div>'; return; }
-    window.claude.use('sample').then(x=>{ sample=x; render(); });
+    window.claude.use('sample').then(x=>{ sample=x; render();
+      if(x) x.limits().then(l=>{ sampleImages=(l&&l.images&&l.images.maxCount)||0; render(); }).catch(()=>{}); });
     window.claude.use('assets').then(x=>{ assets=x; render(); });
     window.claude.use('downloads').then(x=>{ downloads=x; });
     db = await window.claude.use('db');
@@ -426,16 +429,18 @@ const WORLD = __WORLD__;
             + '<div class="faint">'+places.length+' place'+(places.length===1?'':'s')+'</div>'
             + (photos.length?'<div class="thumbs">'+photos.map(id=>'<img alt="" src="/_blob/'+id+'">').join('')+'</div>':'')+'</div>';
         }).join('')+'</div>':'<div class="faint">Cities appear as you add legs.</div>')
-      + '<div class="sec-title"><h2>Budget</h2><button class="btn small" id="addExp">'+ICON.plus+' Expense</button></div>'
+      + '<div class="sec-title"><h2>Budget</h2><div class="row" style="flex-wrap:nowrap">'+(sample&&sampleImages?'<label class="btn small" for="scanIn">'+ICON.camera+' Scan</label><input id="scanIn" type="file" accept="image/*" hidden>':'')+'<button class="btn small" id="addExp">'+ICON.plus+' Expense</button></div></div>'
       + budgetHtml(t.id)
       + '<div class="row"><button class="btn ghost small" id="discoverHere">'+ICON.spark+' Top 10 for a city on this trip</button></div>';
     drawMap($('#tripMap'), {stops, legs, visitedN3, label:'Route map for '+t.name});
     $('#addLeg').onclick=()=>legSheet(t, null);
     $('#addExp').onclick=()=>expenseSheet(t, null);
+    const scan=$('#scanIn'); if(scan) scan.onchange=()=>{ const fs=Array.from(scan.files||[]); scan.value=''; if(fs.length) expenseSheet(t, null, fs); };
     $('#discoverHere').onclick=()=>{ const s=stops.find(x=>!x.home); discover.city=s?s.city:''; discover.forStopId=s?s.id:null; go({tab:'discover', tripId:null}); };
     main.querySelectorAll('[data-leg]').forEach(el=>el.onclick=()=>legSheet(t, S.legs.find(l=>l.id===el.dataset.leg)));
     main.querySelectorAll('[data-stop]').forEach(el=>el.onclick=()=>go({stopId:el.dataset.stop, placeCat:'all'}));
-    main.querySelectorAll('[data-exp]').forEach(el=>el.onclick=()=>expenseSheet(t, S.expenses.find(e=>e.id===el.dataset.exp)));
+    main.querySelectorAll('[data-exp]').forEach(el=>el.onclick=e=>{ if(e.target.dataset.photo) return; expenseSheet(t, S.expenses.find(x=>x.id===el.dataset.exp)); });
+    main.querySelectorAll('[data-photo]').forEach(img=>img.onclick=e=>{ e.stopPropagation(); lightbox(img.dataset.photo); });
   }
   function whoPaidHtml(list){
     const m={}; list.filter(e=>e.paidBy).forEach(e=>{ const k=e.paidBy; m[k]=m[k]||{}; m[k][e.currency||'EUR']=(m[k][e.currency||'EUR']||0)+(+e.amount||0); });
@@ -453,8 +458,8 @@ const WORLD = __WORLD__;
     return '<div class="card">'+Object.entries(byCat).sort((a,b)=>b[1]-a[1]).map(([k,a])=>{ const [cat,cur]=k.split('|');
         return '<div class="budget-row" style="display:block"><div class="between"><span>'+esc(cat)+'</span><span class="amt">'+fmtMoney(a,cur)+'</span></div><div class="bar"><i style="width:'+Math.round(a/max*100)+'%"></i></div></div>'; }).join('')
       + '<div class="budget-row" style="font-weight:700"><span>Total</span><span class="amt">'+Object.entries(tot).map(([c,a])=>fmtMoney(a,c)).join(' + ')+'</span></div></div>'
-      + (other.length?'<div class="card">'+other.sort((a,b)=>(b.date||'').localeCompare(a.date||'')).map(e=>'<div class="budget-row" data-exp="'+e.id+'" style="cursor:pointer;gap:10px"><span style="min-width:0">'+esc(e.label)+' <span class="faint">· '+esc(e.category||'Other')+(e.date?' · '+fmtDate(e.date):'')+(e.paidBy?' · paid by '+esc(e.paidBy):'')+'</span>'
-          + (e.notes?'<span class="faint" style="display:block;white-space:pre-wrap">'+esc(e.notes)+'</span>':'')+'</span><span class="amt">'+fmtMoney(e.amount,e.currency)+'</span></div>').join('')+'</div>':'')
+      + (other.length?'<div class="card">'+other.sort((a,b)=>(b.date||'').localeCompare(a.date||'')).map(e=>'<div class="budget-row" data-exp="'+e.id+'" style="cursor:pointer;gap:10px"><span style="min-width:0">'+esc(e.label)+' <span class="faint">· '+esc(e.category||'Other')+(e.date?' · '+fmtDate(e.date):'')+(e.city?' · '+esc(e.city):'')+(e.paidBy?' · paid by '+esc(e.paidBy):'')+'</span>'
+          + (e.notes?'<span class="faint" style="display:block;white-space:pre-wrap">'+esc(e.notes)+'</span>':'')+'</span><span class="amt" style="display:flex;gap:8px;align-items:center;flex-shrink:0">'+((e.photoIds||[]).length?'<img alt="Receipt" src="/_blob/'+e.photoIds[0]+'" data-photo="'+e.photoIds[0]+'" style="width:32px;height:32px;object-fit:cover;border-radius:6px;cursor:zoom-in">':'')+fmtMoney(e.amount,e.currency)+'</span></div>').join('')+'</div>':'')
       + whoPaidHtml(other)
       + '<div class="faint">Totals are kept per currency; no exchange rates are applied.</div>';
   }
@@ -470,7 +475,8 @@ const WORLD = __WORLD__;
     const cats=[...new Set(places.map(p=>p.category))];
     if(R.placeCat!=='all') places=places.filter(p=>p.category===R.placeCat);
     const cityPhotos=[].concat(...twins.map(x=>x.photoIds||[]));
-    const spent=totalsByCur(S.places.filter(p=>ids.includes(p.stopId)&&p.cost).map(p=>({amount:+p.cost,cur:p.currency||'EUR'})));
+    const spent=totalsByCur(S.places.filter(p=>ids.includes(p.stopId)&&p.cost).map(p=>({amount:+p.cost,cur:p.currency||'EUR'}))
+      .concat(S.expenses.filter(e=>ids.includes(e.stopId)&&e.amount).map(e=>({amount:+e.amount,cur:e.currency||'EUR'}))));
     main.innerHTML =
       '<div class="faint">'+flag(s.countryA2)+' '+esc(s.country||'')+' · '+twins.map(x=>fmtDate(x.arrive)+(x.depart&&x.depart!==x.arrive?' – '+fmtDate(x.depart):'')).join(' & ')+(t?' · '+esc(t.name):'')+'</div>'
       + '<div class="row"><button class="btn primary" id="addPlace">'+ICON.plus+' Place</button>'
@@ -723,24 +729,131 @@ const WORLD = __WORLD__;
   function payers(tid){ const set=new Set(['Me']); S.expenses.filter(e=>e.tripId===tid&&e.paidBy).forEach(e=>set.add(e.paidBy)); return [...set]; }
   function lastPayer(tid){ const l=S.expenses.filter(e=>e.tripId===tid&&e.paidBy).sort((a,b)=>(b.updatedAt||'').localeCompare(a.updatedAt||''))[0]; return l?l.paidBy:'Me'; }
 
-  function expenseSheet(trip, x){
-    const cats=['Transport','Lodging','Food & drink','Activities','Shopping','Fees & insurance','Other'];
+  const EXP_CATS=['Transport','Lodging','Food & drink','Activities','Shopping','Fees & insurance','Other'];
+  function expenseSheet(trip, x, files){
+    const cats=EXP_CATS;
+    const canRead=!!(sample&&sampleImages);
+    let photoIds=x?(x.photoIds||[]).slice():[], picked=[], uploading=false, reading=false;
+    const cities=[...new Set(tripStops(trip.id).filter(s=>!s.home).map(s=>s.city))];
     openSheet('<h2>'+(x?'Edit expense':'Add an expense')+'</h2>'
+      + (assets||canRead?'<div class="field"><label>Receipt / photo</label><div class="photos" id="ePhotos"></div><div class="row"><label class="btn small" for="ePhotoIn">'+ICON.camera+' Add photo</label><input id="ePhotoIn" type="file" accept="image/*" multiple hidden>'
+        + (canRead?'<button type="button" class="btn small" id="eRead" hidden>'+ICON.spark+' Fill in from photo</button>':'')+'</div>'
+        + '<div class="hint" id="eUp">'+(canRead&&!x?'Add a photo of the receipt and Claude fills in the amount, date and place.':'')+'</div></div>':'')
       + '<div class="field"><label for="eLabel">What</label><input id="eLabel" value="'+esc(x?x.label:'')+'" placeholder="e.g. Car rental, tolls, SIM card"></div>'
       + '<div class="grid3"><div class="field"><label for="eAmt">Amount</label><input id="eAmt" inputmode="decimal" value="'+esc(x?x.amount:'')+'"></div><div class="field"><label for="eCur">Currency</label>'+curSelect('eCur', x?x.currency:trip.currency)+'</div></div>'
       + '<div class="grid2"><div class="field"><label for="eCat">Category</label><select id="eCat">'+cats.map(c=>'<option'+((x?x.category:'Other')===c?' selected':'')+'>'+c+'</option>').join('')+'</select></div><div class="field"><label for="eDate">Date</label><input id="eDate" type="date" value="'+esc(x?x.date||'':todayStr())+'"></div></div>'
-      + '<div class="field"><label for="ePaid">Paid by</label><input id="ePaid" list="payers" autocomplete="off" value="'+esc(x?x.paidBy||'':lastPayer(trip.id))+'" placeholder="e.g. Me, Sam, split"><datalist id="payers">'+payers(trip.id).map(n=>'<option value="'+esc(n)+'">').join('')+'</datalist></div>'
+      + '<div class="grid2"><div class="field"><label for="eCity">Where</label><input id="eCity" list="eCities" autocomplete="off" value="'+esc(x?x.city||'':'')+'" placeholder="City"><datalist id="eCities">'+cities.map(c=>'<option value="'+esc(c)+'">').join('')+'</datalist></div>'
+      + '<div class="field"><label for="ePaid">Paid by</label><input id="ePaid" list="payers" autocomplete="off" value="'+esc(x?x.paidBy||'':lastPayer(trip.id))+'" placeholder="e.g. Me, Sam, split"><datalist id="payers">'+payers(trip.id).map(n=>'<option value="'+esc(n)+'">').join('')+'</datalist></div></div>'
       + '<div class="field"><label for="eNote">Note (optional)</label><textarea id="eNote" placeholder="Receipt details, what it covered, who owes what…">'+esc(x?x.notes||'':'')+'</textarea></div>'
       + '<div class="err" id="fErr" hidden></div>'
-      + '<div class="row"><button class="btn primary" type="submit">Save</button><button class="btn" type="button" id="xCancel">Cancel</button>'+(x?'<button class="btn danger" type="button" id="xDel" style="margin-left:auto">Delete</button>':'')+'</div>',
+      + '<div class="row"><button class="btn primary" type="submit" id="eSave">Save</button><button class="btn" type="button" id="xCancel">Cancel</button>'+(x?'<button class="btn danger" type="button" id="xDel" style="margin-left:auto">Delete</button>':'')+'</div>',
     form=>{ $('#xCancel').onclick=closeSheet;
       if(x) $('#xDel').onclick=()=>confirmDelete(form,'this expense', ()=>del('expenses', x.id));
+      const hint=t=>{ const el=$('#eUp'); if(el) el.textContent=t; };
+      const sync=()=>{ if(!form.isConnected) return; $('#eSave').disabled=uploading||reading;
+        const rb=$('#eRead'); if(rb){ rb.hidden=!(picked.length||photoIds.length); rb.disabled=uploading||reading; } };
+      const drawPhotos=()=>{ const el=$('#ePhotos'); if(el) el.innerHTML=photoIds.map(id=>'<img alt="Receipt" src="/_blob/'+id+'">').join(''); sync(); };
+      drawPhotos();
+      async function addFiles(fs, autoRead){
+        picked=picked.concat(fs);
+        if(assets){ uploading=true; sync(); hint('Uploading…'); photoIds=photoIds.concat(await uploadPhotos(fs)); uploading=false; if(!form.isConnected) return; drawPhotos(); hint(''); }
+        sync();
+        if(autoRead&&canRead) await fill(); else if(!assets) hint('');
+      }
+      async function fill(){
+        let imgs=picked.slice(-sampleImages);
+        if(!imgs.length&&photoIds.length){ try{ const r=await fetch('/_blob/'+photoIds[photoIds.length-1]); if(r.ok) imgs=[await r.blob()]; }catch(e){} }
+        if(!form.isConnected) return;
+        if(!imgs.length){ hint('Add the photo again so Claude can read it.'); return; }
+        reading=true; sync(); hint('Claude is reading the photo…');
+        try{
+          const r=await readReceipt(trip, imgs);
+          if(!form.isConnected) return;
+          const set=(id,v)=>{ if(v!=null&&v!=='') $('#'+id).value=v; };
+          set('eLabel', r.label); set('eAmt', r.amount!=null?String(r.amount):null); set('eDate', r.date); set('eCity', r.city); set('eCat', r.category);
+          if(r.currency){ const sel=$('#eCur'); if(![...sel.options].some(o=>o.value===r.currency)) sel.add(new Option(r.currency)); sel.value=r.currency; }
+          if(r.notes&&!val('eNote').trim()) $('#eNote').value=r.notes;
+          hint(r.amount==null?'Couldn\'t read a total. Add the amount, then save.':'Filled in from the photo. Check it, then save.');
+        }catch(e){
+          const c=e&&e.code;
+          hint(c==='not_granted'||c==='sampling_disabled'?'Claude isn\'t allowed here. Fill it in by hand.'
+            : c==='image_rejected'?'Claude couldn\'t open that image. Try a JPEG or a sharper shot.'
+            : c==='rate_limited'?'Too many requests. Try again in a minute.'
+            : c==='cancelled'?'' : 'Couldn\'t read the photo. Try again, or fill it in by hand.');
+        }finally{ reading=false; sync(); }
+      }
+      const pin=$('#ePhotoIn'); if(pin) pin.onchange=()=>{ const fs=Array.from(pin.files||[]); pin.value=''; if(fs.length) addFiles(fs, !x&&!val('eLabel').trim()&&!val('eAmt').trim()); };
+      const rb=$('#eRead'); if(rb) rb.onclick=fill;
+      if(files&&files.length) addFiles(files, true);
       form.onsubmit=async e=>{ e.preventDefault(); const a=parseFloat(val('eAmt').replace(',','.')); const label=val('eLabel').trim();
         if(!label||!isFinite(a)){ const er=$('#fErr'); er.hidden=false; er.textContent='Add what it was and an amount.'; return; }
-        const data={tripId:trip.id, label, amount:a, currency:val('eCur'), category:val('eCat'), date:val('eDate'), paidBy:val('ePaid').trim(), notes:val('eNote').trim(), updatedAt:now()};
+        const city=val('eCity').trim(), st=city&&tripStops(trip.id).find(s=>norm(s.city)===norm(city));
+        const data={tripId:trip.id, label, amount:a, currency:val('eCur'), category:val('eCat'), date:val('eDate'), city:st?st.city:city, stopId:st?st.id:'', paidBy:val('ePaid').trim(), notes:val('eNote').trim(), photoIds, updatedAt:now()};
         if(x) await patch('expenses', x.id, data); else await put('expenses', null, Object.assign({createdAt:now()}, data));
         closeSheet(); };
     });
+  }
+
+  // Ask Claude to read a receipt photo. Where it was paid comes from, in order: the photo's GPS
+  // near a trip city, the address Claude reads, then the trip city you were in on that date.
+  async function readReceipt(trip, imgs){
+    let meta=null; for(const f of imgs){ meta=await readExif(f); if(meta) break; }
+    const stops=tripStops(trip.id).filter(s=>!s.home);
+    let near=null;
+    if(meta&&meta.lat!=null) stops.forEach(s=>{ if(s.lat==null) return; const d=haversine(meta,s); if(!near||d<near.d) near={s,d}; });
+    const blobs=await Promise.all(imgs.map(shrink));
+    const r=await sample.json('Read this travel expense photo (usually a receipt, bill, ticket or price tag) and turn it into an expense log entry.\n'
+      + 'Trip: "'+String(trip.name||'').slice(0,80)+'", '+(trip.startDate||'?')+' to '+(trip.endDate||'?')+', main currency '+(trip.currency||'EUR')+'.\n'
+      + 'Cities on the trip: '+(stops.slice(0,40).map(s=>s.city+', '+(s.country||'')+' ('+(s.arrive||'?')+' to '+(s.depart||'?')+')').join('; ')||'none yet')+'.\n'
+      + 'Photo metadata: '+(meta&&meta.date?'taken '+meta.date+(meta.time?' '+meta.time:''):'no date')
+      + (meta&&meta.lat!=null?', GPS '+meta.lat.toFixed(4)+','+meta.lon.toFixed(4)+(near?' (≈'+Math.round(near.d)+' km from '+near.s.city+')':''):', no GPS')+'.\n'
+      + 'Today is '+todayStr()+'.\n'
+      + 'Reply with only a JSON object: {"label": string (what it was: merchant and item, max 40 characters, e.g. "Dinner at Bar Nestor"), '
+      + '"amount": number (the final total paid, including tax and tip; null if unreadable), "currency": string (ISO 4217 code; infer from symbols, language and location), '
+      + '"category": one of '+JSON.stringify(EXP_CATS)+', "date": "YYYY-MM-DD" or null (date printed on it, else the photo date), '
+      + '"city": string or null (city where it was paid, from the address on it or the GPS position; use the trip city name when it is one of them), '
+      + '"notes": string (one short line of useful detail: main items, nights, ticket route; "" if nothing useful)}. '
+      + 'If it is not a receipt, still describe the likely expense and set amount to null.', {images:blobs});
+    const o=r&&typeof r==='object'?r:{};
+    const amt=typeof o.amount==='number'?o.amount:parseFloat(String(o.amount==null?'':o.amount).replace(',','.'));
+    const out={ label:String(o.label||'').trim().slice(0,80), amount:isFinite(amt)?Math.round(amt*100)/100:null,
+      currency:/^[A-Za-z]{3}$/.test(o.currency||'')?o.currency.toUpperCase():'', category:EXP_CATS.includes(o.category)?o.category:'',
+      date:/^\d{4}-\d\d-\d\d$/.test(o.date||'')?o.date:(meta&&meta.date)||'', notes:String(o.notes||'').trim().slice(0,300), city:'' };
+    if(near&&near.d<40) out.city=near.s.city;
+    if(!out.city&&o.city){ const m=stops.find(s=>norm(s.city)===norm(o.city)); out.city=m?m.city:String(o.city).slice(0,80); }
+    if(!out.city&&out.date){ const s=stops.find(s=>s.arrive&&s.arrive<=out.date&&out.date<=(s.depart||s.arrive)); if(s) out.city=s.city; }
+    return out;
+  }
+
+  // Date and GPS from a JPEG's EXIF block (null when absent or not a JPEG).
+  async function readExif(file){
+    try{
+      const v=new DataView(await file.slice(0,262144).arrayBuffer());
+      if(v.getUint16(0)!==0xFFD8) return null;
+      let o=2;
+      while(o+10<v.byteLength){
+        const m=v.getUint16(o); if((m&0xFF00)!==0xFF00) return null;
+        if(m===0xFFE1&&v.getUint32(o+4)===0x45786966) return parseTiff(v, o+10);
+        o+=2+v.getUint16(o+2);
+      }
+    }catch(e){}
+    return null;
+  }
+  function parseTiff(v, t){
+    const le=v.getUint16(t)===0x4949, u16=p=>v.getUint16(p,le), u32=p=>v.getUint32(p,le);
+    const ifd=p=>{ const out={}, n=u16(t+p); for(let i=0;i<n;i++){ const e=t+p+2+i*12; out[u16(e)]={count:u32(e+4), off:e+8}; } return out; };
+    const str=e=>{ const p=e.count>4?t+u32(e.off):e.off; let s=''; for(let i=0;i<e.count;i++){ const c=v.getUint8(p+i); if(!c) break; s+=String.fromCharCode(c); } return s; };
+    const rats=e=>{ const p=t+u32(e.off), r=[]; for(let i=0;i<e.count;i++) r.push(u32(p+i*8)/(u32(p+i*8+4)||1)); return r; };
+    const out={}, i0=ifd(u32(t+4));
+    const ex=i0[0x8769]?ifd(u32(i0[0x8769].off)):{};
+    const d=ex[0x9003]||ex[0x9004]||i0[0x0132];
+    const dm=d&&str(d).match(/^(\d{4}):(\d\d):(\d\d) (\d\d):(\d\d)/);
+    if(dm){ out.date=dm[1]+'-'+dm[2]+'-'+dm[3]; out.time=dm[4]+':'+dm[5]; }
+    if(i0[0x8825]){ const g=ifd(u32(i0[0x8825].off));
+      if(g[2]&&g[4]){ const dms=a=>a[0]+(a[1]||0)/60+(a[2]||0)/3600; let lat=dms(rats(g[2])), lon=dms(rats(g[4]));
+        if(g[1]&&str(g[1])==='S') lat=-lat; if(g[3]&&str(g[3])==='W') lon=-lon;
+        if(isFinite(lat)&&isFinite(lon)&&(lat||lon)&&Math.abs(lat)<=90&&Math.abs(lon)<=180){ out.lat=lat; out.lon=lon; } } }
+    return out.date||out.lat!=null?out:null;
   }
 
   // ---------- photos ----------

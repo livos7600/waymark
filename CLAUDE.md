@@ -25,7 +25,7 @@ Waymark is a travel-log web app published as a claude.ai artifact. The owner (Ol
 - `stops` (cities): tripId, city, country, countryA2, countryN3, lat, lon, arrive, depart, home (bool, for the home city), photoIds[]
 - `legs`: tripId, mode (plane|car|train|bus|ferry|walk), fromId, toId, date, km, kmEstimated, cost, currency, notes
 - `places`: tripId, stopId, name, category, status (want|done), rating 0–5, cost, currency, notes, photoIds[]
-- `expenses`: tripId, label, amount, currency, category, date, paidBy, notes
+- `expenses`: tripId, label, amount, currency, category, date, city, stopId (set when city matches a trip stop), paidBy, notes, photoIds[] (receipt photos; "Scan" reads them with `sample` images)
 - Photos are artifact assets, shown via `/_blob/<id>`.
 
 ## Runtime
