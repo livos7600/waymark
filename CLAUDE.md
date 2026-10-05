@@ -33,4 +33,5 @@ Waymark is a travel-log web app published as a claude.ai artifact. The owner (Ol
 - Capabilities used: `db` (data), `assets` (photos), `sample` (Claude for city/activity coordinates, reading photos and receipts, Top 10), `downloads` (share image).
 - Trip page: zoomable map (pinch with two fingers or +/−, tap a pin, ▶ replays the route), then a Days timeline. "From photo" reads a picture's EXIF date/GPS and asks Claude what it shows; a receipt becomes an expense, anything else an activity.
 - Share (trip header, or the share icon on a day): pick dates/city, format (post 4:5, square, story 9:16), title, map/stats/activities, up to 4 photos; drawn on a canvas, saved via `downloads` or the phone's share sheet.
+- Photos: tapping any photo opens the viewer (swipe, make cover = first in photoIds, replace, delete everywhere). Forms show ✕ / tap-for-cover and apply on Save. The app calls `assets.delete` only for files nothing references any more, after the owner deletes or replaces them.
 - Artifacts can't embed other sites (no map tiles, no iframes); the map is drawn with d3 from the inlined world data.

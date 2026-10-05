@@ -183,8 +183,20 @@
   .err{font-size:13px;color:#C2412D;}
   .confirm{background:var(--accent-soft);border-radius:10px;padding:10px 12px;font-size:14px;display:flex;flex-direction:column;gap:8px;}
 
-  .lightbox{position:fixed;inset:0;z-index:60;background:rgba(0,0,0,.9);display:flex;align-items:center;justify-content:center;padding:16px;}
-  .lightbox img{max-width:100%;max-height:100%;border-radius:8px;}
+  .lightbox{position:fixed;inset:0;z-index:60;background:#05080B;display:flex;flex-direction:column;padding:calc(10px + env(safe-area-inset-top,0px)) 12px calc(12px + env(safe-area-inset-bottom,0px));color:#fff;}
+  .lb-top{display:flex;justify-content:space-between;align-items:center;font-size:14px;min-height:38px;}
+  .lb-img{flex:1;min-height:0;display:flex;align-items:center;justify-content:center;position:relative;}
+  .lb-img img{max-width:100%;max-height:100%;border-radius:8px;object-fit:contain;}
+  .lb-btn{width:40px;height:40px;border-radius:999px;border:none;background:rgba(255,255,255,.14);color:#fff;font-size:22px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;}
+  .lb-prev,.lb-next{position:absolute;top:50%;transform:translateY(-50%);}
+  .lb-prev{left:0;} .lb-next{right:0;}
+  .lb-bar{display:flex;gap:8px;justify-content:center;align-items:center;flex-wrap:wrap;padding-top:10px;font-size:14px;}
+  .lb-bar .btn{background:rgba(255,255,255,.12);border-color:rgba(255,255,255,.25);color:#fff;}
+  .lb-bar .btn.danger{color:#FF9A85;border-color:#FF9A85;background:transparent;}
+  .ph-ed{position:relative;flex-shrink:0;}
+  .ph-ed img{cursor:pointer;}
+  .ph-x{position:absolute;top:4px;right:4px;width:24px;height:24px;border-radius:999px;border:none;background:rgba(0,0,0,.65);color:#fff;font-size:12px;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;}
+  .ph-cover{position:absolute;left:4px;bottom:4px;background:var(--accent);color:var(--accent-ink);font-size:10.5px;font-weight:700;padding:1px 6px;border-radius:5px;}
   .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(84px + env(safe-area-inset-bottom,0px));z-index:70;background:var(--ink);color:var(--bg);padding:9px 14px;border-radius:10px;font-size:14px;font-weight:600;box-shadow:var(--shadow);}
   .share-preview{width:100%;border-radius:12px;border:1px solid var(--line);}
   .empty{padding:28px 16px;text-align:center;color:var(--ink-soft);display:flex;flex-direction:column;gap:10px;align-items:center;}
@@ -551,7 +563,7 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
     main.querySelectorAll('[data-leg]').forEach(el=>el.onclick=()=>legSheet(t, S.legs.find(l=>l.id===el.dataset.leg)));
     main.querySelectorAll('[data-stop]').forEach(el=>el.onclick=()=>go({stopId:el.dataset.stop, placeCat:'all'}));
     main.querySelectorAll('[data-exp]').forEach(el=>el.onclick=e=>{ if(e.target.dataset.photo) return; expenseSheet(t, S.expenses.find(x=>x.id===el.dataset.exp)); });
-    main.querySelectorAll('[data-photo]').forEach(img=>img.onclick=e=>{ e.stopPropagation(); lightbox(img.dataset.photo); });
+    main.querySelectorAll('[data-photo]').forEach(img=>img.onclick=e=>{ e.stopPropagation(); lightbox(img.dataset.photo, img.dataset.list?img.dataset.list.split(','):null); });
   }
   function whoPaidHtml(list){
     const m={}; list.filter(e=>e.paidBy).forEach(e=>{ const k=e.paidBy; m[k]=m[k]||{}; m[k][e.currency||'EUR']=(m[k][e.currency||'EUR']||0)+(+e.amount||0); });
@@ -593,7 +605,7 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
       + '<div class="row"><button class="btn primary" id="addPlace">'+ICON.plus+' Activity</button>'
       + (assets?'<label class="btn" for="cityPhotoIn">'+ICON.camera+' Photos</label><input id="cityPhotoIn" type="file" accept="image/*" multiple hidden>':'')
       + '<button class="btn" id="topHere">'+ICON.spark+' Top 10 here</button></div>'
-      + (cityPhotos.length?'<div class="photos">'+cityPhotos.map(id=>'<img alt="Photo in '+esc(s.city)+'" src="/_blob/'+id+'" data-photo="'+id+'">').join('')+'</div>':'')
+      + (cityPhotos.length?'<div class="photos">'+cityPhotos.map(id=>'<img alt="Photo in '+esc(s.city)+'" src="/_blob/'+id+'" data-photo="'+id+'" data-list="'+cityPhotos.join(',')+'">').join('')+'</div>':'')
       + (Object.keys(spent).length?'<div class="faint">Spent here: '+Object.entries(spent).map(([c,a])=>fmtMoney(a,c)).join(' + ')+'</div>':'')
       + (cats.length>1?'<div class="chips"><button class="chip '+(R.placeCat==='all'?'on':'')+'" data-cat="all">All</button>'+cats.map(c=>'<button class="chip '+(R.placeCat===c?'on':'')+'" data-cat="'+c+'">'+esc(CAT_LABEL[c]||c)+'</button>').join('')+'</div>':'')
       + (places.length?places.map(p=>'<div class="card place" data-place="'+p.id+'"><div class="head"><div><h3>'+esc(p.name)+'</h3><div class="faint">'+esc(CAT_LABEL[p.category]||p.category)+(p.date?' · '+fmtDate(p.date):'')+(p.cost?' · '+fmtMoney(p.cost,p.currency):'')+'</div></div>'
@@ -608,7 +620,7 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
     const pin=$('#cityPhotoIn'); if(pin) pin.onchange=async()=>{ const ids2=await uploadPhotos(pin.files); if(ids2.length){ await patch('stops', s.id, {photoIds:(s.photoIds||[]).concat(ids2)}); toast(ids2.length+' photo'+(ids2.length>1?'s':'')+' added'); } };
     main.querySelectorAll('[data-cat]').forEach(b=>b.onclick=()=>go({placeCat:b.dataset.cat}));
     main.querySelectorAll('[data-place]').forEach(el=>el.onclick=e=>{ if(e.target.dataset.photo) return; placeSheet(s, S.places.find(p=>p.id===el.dataset.place)); });
-    main.querySelectorAll('[data-photo]').forEach(img=>img.onclick=e=>{ e.stopPropagation(); lightbox(img.dataset.photo); });
+    main.querySelectorAll('[data-photo]').forEach(img=>img.onclick=e=>{ e.stopPropagation(); lightbox(img.dataset.photo, img.dataset.list?img.dataset.list.split(','):null); });
   }
 
   // ---------- world ----------
@@ -868,7 +880,9 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
       const hint=t=>{ const el=$('#pUp'); if(el) el.textContent=t; };
       const sync=()=>{ if(!form.isConnected) return; $('#pSave').disabled=uploading||reading;
         const rb=$('#pRead'); if(rb){ rb.hidden=!(picked.length||photoIds.length); rb.disabled=uploading||reading; } };
-      const drawPhotos=()=>{ const el=$('#pPhotos'); if(el) el.innerHTML=photoIds.map(id=>'<img alt="" src="/_blob/'+id+'">').join(''); sync(); };
+      const orig=photoIds.slice(), added=[];
+      const pEl=$('#pPhotos'), drawEd=pEl?photoEditor(pEl, ()=>photoIds, v=>{ photoIds=v; }, sync):null;
+      const drawPhotos=()=>{ if(drawEd) drawEd(); sync(); };
       const setStatus=s=>{ status=s; form.querySelectorAll('[data-st]').forEach(x=>x.classList.toggle('on',x.dataset.st===s)); };
       drawPhotos();
       form.querySelectorAll('[data-st]').forEach(b=>b.onclick=()=>{ statusTouched=true; setStatus(b.dataset.st); });
@@ -877,7 +891,7 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
       $('#pDate').onchange=()=>{ const d=val('pDate'); if(!cityTouched){ const s=stopOnDate(trip.id,d); if(s) $('#pCity').value=s.city; } if(!statusTouched&&d) setStatus(d>todayStr()?'want':'done'); };
       async function addFiles(fs, autoRead){
         picked=picked.concat(fs);
-        if(assets){ uploading=true; sync(); hint('Uploading…'); photoIds=photoIds.concat(await uploadPhotos(fs)); uploading=false; if(!form.isConnected) return; drawPhotos(); hint(''); }
+        if(assets){ uploading=true; sync(); hint('Uploading…'); const up=await uploadPhotos(fs); added.push(...up); photoIds=photoIds.concat(up); uploading=false; if(!form.isConnected) return; drawPhotos(); hint(''); }
         sync();
         if(autoRead&&canRead) await fill();
         else if(!p){ // no Claude here: still take date and place from the photo itself
@@ -926,6 +940,7 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
         if(p){ if(!keep&&p.lat!=null){ data.lat=null; data.lon=null; } await patch('places', p.id, data); }
         else id=(await put('places', null, Object.assign({createdAt:now()}, data))).id;
         closeSheet();
+        for(const x of orig.concat(added)) if(!photoIds.includes(x)) forgetAsset(x, p);
         if(!keep&&id) locatePlaces([Object.assign({id}, data)]).catch(()=>{});
       };
     });
@@ -957,11 +972,13 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
       const hint=t=>{ const el=$('#eUp'); if(el) el.textContent=t; };
       const sync=()=>{ if(!form.isConnected) return; $('#eSave').disabled=uploading||reading;
         const rb=$('#eRead'); if(rb){ rb.hidden=!(picked.length||photoIds.length); rb.disabled=uploading||reading; } };
-      const drawPhotos=()=>{ const el=$('#ePhotos'); if(el) el.innerHTML=photoIds.map(id=>'<img alt="Receipt" src="/_blob/'+id+'">').join(''); sync(); };
+      const orig=photoIds.slice(), added=[];
+      const eEl=$('#ePhotos'), drawEd=eEl?photoEditor(eEl, ()=>photoIds, v=>{ photoIds=v; }, sync):null;
+      const drawPhotos=()=>{ if(drawEd) drawEd(); sync(); };
       drawPhotos();
       async function addFiles(fs, autoRead){
         picked=picked.concat(fs);
-        if(assets){ uploading=true; sync(); hint('Uploading…'); photoIds=photoIds.concat(await uploadPhotos(fs)); uploading=false; if(!form.isConnected) return; drawPhotos(); hint(''); }
+        if(assets){ uploading=true; sync(); hint('Uploading…'); const up=await uploadPhotos(fs); added.push(...up); photoIds=photoIds.concat(up); uploading=false; if(!form.isConnected) return; drawPhotos(); hint(''); }
         sync();
         if(autoRead&&canRead) await fill(); else if(!assets) hint('');
       }
@@ -995,7 +1012,8 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
         const city=val('eCity').trim(), st=city&&tripStops(trip.id).find(s=>norm(s.city)===norm(city));
         const data={tripId:trip.id, label, amount:a, currency:val('eCur'), category:val('eCat'), date:val('eDate'), city:st?st.city:city, stopId:st?st.id:'', paidBy:val('ePaid').trim(), notes:val('eNote').trim(), photoIds, updatedAt:now()};
         if(x) await patch('expenses', x.id, data); else await put('expenses', null, Object.assign({createdAt:now()}, data));
-        closeSheet(); };
+        closeSheet();
+        for(const y of orig.concat(added)) if(!photoIds.includes(y)) forgetAsset(y, x); };
     });
   }
 
@@ -1135,10 +1153,74 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
     }
     return ids;
   }
-  function lightbox(id){
-    layer.innerHTML='<div class="lightbox" id="lb" role="dialog" aria-label="Photo"><img alt="" src="/_blob/'+id+'"></div>';
-    $('#lb').onclick=()=>{ layer.innerHTML=''; };
+  // ---------- photo viewer: browse, make cover, replace, delete ----------
+  // A photo id can sit in stops, places or expenses (photoIds[]). Edits apply to every row holding it.
+  function photoRows(id){ const out=[]; ['stops','places','expenses'].forEach(c=>S[c].forEach(r=>{ if((r.photoIds||[]).includes(id)) out.push({c,r}); })); return out; }
+  async function editPhotoRows(id, fn){ for(const {c,r} of photoRows(id)) await patch(c, r.id, {photoIds:fn(r.photoIds||[])}); }
+  // Delete the stored file once nothing points at it any more. Never throws.
+  async function forgetAsset(id, exceptRow){
+    if(!assets) return;
+    const still=photoRows(id).some(({r})=>r!==exceptRow&&r.id!==(exceptRow&&exceptRow.id));
+    if(!still){ try{ await assets.delete(id); }catch(e){} }
   }
+  // every row holding it was just edited, so the file can go
+  async function dropAsset(id){ if(!assets) return; try{ await assets.delete(id); }catch(e){} }
+  let lbEl=null;
+  function lightbox(id, list){
+    list=(list&&list.length?list:((photoRows(id)[0]||{}).r||{}).photoIds)||[id];
+    let i=Math.max(0,list.indexOf(id)), busy=false, confirmDel=false;
+    if(lbEl) lbEl.remove();
+    lbEl=document.createElement('div'); lbEl.className='lightbox'; lbEl.setAttribute('role','dialog'); lbEl.setAttribute('aria-label','Photo');
+    document.body.appendChild(lbEl);
+    const close=()=>{ if(lbEl){ lbEl.remove(); lbEl=null; } document.removeEventListener('keydown', onKey); };
+    const onKey=e=>{ if(e.key==='Escape') close(); else if(e.key==='ArrowLeft') step(-1); else if(e.key==='ArrowRight') step(1); };
+    document.addEventListener('keydown', onKey);
+    const step=d=>{ if(list.length<2) return; i=(i+d+list.length)%list.length; confirmDel=false; draw(); };
+    const draw=()=>{ if(!lbEl) return; const cur=list[i];
+      lbEl.innerHTML='<div class="lb-top"><span>'+(list.length>1?(i+1)+' / '+list.length:'')+'</span><button type="button" class="lb-btn" data-a="close" aria-label="Close">✕</button></div>'
+        + '<div class="lb-img"><img alt="" src="/_blob/'+cur+'">'
+        + (list.length>1?'<button type="button" class="lb-btn lb-prev" data-a="prev" aria-label="Previous">‹</button><button type="button" class="lb-btn lb-next" data-a="next" aria-label="Next">›</button>':'')+'</div>'
+        + (assets?'<div class="lb-bar">'+(confirmDel
+            ? '<span>Delete this photo everywhere?</span><button type="button" class="btn small danger" data-a="del2">Delete</button><button type="button" class="btn small" data-a="keep">Keep</button>'
+            : (i>0?'<button type="button" class="btn small" data-a="cover">★ Make cover</button>':'<span class="faint" style="color:#cfd6dd">Cover photo</span>')
+              + '<label class="btn small">↻ Replace<input type="file" accept="image/*" hidden data-a="replace"></label><button type="button" class="btn small danger" data-a="del">Delete</button>')
+          + '</div>':'');
+      lbEl.querySelectorAll('button[data-a]').forEach(b=>b.onclick=e=>{ e.stopPropagation(); act(b.dataset.a); });
+      const rf=lbEl.querySelector('input[data-a="replace"]'); if(rf) rf.onchange=()=>{ const f=rf.files&&rf.files[0]; rf.value=''; if(f) act('replace', f); };
+    };
+    const act=async(a, file)=>{
+      if(a==='close') return close();
+      if(a==='prev') return step(-1);
+      if(a==='next') return step(1);
+      if(a==='del'){ confirmDel=true; return draw(); }
+      if(a==='keep'){ confirmDel=false; return draw(); }
+      if(busy) return; busy=true; const cur=list[i];
+      try{
+        if(a==='cover'){ await editPhotoRows(cur, ids=>[cur].concat(ids.filter(x=>x!==cur))); list=[cur].concat(list.filter(x=>x!==cur)); i=0; toast('Cover photo set'); }
+        else if(a==='del2'){ await editPhotoRows(cur, ids=>ids.filter(x=>x!==cur)); await dropAsset(cur); list=list.filter(x=>x!==cur); toast('Photo deleted');
+          if(!list.length) return close(); i=Math.min(i,list.length-1); confirmDel=false; }
+        else if(a==='replace'){ toast('Uploading…'); const [nid]=await uploadPhotos([file]); if(!nid) return;
+          await editPhotoRows(cur, ids=>ids.map(x=>x===cur?nid:x)); await dropAsset(cur); list=list.map(x=>x===cur?nid:x); toast('Photo replaced'); }
+      }catch(e){ toast('Couldn\'t change the photo. Try again.'); }
+      finally{ busy=false; draw(); }
+    };
+    // swipe left/right
+    let sx=null; lbEl.addEventListener('touchstart',e=>{ sx=e.touches.length===1?e.touches[0].clientX:null; },{passive:true});
+    lbEl.addEventListener('touchend',e=>{ if(sx==null) return; const dx=e.changedTouches[0].clientX-sx; sx=null; if(Math.abs(dx)>50) step(dx<0?1:-1); });
+    lbEl.addEventListener('click',e=>{ if(e.target===lbEl||e.target.classList.contains('lb-img')) close(); });
+    draw();
+  }
+  // Photo strip inside a form: tap = make cover, ✕ = remove. Works on the form's own copy of the ids.
+  function photoEditor(el, get, set, onChange){
+    const draw=()=>{ const ids=get();
+      el.innerHTML=ids.map((id,n)=>'<span class="ph-ed"><img alt="'+(n?'':'Cover photo')+'" src="/_blob/'+id+'" data-cov="'+id+'">'+(n===0&&ids.length>1?'<b class="ph-cover">Cover</b>':'')
+        + '<button type="button" class="ph-x" data-rm="'+id+'" aria-label="Remove photo">✕</button></span>').join('');
+      el.querySelectorAll('[data-rm]').forEach(b=>b.onclick=()=>{ set(get().filter(x=>x!==b.dataset.rm)); draw(); onChange&&onChange(); });
+      el.querySelectorAll('[data-cov]').forEach(im=>im.onclick=()=>{ const id=im.dataset.cov; set([id].concat(get().filter(x=>x!==id))); draw(); onChange&&onChange(); });
+    };
+    draw(); return draw;
+  }
+
 
   // ---------- share card ----------
   // The viewer picks a slice of the trip (dates), a format and what goes on the image.
