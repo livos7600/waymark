@@ -573,7 +573,7 @@ const WORLD = __WORLD__;
         if(opts.onStay) act=()=>opts.onStay(x);
       } else { const p=it.p;
         html=((p.photoIds||[])[0]?'<img alt="" src="/_blob/'+p.photoIds[0]+'">':'')+'<div style="flex:1;min-width:0"><b>'+esc(p.name)+'</b><div class="faint">'+(p.date?fmtDate(p.date,{weekday:'short',month:'short',day:'numeric'})+' · ':'')
-          +(p.status==='done'?'Been':'Want to go')+(p.rating?' · '+'★'.repeat(p.rating):'')+(statsLine(p)?'<br>'+statsLine(p):'')+'</div></div>';
+          +(p.status==='done'?'Been':'Want to go')+(statsLine(p)?'<br>'+statsLine(p):'')+'</div></div>';
         if(opts.onPlace) act=()=>opts.onPlace(p);
       }
       card.innerHTML=html+(act?'<button type="button" class="btn small">Open</button>':'')+'<button type="button" class="btn small ghost" aria-label="Close">✕</button>';
@@ -1628,7 +1628,7 @@ const WORLD = __WORLD__;
             if(k==='leg'){ const l=x; const a=stopOf(l.fromId)||{}, b=stopOf(l.toId)||{};
             return '<div class="day-i" data-leg="'+l.id+'">'+tm+emo(MODE_EMOJI[l.mode]||'🚗')+'<span style="flex:1">'+esc(a.city||'?')+' → '+esc(b.city||'?')+'</span><span class="faint mono">'+(l.kmEstimated?'≈':'')+fmtKm(l.km||0)+' km</span></div>'; }
             if(k==='act'){ const p=x; return '<div class="day-i" data-pl="'+p.id+'">'+tm+emo(catIcon(p.category))+'<span style="flex:1;min-width:0">'+esc(p.name)+(p.status==='want'?' <span class="faint">· planned</span>':'')
-            +(p.rating?' <span class="stars">'+'★'.repeat(p.rating)+'</span>':'')+(statsLine(p)?' <span class="faint">'+statsLine(p)+'</span>':'')+'</span>'+(p.photoIds||[]).slice(0,3).map(id=>'<img alt="" src="/_blob/'+id+'" data-photo="'+id+'">').join('')+'</div>'; }
+            +(statsLine(p)?' <span class="faint">'+statsLine(p)+'</span>':'')+'</span>'+(p.photoIds||[]).slice(0,3).map(id=>'<img alt="" src="/_blob/'+id+'" data-photo="'+id+'">').join('')+'</div>'; }
             const e=x; return '<div class="day-i" data-exp="'+e.id+'">'+tm+emo(expIcon(e.category,e.label))+'<span style="flex:1;min-width:0">'+esc(e.label)+'</span><span class="faint mono">'+fmtMoney(e.amount,e.currency)+'</span></div>'; }).join('')+'</div>'
         + (legs.length||acts.length||exps.length?'':'<div class="faint">Nothing logged yet</div>')
         + nightHtml(t, d)
@@ -1643,7 +1643,7 @@ const WORLD = __WORLD__;
     if(!xs.length) return '<button type="button" class="night-add" data-night="'+d+'">🛏 Where did you sleep?</button>';
     return xs.map(x=>{ const n=stayNights(x), i=dayCount(x.checkIn,d);
       return '<div class="day-i night" data-stay="'+x.id+'"><span class="mini" style="background:var(--night)">'+stayIcon(x)+'</span><span style="flex:1;min-width:0">'+esc(x.name)
-        + ' <span class="faint">'+(n>1?'night '+i+' of '+n:'1 night')+(perNight(x)?' · '+perNight(x):'')+'</span>'+(x.rating?' <span class="stars">'+'★'.repeat(x.rating)+'</span>':'')+'</span>'
+        + ' <span class="faint">'+(n>1?'night '+i+' of '+n:'1 night')+(perNight(x)?' · '+perNight(x):'')+'</span>'+(false&&x.rating?' <span class="stars">'+'★'.repeat(x.rating)+'</span>':'')+'</span>'
         + ((x.photoIds||[])[0]?'<img alt="" src="/_blob/'+x.photoIds[0]+'" data-photo="'+x.photoIds[0]+'">':'')+'</div>'; }).join('');
   }
 
@@ -1900,7 +1900,7 @@ const WORLD = __WORLD__;
     if(nA){ // activities list
       d.acts.slice(0,nA).forEach((p,i)=>{ const ry=y+i*56+30;
         g.font='30px sans-serif'; g.fillStyle='#fff'; g.fillText(catIcon(p.category),X-4,ry);
-        const stars=p.rating?'★'.repeat(p.rating):'', price=o.showCosts&&+p.cost?fmtMoney(+p.cost,p.currency||t.currency):'';
+        const stars='', price=o.showCosts&&+p.cost?fmtMoney(+p.cost,p.currency||t.currency):'';
         g.font='600 34px Figtree, sans-serif'; const sw=stars?g.measureText(stars).width+20:0, pw=price?g.measureText(price).width+20:0;
         g.fillStyle='#fff'; g.fillText(fitText(g,shareName(p,o),W-2*X-50-sw-pw),X+40,ry);
         if(price){ g.fillStyle='#8FA0AF'; g.fillText(price,W-X-sw-pw+20,ry); }
@@ -2119,7 +2119,7 @@ const WORLD = __WORLD__;
           g.fillStyle='#E2551B'; g.font='700 24px Figtree, sans-serif'; g.fillText(fitText(g,(e.icon?e.icon+'  ':'')+([e.time,e.cat].filter(Boolean).join(' · ')||(e.isExp?'Spent':'Activity')).toUpperCase(),tw),tx,y0+50);
           g.fillStyle='#15202B'; g.font='700 52px "Barlow Condensed", sans-serif'; g.fillText(fitText(g,e.name||'',tw),tx,y0+106);
           g.font='600 28px Figtree, sans-serif'; let bx=tx;
-          if(e.rating){ const st='★'.repeat(Math.min(5,e.rating)); g.fillStyle='#E2551B'; g.fillText(st,bx,y0+144); bx+=g.measureText(st).width+18; }
+          if(false&&e.rating){ const st='★'.repeat(Math.min(5,e.rating)); g.fillStyle='#E2551B'; g.fillText(st,bx,y0+144); bx+=g.measureText(st).width+18; }
           if(o.showCosts&&e.cost){ g.fillStyle='#4C5967'; g.fillText(fmtMoney(e.cost,e.cur),bx,y0+144); }
           g.globalAlpha=1; } }
       // closing stats, as on the card
