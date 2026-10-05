@@ -8,6 +8,7 @@ Waymark is a travel-log web app published as a claude.ai artifact. The owner (Ol
 - `src/app.template.html` — app source. `__WORLD__` is replaced by `src/countries-50m.json` (world-atlas 50m TopoJSON, sharp enough for coastlines at city zoom) at build time.
 - `src/build.py` — `python3 src/build.py` writes `waymark.html` at the repo root, the file that gets published.
 - `src/playbook.html` — source of the business plan page.
+- `src/video-test.html` — one-off phone test for recording the route as video (published separately: https://claude.ai/artifact/XyaNs7QxB6NUPxNxx8KP5v, capability `downloads`).
 
 ## How to change the app
 1. **Read the live artifact first** (Artifact tool, `action: "read"`, the URL above). If it differs from `src/app.template.html`, the live version wins; bring the repo up to date before editing.
