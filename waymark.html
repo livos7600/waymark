@@ -8,7 +8,7 @@
     --line:#D3DAE1; --accent:#E2551B; --accent-ink:#FFFFFF; --accent-soft:#FBE4D9;
     --land:#D9DFE5; --land-visited:#F5C6AE; --sea:#F6F8FA; --border-land:#FFFFFF;
     --plane:#2F6FED; --car:#E2551B; --train:#22946A; --bus:#8E55C9; --ferry:#0E9BAD; --walk:#8A7F70;
-    --good:#22946A; --track:#D6336C; --shadow:0 1px 2px rgba(21,32,43,.06),0 8px 24px -12px rgba(21,32,43,.22);
+    --good:#22946A; --track:#D6336C; --night:#4B4FA8; --shadow:0 1px 2px rgba(21,32,43,.06),0 8px 24px -12px rgba(21,32,43,.22);
   }
   @media (prefers-color-scheme: dark){
     :root:not([data-theme="light"]){
@@ -17,7 +17,7 @@
       --line:#2A3743; --accent:#FF7A3D; --accent-ink:#1A0A02; --accent-soft:#3A2216;
       --land:#25313C; --land-visited:#6B3A24; --sea:#121A21; --border-land:#0F151B;
       --plane:#6F9BFF; --car:#FF7A3D; --train:#4CC795; --bus:#B98BEB; --ferry:#3CC6D6; --walk:#B5AA9B;
-      --good:#4CC795; --track:#FF5C8A; --shadow:0 1px 2px rgba(0,0,0,.35),0 10px 28px -12px rgba(0,0,0,.6);
+      --good:#4CC795; --track:#FF5C8A; --night:#7C80E0; --shadow:0 1px 2px rgba(0,0,0,.35),0 10px 28px -12px rgba(0,0,0,.6);
     }
   }
   :root[data-theme="dark"]{
@@ -26,7 +26,7 @@
     --line:#2A3743; --accent:#FF7A3D; --accent-ink:#1A0A02; --accent-soft:#3A2216;
     --land:#25313C; --land-visited:#6B3A24; --sea:#121A21; --border-land:#0F151B;
     --plane:#6F9BFF; --car:#FF7A3D; --train:#4CC795; --bus:#B98BEB; --ferry:#3CC6D6; --walk:#B5AA9B;
-    --good:#4CC795; --track:#FF5C8A; --shadow:0 1px 2px rgba(0,0,0,.35),0 10px 28px -12px rgba(0,0,0,.6);
+    --good:#4CC795; --track:#FF5C8A; --night:#7C80E0; --shadow:0 1px 2px rgba(0,0,0,.35),0 10px 28px -12px rgba(0,0,0,.6);
   }
   *{box-sizing:border-box;}
   html,body{height:100%;}
@@ -103,6 +103,8 @@
   .day-i img{width:30px;height:30px;border-radius:6px;object-fit:cover;flex-shrink:0;cursor:zoom-in;}
   .drag{margin-left:auto;padding:6px 2px 6px 10px;color:var(--ink-faint);font-size:18px;line-height:1;cursor:grab;touch-action:none;user-select:none;-webkit-user-select:none;flex-shrink:0;}
   .day-i.dragging{background:var(--surface);box-shadow:var(--shadow);border-radius:8px;position:relative;z-index:2;}
+  .night-add{align-self:flex-start;border:1px dashed var(--line);background:transparent;color:var(--ink-faint);border-radius:8px;padding:4px 10px;font-size:13px;margin-top:4px;cursor:pointer;}
+  .day-i.night{border-top:1px dashed var(--line);margin-top:2px;padding-top:6px;}
   .mini{width:22px;height:22px;border-radius:6px;display:inline-flex;align-items:center;justify-content:center;color:#fff;flex-shrink:0;}
   .mini svg{width:13px;height:13px;}
   .legend{display:flex;gap:10px;flex-wrap:wrap;font-size:12.5px;color:var(--ink-soft);}
@@ -216,7 +218,7 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
 ;
 (function(){
   // ---------- state ----------
-  const S = { trips:[], stops:[], legs:[], places:[], expenses:[] };
+  const S = { trips:[], stops:[], legs:[], places:[], expenses:[], stays:[] };
   let db = null, assets = null, sample = null, downloads = null, mcp = null;
   let sampleImages = 0; // how many images one Claude call can take here (0: none)
   let ready = { db:false };
@@ -285,6 +287,7 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
       const cat = p.category==='hotel'?'Lodging':(p.category==='food'||p.category==='restaurant')?'Food & drink':(p.category==='shopping')?'Shopping':'Activities';
       out.push({cat, label:p.name, amount:+p.cost, cur:p.currency||'EUR'}); });
     S.expenses.filter(e=>e.tripId===tid).forEach(e=>out.push({cat:e.category||'Other', label:e.label, amount:+e.amount, cur:e.currency||'EUR', id:e.id}));
+    S.stays.filter(x=>x.tripId===tid&&x.cost).forEach(x=>out.push({cat:'Lodging', label:x.name+' · '+stayNights(x)+' night'+(stayNights(x)===1?'':'s'), amount:+x.cost, cur:x.currency||'EUR'}));
     return out;
   }
   function totalsByCur(lines){ const m={}; lines.forEach(l=>{ m[l.cur]=(m[l.cur]||0)+l.amount; }); return m; }
@@ -299,7 +302,7 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
   }
 
   // ---------- data layer ----------
-  const COLS = ['trips','stops','legs','places','expenses'];
+  const COLS = ['trips','stops','legs','places','expenses','stays'];
   async function init(){
     renderTabs();
     if(!window.claude || !window.claude.use){ main.innerHTML='<div class="status">Open this page from claude.ai to load your trips.</div>'; return; }
@@ -401,7 +404,7 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
   function drawMap(container, opts){
     const W=opts.width||720, H=opts.height||420, key=opts.key||'map', world=!!opts.world;
     const stops=(opts.stops||[]).filter(s=>s.lat!=null&&s.lon!=null), legs=opts.legs||[];
-    const acts=(opts.places||[]).filter(p=>p.lat!=null&&p.lon!=null);
+    const acts=(opts.places||[]).filter(p=>p.lat!=null&&p.lon!=null), sleeps=(opts.stays||[]).filter(x=>x.lat!=null&&x.lon!=null);
     const visited=new Set(opts.visitedN3||[]);
     let proj;
     if(world) proj=d3.geoNaturalEarth1().fitExtent([[6,6],[W-6,H-6]],{type:'Sphere'});
@@ -471,6 +474,10 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
             .attr('fill','var(--ink)').attr('paint-order','stroke').attr('stroke','var(--sea)').attr('stroke-width',3.5);
         });
       });
+      sleeps.forEach(x=>{ const q=proj([x.lon,x.lat]); if(!q) return; items['h:'+x.id]={type:'stay', x};
+        pin(q[0],q[1],'h:'+x.id,m=>{ m.append('circle').attr('r',14).attr('fill','transparent');
+          m.append('rect').attr('x',-8).attr('y',-8).attr('width',16).attr('height',16).attr('rx',4).attr('fill','var(--night)').attr('stroke','var(--surface)').attr('stroke-width',2);
+          m.append('text').text('H').attr('text-anchor','middle').attr('dy','.36em').attr('fill','#fff').attr('font-size',10).attr('font-weight',800).attr('font-family','Figtree, sans-serif'); }); });
       acts.forEach(p=>{ const q=proj([p.lon,p.lat]); if(!q) return; items['p:'+p.id]={type:'place', p};
         pin(q[0],q[1],'p:'+p.id,m=>{ m.append('circle').attr('r',14).attr('fill','transparent');
           m.append('rect').attr('x',-6).attr('y',-6).attr('width',12).attr('height',12).attr('rx',3).attr('transform','rotate(45)')
@@ -508,6 +515,9 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
         html=(ph?'<img alt="" src="/_blob/'+ph+'">':'')+'<div style="flex:1;min-width:0"><b>'+flag(s.countryA2)+' '+esc(s.city)+'</b><div class="faint">'
           +(world&&t?esc(t.name)+' · ':'')+visits.map(v=>fmtDate(v.arrive)+(v.depart&&v.depart!==v.arrive?' – '+fmtDate(v.depart):'')).join(' & ')+(world?'':' · '+np+' activit'+(np===1?'y':'ies'))+'</div></div>';
         if(opts.onStop&&!s.home) act=()=>opts.onStop(s);
+      } else if(it.type==='stay'){ const x=it.x;
+        html=((x.photoIds||[])[0]?'<img alt="" src="/_blob/'+x.photoIds[0]+'">':'')+'<div style="flex:1;min-width:0"><b>'+stayIcon(x)+' '+esc(x.name)+'</b><div class="faint">'+fmtDate(x.checkIn)+' – '+fmtDate(x.checkOut)+' · '+stayNights(x)+' night'+(stayNights(x)===1?'':'s')+(perNight(x)?' · '+perNight(x):'')+'</div></div>';
+        if(opts.onStay) act=()=>opts.onStay(x);
       } else { const p=it.p;
         html=((p.photoIds||[])[0]?'<img alt="" src="/_blob/'+p.photoIds[0]+'">':'')+'<div style="flex:1;min-width:0"><b>'+esc(p.name)+'</b><div class="faint">'+(p.date?fmtDate(p.date,{weekday:'short',month:'short',day:'numeric'})+' · ':'')
           +(p.status==='done'?'Been':'Want to go')+(p.rating?' · '+'★'.repeat(p.rating):'')+(statsLine(p)?'<br>'+statsLine(p):'')+'</div></div>';
@@ -569,7 +579,7 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
       + '<span class="faint mono">'+modesUsed.map(m=>MODES[m].label+' '+fmtKm(st.byMode[m])+' km').join(' · ')+'</span></div></div>'
       + '<div class="sec-title"><h2>Days</h2><div class="row" style="flex-wrap:nowrap">'+(assets||(sample&&sampleImages)?'<label class="btn small" for="actPhotoIn">'+ICON.camera+' From photo</label><input id="actPhotoIn" type="file" accept="image/*" multiple hidden>':'')
       + '<button class="btn small" id="addAct">'+ICON.plus+' Activity</button></div></div>'
-      + '<div class="row">'+(mcp?'<button class="btn small ghost" id="fromStrava">⇣ From Strava</button>':'')+'<label class="btn small ghost" for="gpxIn">⇣ GPX file</label><input id="gpxIn" type="file" hidden></div>'
+      + '<div class="row">'+(mcp?'<button class="btn small ghost" id="fromStrava">⇣ From Strava</button>':'')+'<label class="btn small ghost" for="gpxIn">⇣ GPX file</label><input id="gpxIn" type="file" hidden><button class="btn small ghost" id="addStay">🛏 Stay</button></div>'
       + '<div class="faint">Wrong order in a day? Hold ⠿ and slide the row.</div>'
       + (sample&&unplaced.length?'<button class="btn small ghost" id="locateAll" style="align-self:flex-start">📍 Put '+unplaced.length+' activit'+(unplaced.length===1?'y':'ies')+' on the map</button>':'')
       + daysHtml(t)
@@ -593,7 +603,7 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
       + '<div class="sec-title"><h2>Budget</h2><div class="row" style="flex-wrap:nowrap">'+(sample&&sampleImages?'<label class="btn small" for="scanIn">'+ICON.camera+' Scan</label><input id="scanIn" type="file" accept="image/*" hidden>':'')+'<button class="btn small" id="addExp">'+ICON.plus+' Expense</button></div></div>'
       + budgetHtml(t.id)
       + '<div class="row"><button class="btn ghost small" id="discoverHere">'+ICON.spark+' Top 10 for a city on this trip</button></div>';
-    drawMap($('#tripMap'), {key:'trip:'+t.id, stops, legs, places:tripPlaces, visitedN3, height:520, label:'Route map for '+t.name,
+    drawMap($('#tripMap'), {key:'trip:'+t.id, stops, legs, places:tripPlaces, stays:tripStays(t.id), onStay:x=>staySheet(x, {trip:t}), visitedN3, height:520, label:'Route map for '+t.name,
       onStop:s=>go({stopId:s.id, placeCat:'all'}), onPlace:p=>placeSheet(stopOf(p.stopId), p, {trip:t})});
     $('#addAct').onclick=()=>placeSheet(null, null, {trip:t, date:(todayStr()>=t.startDate&&todayStr()<=t.endDate)?todayStr():t.startDate});
     const fs0=$('#fromStrava'); if(fs0) fs0.onclick=()=>stravaSheet(t);
@@ -603,6 +613,9 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
       try{ const n=await locatePlaces(unplaced); toast(n?n+' on the map':'Couldn\'t place them. Open one and save it to try again.'); }
       catch(e){ toast(photoError(e)||'Couldn\'t place them'); } };
     enableDayDrag();
+    $('#addStay').onclick=()=>{ const td=todayStr(); staySheet(null, {trip:t, date:(td>=t.startDate&&td<t.endDate)?td:t.startDate}); };
+    main.querySelectorAll('[data-night]').forEach(b=>b.onclick=()=>staySheet(null, {trip:t, date:b.dataset.night}));
+    main.querySelectorAll('[data-stay]').forEach(el=>el.onclick=e=>{ if(e.target.dataset.photo) return; const x=S.stays.find(y=>y.id===el.dataset.stay); if(x) staySheet(x, {trip:t}); });
     main.querySelectorAll('[data-shareday]').forEach(b=>b.onclick=()=>shareSheet(t, {from:b.dataset.shareday, to:b.dataset.shareday}));
     main.querySelectorAll('[data-addact]').forEach(b=>b.onclick=()=>placeSheet(null, null, {trip:t, date:b.dataset.addact}));
     main.querySelectorAll('[data-pl]').forEach(el=>el.onclick=e=>{ if(e.target.dataset.photo) return; const p=S.places.find(x=>x.id===el.dataset.pl); if(p) placeSheet(stopOf(p.stopId), p, {trip:t}); });
@@ -649,13 +662,16 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
     if(R.placeCat!=='all') places=places.filter(p=>p.category===R.placeCat);
     const cityPhotos=[].concat(...twins.map(x=>x.photoIds||[]));
     const spent=totalsByCur(S.places.filter(p=>ids.includes(p.stopId)&&p.cost).map(p=>({amount:+p.cost,cur:p.currency||'EUR'}))
-      .concat(S.expenses.filter(e=>ids.includes(e.stopId)&&e.amount).map(e=>({amount:+e.amount,cur:e.currency||'EUR'}))));
+      .concat(S.expenses.filter(e=>ids.includes(e.stopId)&&e.amount).map(e=>({amount:+e.amount,cur:e.currency||'EUR'})))
+      .concat(S.stays.filter(x=>ids.includes(x.stopId)&&x.cost).map(x=>({amount:+x.cost,cur:x.currency||'EUR'}))));
+    const cityStays=S.stays.filter(x=>ids.includes(x.stopId)).sort((a,b)=>(a.checkIn||'').localeCompare(b.checkIn||''));
     main.innerHTML =
       '<div class="faint">'+flag(s.countryA2)+' '+esc(s.country||'')+' · '+twins.map(x=>fmtDate(x.arrive)+(x.depart&&x.depart!==x.arrive?' – '+fmtDate(x.depart):'')).join(' & ')+(t?' · '+esc(t.name):'')+'</div>'
       + '<div class="row"><button class="btn primary" id="addPlace">'+ICON.plus+' Activity</button>'
       + (assets?'<label class="btn" for="cityPhotoIn">'+ICON.camera+' Photos</label><input id="cityPhotoIn" type="file" accept="image/*" multiple hidden>':'')
       + '<button class="btn" id="topHere">'+ICON.spark+' Top 10 here</button></div>'
       + (cityPhotos.length?'<div class="photos">'+cityPhotos.map(id=>'<img alt="Photo in '+esc(s.city)+'" src="/_blob/'+id+'" data-photo="'+id+'" data-list="'+cityPhotos.join(',')+'">').join('')+'</div>':'')
+      + (cityStays.length?'<div class="card">'+cityStays.map(x=>'<div class="day-i night" style="padding:10px 14px;border-top:none" data-stay="'+x.id+'"><span class="mini" style="background:var(--night)">'+stayIcon(x)+'</span><span style="flex:1">Staying at <b>'+esc(x.name)+'</b> <span class="faint">'+fmtDate(x.checkIn)+' – '+fmtDate(x.checkOut)+' · '+stayNights(x)+' night'+(stayNights(x)===1?'':'s')+(perNight(x)?' · '+perNight(x):'')+'</span></span></div>').join('')+'</div>':'')
       + (Object.keys(spent).length?'<div class="faint">Spent here: '+Object.entries(spent).map(([c,a])=>fmtMoney(a,c)).join(' + ')+'</div>':'')
       + (cats.length>1?'<div class="chips"><button class="chip '+(R.placeCat==='all'?'on':'')+'" data-cat="all">All</button>'+cats.map(c=>'<button class="chip '+(R.placeCat===c?'on':'')+'" data-cat="'+c+'">'+esc(CAT_LABEL[c]||c)+'</button>').join('')+'</div>':'')
       + (places.length?places.map(p=>'<div class="card place" data-place="'+p.id+'"><div class="head"><div><h3>'+esc(p.name)+'</h3><div class="faint">'+esc(CAT_LABEL[p.category]||p.category)+(p.date?' · '+fmtDate(p.date):'')+(p.cost?' · '+fmtMoney(p.cost,p.currency):'')+(statsLine(p)?' · '+statsLine(p):'')+'</div></div>'
@@ -669,6 +685,7 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
     $('#topHere').onclick=()=>{ discover.city=s.city; discover.forStopId=s.id; discover.results=null; go({tab:'discover', tripId:null, stopId:null}); };
     const pin=$('#cityPhotoIn'); if(pin) pin.onchange=async()=>{ const ids2=await uploadPhotos(pin.files); if(ids2.length){ await patch('stops', s.id, {photoIds:(s.photoIds||[]).concat(ids2)}); toast(ids2.length+' photo'+(ids2.length>1?'s':'')+' added'); } };
     main.querySelectorAll('[data-cat]').forEach(b=>b.onclick=()=>go({placeCat:b.dataset.cat}));
+    main.querySelectorAll('[data-stay]').forEach(el=>el.onclick=()=>{ const x=S.stays.find(y=>y.id===el.dataset.stay); if(x) staySheet(x); });
     main.querySelectorAll('[data-place]').forEach(el=>el.onclick=e=>{ if(e.target.dataset.photo) return; placeSheet(s, S.places.find(p=>p.id===el.dataset.place)); });
     main.querySelectorAll('[data-photo]').forEach(img=>img.onclick=e=>{ e.stopPropagation(); lightbox(img.dataset.photo, img.dataset.list?img.dataset.list.split(','):null); });
   }
@@ -782,7 +799,7 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
     form=>{
       $('#xCancel').onclick=closeSheet;
       if(t) $('#xDel').onclick=()=>confirmDelete(form,'this trip and everything in it', async()=>{
-        for(const c of ['legs','stops','places','expenses']) for(const x of S[c].filter(x=>x.tripId===t.id)) await del(c,x.id);
+        for(const c of ['legs','stops','places','expenses','stays']) for(const x of S[c].filter(x=>x.tripId===t.id)) await del(c,x.id);
         await del('trips', t.id); go({tripId:null});
       });
       form.onsubmit=async e=>{ e.preventDefault();
@@ -873,6 +890,7 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
     const ids=stops.map(x=>x.id);
     for(const l of S.legs.filter(l=>ids.includes(l.fromId)||ids.includes(l.toId))) await del('legs', l.id);
     for(const p of S.places.filter(p=>ids.includes(p.stopId))) await del('places', p.id);
+    for(const x of S.stays.filter(x=>ids.includes(x.stopId))) await del('stays', x.id);
     for(const e of S.expenses.filter(e=>ids.includes(e.stopId))) await patch('expenses', e.id, {stopId:''});
     for(const id of ids) await del('stops', id);
   }
@@ -889,7 +907,8 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
         const twins=S.stops.filter(x=>x.tripId===s.tripId&&!x.home&&norm(x.city)===norm(s.city)), ids=twins.map(x=>x.id);
         const nl=S.legs.filter(l=>ids.includes(l.fromId)||ids.includes(l.toId)).length, np=S.places.filter(p=>ids.includes(p.stopId)).length;
         const nph=twins.reduce((a,x)=>a+(x.photoIds||[]).length,0)+S.places.filter(p=>ids.includes(p.stopId)).reduce((a,p)=>a+(p.photoIds||[]).length,0);
-        const parts=[nl?nl+' leg'+(nl>1?'s':''):'', np?np+' activit'+(np>1?'ies':'y'):''].filter(Boolean);
+        const ns=S.stays.filter(x=>ids.includes(x.stopId)).length;
+        const parts=[nl?nl+' leg'+(nl>1?'s':''):'', np?np+' activit'+(np>1?'ies':'y'):'', ns?ns+' stay'+(ns>1?'s':''):''].filter(Boolean);
         confirmDelete(form, s.city+' from this trip'+(parts.length?', with its '+parts.join(' and '):'')+(nph?' ('+nph+' photo'+(nph>1?'s':'')+' will no longer be shown)':''),
           async()=>{ await removeCity(twins); go({stopId:null}); toast(s.city+' removed'); });
       };
@@ -965,6 +984,7 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
           const r=await readPhoto(trip, imgs, opts.any&&!p?'any':'activity');
           if(!form.isConnected) return;
           if(r.kind==='receipt'&&opts.any&&!p){ closeSheet(); expenseSheet(trip, null, null, {photoIds, picked, result:r}); return; }
+          if(r.kind==='stay'&&opts.any&&!p){ closeSheet(); staySheet(null, {trip, pre:{photoIds, picked}}); return; }
           const set=(id,v)=>{ if(v!=null&&v!=='') $('#'+id).value=v; };
           set('pName', r.name); set('pCat', r.actCat);
           if(r.date){ $('#pDate').value=r.date; }
@@ -1094,8 +1114,8 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
       + 'Today is '+todayStr()+'.\n'
       + (want==='expense'?'It is a receipt, bill, ticket or price tag (kind "receipt").\n'
         : want==='activity'?'It shows something the traveller did or visited: a place, view, activity, meal or event (kind "activity").\n'
-        : 'Decide whether it is a receipt, bill, ticket or price tag (kind "receipt") or a photo of a place, view, activity, meal or event (kind "activity").\n')
-      + 'Reply with only a JSON object: {"kind": "receipt" or "activity", '
+        : 'Decide whether it is a receipt, bill, ticket or price tag (kind "receipt"), an accommodation booking or confirmation (kind "stay"), or a photo of a place, view, activity, meal or event (kind "activity").\n')
+      + 'Reply with only a JSON object: {"kind": "receipt", "stay" or "activity", '
       + '"name": string (receipt: merchant and item, e.g. "Dinner at Bar Nestor"; activity: the specific place or activity, e.g. "Dune du Pilat", "Guggenheim Bilbao", "Surf lesson, Côte des Basques"; max 50 characters), '
       + '"amount": number or null (receipt: final total paid incl. tax and tip; activity: only if a price is visible), "currency": ISO 4217 code or null, '
       + '"expenseCategory": one of '+JSON.stringify(EXP_CATS)+', "activityCategory": one of '+JSON.stringify(CATS.map(c=>c[0]))+', '
@@ -1106,7 +1126,7 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
     const o=r&&typeof r==='object'?r:{};
     const num=v=>typeof v==='number'?v:parseFloat(String(v==null?'':v).replace(',','.'));
     const amt=num(o.amount), la=num(o.lat), lo=num(o.lon);
-    const out={ kind:want==='expense'?'receipt':want==='activity'?'activity':(o.kind==='receipt'?'receipt':'activity'),
+    const out={ kind:want==='expense'?'receipt':want==='activity'?'activity':(o.kind==='receipt'||o.kind==='stay'?o.kind:'activity'),
       name:String(o.name||o.label||'').trim().slice(0,80), amount:isFinite(amt)?Math.round(amt*100)/100:null,
       currency:/^[A-Za-z]{3}$/.test(o.currency||'')?o.currency.toUpperCase():'',
       expCat:EXP_CATS.includes(o.expenseCategory)?o.expenseCategory:'', actCat:CAT_LABEL[o.activityCategory]?o.activityCategory:'',
@@ -1298,6 +1318,136 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
       lat:start[0], lon:start[1], extra:{track:g.track, distanceKm:g.distanceKm, movingS:g.movingS, elevM:g.elevM, sport:g.sport||cat} }});
   }
 
+  // ---------- stays (nights) ----------
+  // One booking covers checkIn → checkOut (nights = days between). Kept structured on purpose:
+  // kind, platform, price per night, rating and location make stays comparable across trips.
+  const STAY_KINDS=[['hotel','Hotel','🏨'],['airbnb','Airbnb / rental','🏠'],['hostel','Hostel','🛏'],['camping','Camping','⛺'],['friends','Friends / family','🫶'],['other','Other','🛏']];
+  const STAY_KIND=Object.fromEntries(STAY_KINDS.map(k=>[k[0],k]));
+  const PLATFORMS=['','Booking.com','Airbnb','Expedia','Hotels.com','Vrbo','Hostelworld','Direct','Other'];
+  const stayNights=s=>(s.checkIn&&s.checkOut&&s.checkOut>s.checkIn)?dayCount(s.checkIn,s.checkOut)-1:0;
+  const stayIcon=s=>(STAY_KIND[s.kind]||STAY_KIND.other)[2];
+  const tripStays=tid=>S.stays.filter(s=>s.tripId===tid).sort((a,b)=>(a.checkIn||'').localeCompare(b.checkIn||''));
+  const staysOnNight=(tid,d)=>tripStays(tid).filter(s=>s.checkIn&&s.checkIn<=d&&d<(s.checkOut||addDays(s.checkIn,1)));
+  function perNight(s){ const n=stayNights(s); return s.cost&&n?fmtMoney(s.cost/n,s.currency)+'/night':''; }
+  // Booking confirmation screenshot → stay fields.
+  async function readBooking(trip, imgs){
+    const blobs=await Promise.all(imgs.map(shrink));
+    const stops=tripStops(trip.id).filter(s=>!s.home);
+    const o=await sample.json('This is a screenshot or photo of an accommodation booking (confirmation, app screen, email or invoice) from a trip.\n'
+      + 'Trip: "'+String(trip.name||'').slice(0,80)+'", '+(trip.startDate||'?')+' to '+(trip.endDate||'?')+', main currency '+(trip.currency||'EUR')+'. Trip cities: '+(stops.map(s=>s.city).join(', ')||'none')+'.\n'
+      + 'Reply with only a JSON object: {"name": string (property name), "kind": one of '+JSON.stringify(STAY_KINDS.map(k=>k[0]))+', "platform": one of '+JSON.stringify(PLATFORMS.filter(Boolean))+' or null, '
+      + '"checkIn": "YYYY-MM-DD" or null, "checkOut": "YYYY-MM-DD" or null, "total": number or null (total price paid for the whole stay), "currency": ISO 4217 code or null, '
+      + '"address": string or null, "city": string or null (use the trip city name when it is one of them), "lat": number or null, "lon": number or null (best estimate for the property), "bookingRef": string or null, "notes": string ("" if nothing useful)}.',
+      {images:blobs});
+    const r=o&&typeof o==='object'?o:{}, d=v=>/^\d{4}-\d\d-\d\d$/.test(v||'')?v:'';
+    const tot=typeof r.total==='number'?r.total:parseFloat(String(r.total==null?'':r.total).replace(',','.'));
+    const la=+r.lat, lo=+r.lon;
+    return { name:String(r.name||'').trim().slice(0,80), kind:STAY_KIND[r.kind]?r.kind:'', platform:PLATFORMS.includes(r.platform)?r.platform:'',
+      checkIn:d(r.checkIn), checkOut:d(r.checkOut), cost:isFinite(tot)?Math.round(tot*100)/100:null, currency:/^[A-Za-z]{3}$/.test(r.currency||'')?r.currency.toUpperCase():'',
+      address:String(r.address||'').slice(0,160), city:String(r.city||''), bookingRef:String(r.bookingRef||'').slice(0,60), notes:String(r.notes||'').slice(0,300),
+      lat:isFinite(la)&&r.lat!=null&&Math.abs(la)<=90?la:null, lon:isFinite(lo)&&r.lon!=null&&Math.abs(lo)<=180?lo:null };
+  }
+  async function locateStay(id, x){
+    if(!sample) return;
+    try{ const r=await sample.json('Give the coordinates of this accommodation. Reply with only {"lat": number, "lon": number} or {"lat": null, "lon": null} if unknown. '
+        +JSON.stringify({name:x.name, address:x.address||'', city:x.city||''}), {modelTier:'quick', cache:{gcTime:86400000}});
+      const la=+r.lat, lo=+r.lon; if(r&&r.lat!=null&&isFinite(la)&&isFinite(lo)) await patch('stays', id, {lat:la, lon:lo}); }catch(e){}
+  }
+  // opts: {trip, date (first night), files (booking screenshot to read), pre:{photoIds,picked}}
+  function staySheet(st, opts){
+    opts=opts||{};
+    const trip=opts.trip||tripOf(st&&st.tripId)||{};
+    const tStops=tripStops(trip.id).filter(s=>!s.home);
+    if(!tStops.length){ toast('Add a leg first so the trip has a city.'); return; }
+    const cityNames=[...new Set(tStops.map(s=>s.city))];
+    const night=opts.date||todayStr();
+    // where you are at the end of that day: a stop you don't leave that day, else the last one you reach
+    const cov=tStops.filter(x=>x.arrive&&x.arrive<=night&&night<=(x.depart||x.arrive));
+    const atNight=cov.find(x=>(x.depart||x.arrive)>night)||cov.sort((a,b)=>(a.arrive||'').localeCompare(b.arrive||'')).pop()||stopOnDate(trip.id,night)||tStops[0];
+    const ci=st?st.checkIn:night, co=st?st.checkOut:(atNight&&atNight.depart&&atNight.depart>night?atNight.depart:addDays(night,1));
+    const city0=st?(st.city||(stopOf(st.stopId)||{}).city):(atNight||{}).city;
+    const canRead=!!(sample&&sampleImages);
+    let kind=st?st.kind||'hotel':'hotel', rating=st?st.rating||0:0;
+    let photoIds=st?(st.photoIds||[]).slice():(opts.pre?opts.pre.photoIds.slice():[]), picked=opts.pre?opts.pre.picked.slice():[], uploading=false, reading=false;
+    let pos=st&&st.lat!=null?{lat:st.lat, lon:st.lon, name:st.name}:null;
+    openSheet('<h2>'+(st?'Edit stay':'Where did you sleep?')+'</h2>'
+      + (assets||canRead?'<div class="field"><label>Booking screenshot / photos</label><div class="photos" id="sPhotos"></div><div class="row"><label class="btn small" for="sPhotoIn">'+ICON.camera+' Add</label><input id="sPhotoIn" type="file" accept="image/*" multiple hidden>'
+        + (canRead?'<button type="button" class="btn small" id="sRead" hidden>'+ICON.spark+' Fill in from screenshot</button>':'')+'</div>'
+        + '<div class="hint" id="sUp">'+(canRead&&!st?'Add a screenshot of the booking and Claude fills in the hotel, dates and price.':'')+'</div></div>':'')
+      + '<div class="field"><label for="sName">Name</label><input id="sName" value="'+esc(st?st.name:'')+'" placeholder="e.g. Hôtel de Sèze, Airbnb in the old town"></div>'
+      + '<div class="field"><label>Type</label><div class="row" id="sKind">'+STAY_KINDS.map(k=>'<button type="button" class="chip'+(k[0]===kind?' on':'')+'" data-k="'+k[0]+'">'+k[2]+' '+k[1]+'</button>').join('')+'</div></div>'
+      + '<div class="grid2"><div class="field"><label for="sIn">Check-in</label><input id="sIn" type="date" value="'+esc(ci)+'"></div><div class="field"><label for="sOut">Check-out</label><input id="sOut" type="date" value="'+esc(co)+'"></div></div>'
+      + '<div class="hint" id="sNights"></div>'
+      + '<div class="field"><label for="sCity">City</label><select id="sCity">'+cityNames.map(c=>'<option'+(c===city0?' selected':'')+'>'+esc(c)+'</option>').join('')+'</select></div>'
+      + '<div class="grid3"><div class="field"><label for="sCost">Total price (optional)</label><input id="sCost" inputmode="decimal" value="'+esc(st&&st.cost?st.cost:'')+'"></div><div class="field"><label for="sCur">Currency</label>'+curSelect('sCur', st?st.currency:trip.currency)+'</div></div>'
+      + '<div class="grid2"><div class="field"><label for="sPlat">Booked via</label><select id="sPlat">'+PLATFORMS.map(x=>'<option value="'+esc(x)+'"'+((st?st.platform||'':'')===x?' selected':'')+'>'+(x||'—')+'</option>').join('')+'</select></div>'
+      + '<div class="field"><label for="sRef">Booking ref</label><input id="sRef" value="'+esc(st?st.bookingRef||'':'')+'" autocomplete="off"></div></div>'
+      + '<div class="field"><label for="sAddr">Address (optional)</label><input id="sAddr" value="'+esc(st?st.address||'':'')+'"></div>'
+      + '<div class="field"><label>Rating</label><div class="rating" id="sRating">'+[1,2,3,4,5].map(i=>'<button type="button" data-r="'+i+'" aria-label="'+i+' stars" class="'+(i<=rating?'on':'')+'">★</button>').join('')+'</div></div>'
+      + '<div class="field"><label for="sNotes">Notes</label><textarea id="sNotes" placeholder="Room, breakfast, would you stay again?">'+esc(st?st.notes||'':'')+'</textarea></div>'
+      + '<div class="err" id="fErr" hidden></div>'
+      + '<div class="row"><button class="btn primary" type="submit" id="sSave">Save</button><button class="btn" type="button" id="xCancel">Cancel</button>'+(st?'<button class="btn danger" type="button" id="xDel" style="margin-left:auto">Delete</button>':'')+'</div>',
+    form=>{
+      $('#xCancel').onclick=closeSheet;
+      const hint=t=>{ const el=$('#sUp'); if(el) el.textContent=t; };
+      const showNights=()=>{ const n=stayNights({checkIn:val('sIn'),checkOut:val('sOut')}), c=parseFloat(val('sCost').replace(',','.'));
+        $('#sNights').textContent=n?n+' night'+(n>1?'s':'')+(isFinite(c)&&c>0?' · '+fmtMoney(c/n,val('sCur'))+'/night':''):'Check-out must be after check-in.'; };
+      ['sIn','sOut','sCost','sCur'].forEach(id=>$('#'+id).addEventListener('input',showNights)); showNights();
+      $('#sIn').addEventListener('change',()=>{ if(val('sOut')<=val('sIn')) $('#sOut').value=addDays(val('sIn'),1); showNights(); });
+      $('#sKind').querySelectorAll('[data-k]').forEach(b=>b.onclick=()=>{ kind=b.dataset.k; $('#sKind').querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b)); });
+      $('#sRating').querySelectorAll('[data-r]').forEach(b=>b.onclick=()=>{ const r=+b.dataset.r; rating=rating===r?0:r; $('#sRating').querySelectorAll('button').forEach(x=>x.classList.toggle('on', +x.dataset.r<=rating)); });
+      const sync=()=>{ if(!form.isConnected) return; $('#sSave').disabled=uploading||reading; const rb=$('#sRead'); if(rb){ rb.hidden=!(picked.length||photoIds.length); rb.disabled=uploading||reading; } };
+      const orig=photoIds.slice(), added=[];
+      const pEl=$('#sPhotos'), drawEd=pEl?photoEditor(pEl, ()=>photoIds, v=>{ photoIds=v; }, sync):null;
+      const drawPhotos=()=>{ if(drawEd) drawEd(); sync(); }; drawPhotos();
+      async function fill(){
+        let imgs=picked.slice(-sampleImages);
+        if(!imgs.length&&photoIds.length){ try{ const r=await fetch('/_blob/'+photoIds[photoIds.length-1]); if(r.ok) imgs=[await r.blob()]; }catch(e){} }
+        if(!form.isConnected) return; if(!imgs.length){ hint('Add the screenshot again so Claude can read it.'); return; }
+        reading=true; sync(); hint('Claude is reading the booking…');
+        try{ const r=await readBooking(trip, imgs); if(!form.isConnected) return;
+          const set=(id,v)=>{ if(v!=null&&v!=='') $('#'+id).value=v; };
+          set('sName',r.name); set('sIn',r.checkIn); set('sOut',r.checkOut); set('sAddr',r.address); set('sRef',r.bookingRef); set('sPlat',r.platform);
+          if(r.cost!=null) set('sCost',String(r.cost));
+          if(r.currency){ const sel=$('#sCur'); if(![...sel.options].some(o=>o.value===r.currency)) sel.add(new Option(r.currency)); sel.value=r.currency; }
+          if(r.kind){ kind=r.kind; $('#sKind').querySelectorAll('button').forEach(x=>x.classList.toggle('on',x.dataset.k===kind)); }
+          const m=cityNames.find(c=>norm(c)===norm(r.city)); if(m) $('#sCity').value=m;
+          if(r.notes&&!val('sNotes').trim()) $('#sNotes').value=r.notes;
+          if(r.lat!=null) pos={lat:r.lat, lon:r.lon, name:r.name};
+          showNights(); hint('Filled in from the booking. Check it, then save.');
+        }catch(e){ hint(photoError(e)); }
+        finally{ reading=false; sync(); }
+      }
+      async function addFiles(fs, autoRead){
+        picked=picked.concat(fs);
+        if(assets){ uploading=true; sync(); hint('Uploading…'); const up=await uploadPhotos(fs); added.push(...up); photoIds=photoIds.concat(up); uploading=false; if(!form.isConnected) return; drawPhotos(); hint(''); }
+        sync(); if(autoRead&&canRead) await fill();
+      }
+      const pin=$('#sPhotoIn'); if(pin) pin.onchange=()=>{ const fs=Array.from(pin.files||[]); pin.value=''; if(fs.length) addFiles(fs, !st&&!val('sName').trim()); };
+      const rb=$('#sRead'); if(rb) rb.onclick=fill;
+      if(opts.files&&opts.files.length) addFiles(opts.files, true);
+      else if(opts.pre&&canRead) fill();
+      if(st) $('#xDel').onclick=()=>confirmDelete(form,'"'+st.name+'"', ()=>del('stays', st.id));
+      form.onsubmit=async e=>{ e.preventDefault(); const er=$('#fErr');
+        const name=val('sName').trim()||(kind==='friends'?'With friends':kind==='camping'?'Camping':''), checkIn=val('sIn'), checkOut=val('sOut');
+        if(!name){ er.hidden=false; er.textContent='Give it a name (the hotel, or "Airbnb in…").'; return; }
+        if(!checkIn||!checkOut||checkOut<=checkIn){ er.hidden=false; er.textContent='Check-out must be after check-in.'; return; }
+        const city=val('sCity'), same=tStops.filter(s=>s.city===city), stop=same.find(s=>s.arrive<=checkIn&&checkIn<=(s.depart||s.arrive))||same[0];
+        const c=parseFloat(val('sCost').replace(',','.')), nights=stayNights({checkIn,checkOut});
+        const keep=pos&&(pos.name==null||pos.name===name);
+        const data={tripId:trip.id, stopId:stop?stop.id:'', city, name, kind, checkIn, checkOut, nights, cost:isFinite(c)?c:0, currency:val('sCur'),
+          pricePerNight:isFinite(c)&&c>0&&nights?Math.round(c/nights*100)/100:0, platform:val('sPlat'), bookingRef:val('sRef').trim(), address:val('sAddr').trim(),
+          rating, notes:val('sNotes').trim(), photoIds, updatedAt:now()};
+        if(keep){ data.lat=pos.lat; data.lon=pos.lon; } else if(st&&st.lat!=null&&st.name!==name){ data.lat=null; data.lon=null; }
+        let id=st&&st.id;
+        if(st) await patch('stays', st.id, data); else id=(await put('stays', null, Object.assign({createdAt:now()}, data))).id;
+        closeSheet();
+        for(const x of orig.concat(added)) if(!photoIds.includes(x)) forgetAsset(x, st);
+        if(!keep&&id&&(!st||st.lat==null||st.name!==name)) locateStay(id, data);
+      };
+    });
+  }
+
   // ---------- days ----------
   function addDays(s, n){ const [y,m,d]=s.split('-').map(Number); const t=new Date(y,m-1,d+n); return t.getFullYear()+'-'+pad2(t.getMonth()+1)+'-'+pad2(t.getDate()); }
   function stopOnDate(tid, d){ const xs=tripStops(tid).filter(s=>!s.home&&s.arrive&&s.arrive<=d&&d<=(s.depart||s.arrive)); return xs.find(s=>s.arrive!==d)||xs[xs.length-1]||null; }
@@ -1341,9 +1491,20 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
             +(p.rating?' <span class="stars">'+'★'.repeat(p.rating)+'</span>':'')+(statsLine(p)?' <span class="faint">'+statsLine(p)+'</span>':'')+'</span>'+(p.photoIds||[]).slice(0,3).map(id=>'<img alt="" src="/_blob/'+id+'" data-photo="'+id+'">').join('')+'</div>'; }
             const e=x; return '<div class="day-i" data-exp="'+e.id+'">'+tm+'<span class="mini" style="background:var(--ink-faint)">'+ICON.coin+'</span><span style="flex:1;min-width:0">'+esc(e.label)+'</span><span class="faint mono">'+fmtMoney(e.amount,e.currency)+'</span></div>'; }).join('')+'</div>'
         + (legs.length||acts.length||exps.length?'':'<div class="faint">Nothing logged yet</div>')
+        + nightHtml(t, d)
         + '</div>';
     }
     return '<div class="card days">'+html+'</div>';
+  }
+  // The night after day d: the stay(s) covering it, or a nudge to add one. No night after the last day.
+  function nightHtml(t, d){
+    if(d>=t.endDate) return '';
+    const xs=staysOnNight(t.id, d);
+    if(!xs.length) return '<button type="button" class="night-add" data-night="'+d+'">🛏 Where did you sleep?</button>';
+    return xs.map(x=>{ const n=stayNights(x), i=dayCount(x.checkIn,d);
+      return '<div class="day-i night" data-stay="'+x.id+'"><span class="mini" style="background:var(--night)">'+stayIcon(x)+'</span><span style="flex:1;min-width:0">'+esc(x.name)
+        + ' <span class="faint">'+(n>1?'night '+i+' of '+n:'1 night')+(perNight(x)?' · '+perNight(x):'')+'</span>'+(x.rating?' <span class="stars">'+'★'.repeat(x.rating)+'</span>':'')+'</span>'
+        + ((x.photoIds||[])[0]?'<img alt="" src="/_blob/'+x.photoIds[0]+'" data-photo="'+x.photoIds[0]+'">':'')+'</div>'; }).join('');
   }
 
   // Date and GPS from a JPEG's EXIF block (null when absent or not a JPEG).
@@ -1398,7 +1559,7 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
   }
   // ---------- photo viewer: browse, make cover, replace, delete ----------
   // A photo id can sit in stops, places or expenses (photoIds[]). Edits apply to every row holding it.
-  function photoRows(id){ const out=[]; ['stops','places','expenses'].forEach(c=>S[c].forEach(r=>{ if((r.photoIds||[]).includes(id)) out.push({c,r}); })); return out; }
+  function photoRows(id){ const out=[]; ['stops','places','expenses','stays'].forEach(c=>S[c].forEach(r=>{ if((r.photoIds||[]).includes(id)) out.push({c,r}); })); return out; }
   async function editPhotoRows(id, fn){ for(const {c,r} of photoRows(id)) await patch(c, r.id, {photoIds:fn(r.photoIds||[])}); }
   // Delete the stored file once nothing points at it any more. Never throws.
   async function forgetAsset(id, exceptRow){

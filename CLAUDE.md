@@ -26,6 +26,7 @@ Waymark is a travel-log web app published as a claude.ai artifact. The owner (Ol
 - `legs`: tripId, mode (plane|car|train|bus|ferry|walk), fromId, toId, date, time (optional HH:MM), km, kmEstimated, cost, currency, notes
 - `places` (shown as "activities"): tripId, stopId, name, category, date, time (optional HH:MM), status (want|done), rating 0–5, cost, currency, notes, photoIds[], lat, lon (pin on the trip map; from photo GPS or Claude); imported runs/rides/hikes also carry track [[lat,lon],…] (≤400 pts), distanceKm, movingS, elevM, sport, stravaId
 - `expenses`: tripId, label, amount, currency, category, date, time (optional HH:MM), city, stopId (set when city matches a trip stop), paidBy, notes, photoIds[] (receipt photos; "Scan" reads them with `sample` images)
+- `stays` (nights): tripId, stopId, city, name, kind (hotel|airbnb|hostel|camping|friends|other), checkIn, checkOut (nights = days between), nights, cost (total, optional), currency, pricePerNight, platform (Booking.com|Airbnb|Expedia|Hotels.com|Vrbo|Hostelworld|Direct|Other|''), bookingRef, address, lat, lon, rating 0–5, notes, photoIds[]. Shown at the end of each night's day in Days ("🛏 Where did you sleep?" when a night has none), on the city page, as H pins on the map, and under Lodging in the budget. Fields are kept structured so stays (and later restaurants/activities) can be analysed across trips.
 - Photos are artifact assets, shown via `/_blob/<id>`.
 
 ## Runtime
