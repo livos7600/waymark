@@ -269,7 +269,13 @@ const WORLD = __WORLD__;
   ]);
   const CAT_ICON = {breakfast:'🥐',lunch:'🥗',dinner:'🍽️',coffee:'☕',drinks:'🍷',food:'🍴',restaurant:'🍴',museum:'🏛️',attraction:'📍',hike:'🥾',run:'🏃',walk:'🚶',ride:'🚴',hotel:'🏨',nightlife:'🌙',shopping:'🛍️',other:'✦'};
   const EXP_ICON = {'Transport':'🚗','Lodging':'🛏️','Food & drink':'🍴','Meals':'🍽️','Activities':'🎟️','Shopping':'🛍️','Fees & insurance':'🛡️','Other':'💳'};
-  const catIcon = c => CAT_ICON[c]||'✦', expIcon = c => EXP_ICON[c]||'💳';
+  const MODE_EMOJI={plane:'✈️',car:'🚗',train:'🚆',bus:'🚌',ferry:'⛴️',walk:'🚶'};
+  // what kind of transport/other cost it is, from its label ("Flight to Bordeaux", "Péage A63", "Uber")
+  const RIDE_ICONS=[[/flight|plane|avion|vol\b|airline|air ?france|easyjet|ryanair|transat|westjet|air canada|baggage|bagage/i,'✈️'],[/train|sncf|tgv|ter\b|ouigo|rail|eurostar|renfe/i,'🚆'],
+    [/taxi|uber|bolt|lyft|cab\b|vtc/i,'🚕'],[/fuel|gas|petrol|essence|diesel|gasoil|carburant|station/i,'⛽'],[/toll|p[ée]age|autoroute/i,'🛣️'],[/parking|stationnement/i,'🅿️'],
+    [/bus|coach|flixbus|blablabus|tram|metro|métro|subway/i,'🚌'],[/ferry|boat|bateau|navette|bac\b/i,'⛴️'],[/bike|v[ée]lo|scooter|trottinette/i,'🚲'],[/car|rental|location|hertz|avis|europcar|enterprise|sixt|budget|voiture/i,'🚗']];
+  const catIcon = c => CAT_ICON[c]||'✦';
+  const expIcon = (c, label) => { if((c==='Transport'||c==='Other'||!c)&&label){ const m=RIDE_ICONS.find(([re])=>re.test(label)); if(m) return m[1]; } return EXP_ICON[c]||'💳'; };
   const emo = e => '<span class="mini emo" aria-hidden="true">'+e+'</span>';
   const catOptions = sel => '<optgroup label="Meals">'+MEALS.map(([k,l])=>'<option value="'+k+'"'+(sel===k?' selected':'')+'>'+CAT_ICON[k]+' '+l+'</option>').join('')+'</optgroup>'
     + '<optgroup label="Things to do">'+CATS.slice(MEALS.length).map(([k,l])=>'<option value="'+k+'"'+(sel===k?' selected':'')+'>'+CAT_ICON[k]+' '+l+'</option>').join('')+'</optgroup>';
@@ -697,7 +703,7 @@ const WORLD = __WORLD__;
     return '<div class="card">'+Object.entries(byCat).sort((a,b)=>b[1]-a[1]).map(([k,a])=>{ const [cat,cur]=k.split('|');
         return '<div class="budget-row" style="display:block"><div class="between"><span>'+expIcon(cat)+' '+esc(cat)+'</span><span class="amt">'+fmtMoney(a,cur)+'</span></div><div class="bar"><i style="width:'+Math.round(a/max*100)+'%"></i></div></div>'; }).join('')
       + '<div class="budget-row" style="font-weight:700"><span>Total</span><span class="amt">'+Object.entries(tot).map(([c,a])=>fmtMoney(a,c)).join(' + ')+'</span></div></div>'
-      + (other.length?'<div class="card">'+other.sort((a,b)=>(b.date||'').localeCompare(a.date||'')).map(e=>'<div class="budget-row" data-exp="'+e.id+'" style="cursor:pointer;gap:10px"><span style="min-width:0">'+expIcon(e.category)+' '+esc(e.label)+' <span class="faint">· '+esc(e.category||'Other')+(e.date?' · '+fmtDate(e.date):'')+(e.city?' · '+esc(e.city):'')+(e.paidBy?' · paid by '+esc(e.paidBy):'')+'</span>'
+      + (other.length?'<div class="card">'+other.sort((a,b)=>(b.date||'').localeCompare(a.date||'')).map(e=>'<div class="budget-row" data-exp="'+e.id+'" style="cursor:pointer;gap:10px"><span style="min-width:0">'+expIcon(e.category,e.label)+' '+esc(e.label)+' <span class="faint">· '+esc(e.category||'Other')+(e.date?' · '+fmtDate(e.date):'')+(e.city?' · '+esc(e.city):'')+(e.paidBy?' · paid by '+esc(e.paidBy):'')+'</span>'
           + (e.notes?'<span class="faint" style="display:block;white-space:pre-wrap">'+esc(e.notes)+'</span>':'')+'</span><span class="amt" style="display:flex;gap:8px;align-items:center;flex-shrink:0">'+((e.photoIds||[]).length?'<img alt="Receipt" src="/_blob/'+e.photoIds[0]+'" data-photo="'+e.photoIds[0]+'" style="width:32px;height:32px;object-fit:cover;border-radius:6px;cursor:zoom-in">':'')+fmtMoney(e.amount,e.currency)+'</span></div>').join('')+'</div>':'')
       + whoPaidHtml(other)
       + '<div class="faint">Totals are kept per currency; no exchange rates are applied.</div>';
@@ -1603,10 +1609,10 @@ const WORLD = __WORLD__;
         +' <span class="faint">'+esc(cities.join(' → '))+'</span></div><div class="row" style="flex-wrap:nowrap;gap:4px"><button type="button" class="btn small ghost" data-shareday="'+d+'" aria-label="Share '+fmtDate(d)+'">'+ICON.share+'</button><button type="button" class="btn small ghost" data-addmeal="'+d+'" aria-label="Add a meal on '+fmtDate(d)+'" style="font-size:15px">🍽️</button><button type="button" class="btn small ghost" data-addact="'+d+'" aria-label="Add an activity on '+fmtDate(d)+'">'+ICON.plus+'</button></div></div>'
         + '<div class="day-list" data-day="'+d+'">'+dayOrder(d, legs, acts, exps).map(({k,x})=>{ const tv=hhmm(x), tm='<label class="tset'+(tv?'':' empty')+'" data-tcol="'+(k==='leg'?'legs':k==='act'?'places':'expenses')+'" data-tid="'+x.id+'">'+(tv||'+ time')+'<input type="time" value="'+tv+'" aria-label="Time"></label>';
             if(k==='leg'){ const l=x; const a=stopOf(l.fromId)||{}, b=stopOf(l.toId)||{};
-            return '<div class="day-i" data-leg="'+l.id+'">'+tm+'<span class="mini" style="background:'+(MODES[l.mode]||MODES.car).color+'">'+modeIcon(l.mode)+'</span><span style="flex:1">'+esc(a.city||'?')+' → '+esc(b.city||'?')+'</span><span class="faint mono">'+(l.kmEstimated?'≈':'')+fmtKm(l.km||0)+' km</span></div>'; }
+            return '<div class="day-i" data-leg="'+l.id+'">'+tm+emo(MODE_EMOJI[l.mode]||'🚗')+'<span style="flex:1">'+esc(a.city||'?')+' → '+esc(b.city||'?')+'</span><span class="faint mono">'+(l.kmEstimated?'≈':'')+fmtKm(l.km||0)+' km</span></div>'; }
             if(k==='act'){ const p=x; return '<div class="day-i" data-pl="'+p.id+'">'+tm+emo(catIcon(p.category))+'<span style="flex:1;min-width:0">'+esc(p.name)+(p.status==='want'?' <span class="faint">· planned</span>':'')
             +(p.rating?' <span class="stars">'+'★'.repeat(p.rating)+'</span>':'')+(statsLine(p)?' <span class="faint">'+statsLine(p)+'</span>':'')+'</span>'+(p.photoIds||[]).slice(0,3).map(id=>'<img alt="" src="/_blob/'+id+'" data-photo="'+id+'">').join('')+'</div>'; }
-            const e=x; return '<div class="day-i" data-exp="'+e.id+'">'+tm+emo(expIcon(e.category))+'<span style="flex:1;min-width:0">'+esc(e.label)+'</span><span class="faint mono">'+fmtMoney(e.amount,e.currency)+'</span></div>'; }).join('')+'</div>'
+            const e=x; return '<div class="day-i" data-exp="'+e.id+'">'+tm+emo(expIcon(e.category,e.label))+'<span style="flex:1;min-width:0">'+esc(e.label)+'</span><span class="faint mono">'+fmtMoney(e.amount,e.currency)+'</span></div>'; }).join('')+'</div>'
         + (legs.length||acts.length||exps.length?'':'<div class="faint">Nothing logged yet</div>')
         + nightHtml(t, d)
         + '</div>';
@@ -1899,7 +1905,6 @@ const WORLD = __WORLD__;
     if(!MediaRecorder.isTypeSupported) return '';
     return (withAudio?AV_TYPES:VIDEO_TYPES).find(x=>{ try{ return MediaRecorder.isTypeSupported(x); }catch(e){ return false; } })||'';
   }
-  const MODE_EMOJI={plane:'✈️',car:'🚗',train:'🚆',bus:'🚌',ferry:'⛴️',walk:'🚶'};
   const MODE_HEX={plane:'#6F9BFF',car:'#FF7A3D',train:'#4CC795',bus:'#B98BEB',ferry:'#3CC6D6',walk:'#B5AA9B'};
   const MODE_PATH={}; try{ Object.entries(MODES).forEach(([k,m])=>{ const d=(m.icon.match(/ d="([^"]+)"/)||[])[1]; if(d) MODE_PATH[k]=new Path2D(d); }); }catch(e){}
   const unitMerc=d3.geoMercator().scale(1).translate([0,0]);
@@ -1937,7 +1942,7 @@ const WORLD = __WORLD__;
     const momentEv=(x,isExp)=>{ if(!o.showActs||(isExp&&!['Food & drink','Activities','Shopping'].includes(x.category))) return;
       const st=stopOf(x.stopId)||(x.city?d.stops.find(s=>norm(s.city)===norm(x.city)):null);
       const ll=!isExp&&x.lat!=null?[x.lon,x.lat]:st&&st.lat!=null?[st.lon,st.lat]:null;
-      evs.push({kind:'moment', date:x.date, item:x, isExp, name:isExp?x.label:x.name, cat:isExp?x.category:(CAT_LABEL[x.category]||''), icon:isExp?expIcon(x.category):catIcon(x.category),
+      evs.push({kind:'moment', date:x.date, item:x, isExp, name:isExp?x.label:x.name, cat:isExp?x.category:(CAT_LABEL[x.category]||''), icon:isExp?expIcon(x.category,x.label):catIcon(x.category),
         time:hhmm(x), rating:isExp?0:+x.rating||0, cost:isExp?+x.amount:+x.cost, cur:x.currency||t.currency||'EUR', ll, label:st?st.city:'', km:0}); };
     for(let day=o.from; day<=o.to; day=addDays(day,1))
       dayOrder(day, d.legs.filter(l=>l.date===day), d.acts.filter(p=>p.date===day), []).forEach(({k,x})=>k==='leg'?legEv(x):k==='act'?(trackEv(x)||momentEv(x,false)):momentEv(x,true));
