@@ -1717,8 +1717,10 @@ const WORLD = __WORLD__;
     if(nA){ // activities list
       d.acts.slice(0,nA).forEach((p,i)=>{ const ry=y+i*56+30;
         g.save(); g.translate(X+10,ry-10); g.rotate(Math.PI/4); g.fillStyle=p.status==='done'?'#FF7A3D':'#101820'; g.strokeStyle='#FF7A3D'; g.lineWidth=3; g.fillRect(-8,-8,16,16); g.strokeRect(-8,-8,16,16); g.restore();
-        const stars=p.rating?'★'.repeat(p.rating):''; g.font='600 34px Figtree, sans-serif'; const sw=stars?g.measureText(stars).width+20:0;
-        g.fillStyle='#fff'; g.fillText(fitText(g,p.name,W-2*X-50-sw),X+40,ry);
+        const stars=p.rating?'★'.repeat(p.rating):'', price=o.showCosts&&+p.cost?fmtMoney(+p.cost,p.currency||t.currency):'';
+        g.font='600 34px Figtree, sans-serif'; const sw=stars?g.measureText(stars).width+20:0, pw=price?g.measureText(price).width+20:0;
+        g.fillStyle='#fff'; g.fillText(fitText(g,p.name,W-2*X-50-sw-pw),X+40,ry);
+        if(price){ g.fillStyle='#8FA0AF'; g.fillText(price,W-X-sw-pw+20,ry); }
         if(stars){ g.fillStyle='#FF7A3D'; g.fillText(stars,W-X-sw+20,ry); } });
     }
     if(o.showStats){ // stats strip
@@ -1784,11 +1786,19 @@ const WORLD = __WORLD__;
       if(l.mode==='plane'){ const dx=ub[0]-ua[0], dy=ub[1]-ua[1], m=[(ua[0]+ub[0])/2+dy*.2,(ua[1]+ub[1])/2-dx*.2];
         pts=d3.range(41).map(i=>{ const s=i/40, q=1-s; return [q*q*ua[0]+2*s*q*m[0]+s*s*ub[0], q*q*ua[1]+2*s*q*m[1]+s*s*ub[1]]; }); }
       evs.push({kind:'leg', date:l.date, mode:MODE_HEX[l.mode]?l.mode:'car', pts, km:+l.km||0, label:a.city+' → '+b.city, from:a, to:b, far:!!(a.home||b.home), ll:[[a.lon,a.lat],[b.lon,b.lat]]}); };
-    const trackEv=p=>{ if(!o.showActs||!Array.isArray(p.track)||p.track.length<2) return; const ll=p.track.map(q=>[q[1],q[0]]);
-      evs.push({kind:'track', date:p.date, mode:'walk', pts:ll.map(q=>U(q[0],q[1])), km:0, label:p.name+(p.distanceKm?' · '+(+p.distanceKm).toFixed(1)+' km':''), act:p, ll}); };
+    const trackEv=p=>{ if(!o.showActs||!Array.isArray(p.track)||p.track.length<2) return false; const ll=p.track.map(q=>[q[1],q[0]]);
+      evs.push({kind:'track', date:p.date, mode:'walk', pts:ll.map(q=>U(q[0],q[1])), km:0, label:p.name+(p.distanceKm?' · '+(+p.distanceKm).toFixed(1)+' km':''), act:p, ll}); return true; };
+    // a "moment": an activity, or a meal/ticket/shopping expense, shown as a card where it happened
+    const momentEv=(x,isExp)=>{ if(!o.showActs||(isExp&&!['Food & drink','Activities','Shopping'].includes(x.category))) return;
+      const st=stopOf(x.stopId)||(x.city?d.stops.find(s=>norm(s.city)===norm(x.city)):null);
+      const ll=!isExp&&x.lat!=null?[x.lon,x.lat]:st&&st.lat!=null?[st.lon,st.lat]:null;
+      evs.push({kind:'moment', date:x.date, item:x, isExp, name:isExp?x.label:x.name, cat:isExp?x.category:((CATS.find(c=>c[0]===x.category)||[])[1]||''),
+        time:hhmm(x), rating:isExp?0:+x.rating||0, cost:isExp?+x.amount:+x.cost, cur:x.currency||t.currency||'EUR', ll, label:st?st.city:'', km:0}); };
     for(let day=o.from; day<=o.to; day=addDays(day,1))
-      dayOrder(day, d.legs.filter(l=>l.date===day), d.acts.filter(p=>p.date===day), []).forEach(({k,x})=>k==='leg'?legEv(x):k==='act'?trackEv(x):0);
-    evs.forEach(e=>{ e.cum=[0]; for(let i=1;i<e.pts.length;i++) e.cum.push(e.cum[i-1]+Math.hypot(e.pts[i][0]-e.pts[i-1][0],e.pts[i][1]-e.pts[i-1][1])); e.len=e.cum[e.cum.length-1]; });
+      dayOrder(day, d.legs.filter(l=>l.date===day), d.acts.filter(p=>p.date===day), []).forEach(({k,x})=>k==='leg'?legEv(x):k==='act'?(trackEv(x)||momentEv(x,false)):momentEv(x,true));
+    let where='';
+    evs.forEach(e=>{ if(e.kind==='moment') e.label=where=e.label||where; else where=e.kind==='leg'?e.to.city:(stopOf(e.act.stopId)||{}).city||where; });
+    evs.forEach(e=>{ if(!e.pts) return; e.cum=[0]; for(let i=1;i<e.pts.length;i++) e.cum.push(e.cum[i-1]+Math.hypot(e.pts[i][0]-e.pts[i-1][0],e.pts[i][1]-e.pts[i-1][1])); e.len=e.cum[e.cum.length-1]; });
     // whole-slice view, like the card's map
     let all=d.stops.filter(s=>s.lat!=null).map(s=>[s.lon,s.lat]).concat(d.acts.filter(p=>p.lat!=null).map(p=>[p.lon,p.lat]));
     if(!all.length) all=[].concat(...evs.filter(e=>!e.far).map(e=>e.ll));
@@ -1797,9 +1807,11 @@ const WORLD = __WORLD__;
     // photos go after the moment they belong to
     const pics=(await Promise.all(o.photoIds.slice(0,4).map(async id=>{ const im=await loadImg(id); if(!im) return null;
       const act=d.acts.find(p=>(p.photoIds||[]).includes(id)), st=act?stopOf(act.stopId):d.stops.find(s=>(s.photoIds||[]).includes(id));
-      const own=act?evs.findIndex(e=>e.act===act):-1;
+      const own=act?evs.findIndex(e=>e.act===act||e.item===act):-1;
       let after=own; if(own<0){ const pd=(act&&act.date)||(st&&st.arrive)||o.from; evs.forEach((e,i)=>{ if(e.date<=pd) after=i; }); }
       return {im, after, label:act?act.name:st?st.city:''}; }))).filter(Boolean);
+    pics.forEach(p=>{ const e=evs[p.after]; if(e&&e.kind==='moment'&&!e.pic){ e.pic=p; p.after=-2; } });
+    await Promise.all(evs.filter(e=>e.kind==='moment'&&!e.pic&&!e.isExp&&(e.item.photoIds||[]).length).map(async e=>{ e.thumb=await loadImg(e.item.photoIds[0]); }));
     // timeline
     const segs=[]; let T=0, cam=overall;
     const add=s=>{ s.t0=T; T+=s.dur; s.t1=T; segs.push(s); };
@@ -1807,7 +1819,10 @@ const WORLD = __WORLD__;
     add({type:'intro', dur:1.6, c0:overall});
     photosAfter(-1);
     const moveDur=evs.length?Math.max(1.1,Math.min(2.1,16/evs.length)):0;
-    evs.forEach((e,i)=>{ const c1=fit(e.ll, e.kind==='track'?120000:60000), dur=moveDur+(e.far?.9:0)+(e.kind==='track'?.6:0);
+    evs.forEach((e,i)=>{
+      if(e.kind==='moment'){ let c1=cam; if(e.ll){ const q=U(e.ll[0],e.ll[1]); c1=[q[0],q[1],Math.min(cam[2],W/120000)]; }
+        const s={type:'moment', dur:e.pic?2.8:2.1, ev:e, c0:cam, zi:c1===cam?null:d3.interpolateZoom(cam,c1)}; add(s); e.ts=e.te=s.t0+s.dur*.25; cam=c1; photosAfter(i); return; }
+      const c1=fit(e.ll, e.kind==='track'?120000:60000), dur=moveDur+(e.far?.9:0)+(e.kind==='track'?.6:0);
       const s={type:'move', dur, ev:e, c0:cam, zi:d3.interpolateZoom(cam,c1)}; add(s); e.ts=s.t0+dur*.3; e.te=s.t0+dur*.92; cam=c1; photosAfter(i); });
     if(!evs.length&&!pics.length) add({type:'hold', dur:1.2, c0:cam});
     add({type:'outro', dur:3.4, c0:cam, zi:d3.interpolateZoom(cam,overall)});
@@ -1816,10 +1831,17 @@ const WORLD = __WORLD__;
     evs.forEach(e=>{ if(e.kind==='leg'){ cityAt(e.from, e.ts-.2); cityAt(e.to, e.te); } });
     d.stops.forEach(s=>cityAt(s, .5));
     const moves=segs.filter(s=>s.type==='move');
-    const acts=o.showActs?d.acts.filter(p=>p.lat!=null).map(p=>{ const own=evs.find(e=>e.act===p); let at=1.2;
+    const acts=o.showActs?d.acts.filter(p=>p.lat!=null).map(p=>{ const own=evs.find(e=>e.act===p||e.item===p); let at=1.2;
       if(own) at=own.te; else moves.forEach(s=>{ if(s.ev.date<=(p.date||'')) at=s.ev.te; });
-      return {p, u:U(p.lon,p.lat), at}; }):[];
+      return {p, u:U(p.lon,p.lat), at, card:!!(own&&own.kind==='moment')}; }):[];
     const kmTotal=d3.sum(evs,e=>e.km);
+    function polaroid(g, pic, cx, cy, maxH, u, tilt){ const pin=backOut(clamp01(u/.22)), out=clamp01((u-.86)/.14), extra=pic.label?96:36, ratio=H>1500?1.2:1;
+      const pw=Math.max(120,Math.min(W*.66,(maxH-extra)/ratio)), ph=pw*ratio, fh=ph+extra;
+      g.save(); g.globalAlpha=1-out; g.translate(cx,cy); g.rotate(tilt); g.scale(.55+.45*pin,.55+.45*pin);
+      g.shadowColor='rgba(0,0,0,.55)'; g.shadowBlur=50; g.shadowOffsetY=16; g.fillStyle='#fff'; roundRect(g,-pw/2-18,-fh/2,pw+36,fh,14); g.fill(); g.shadowColor='transparent';
+      drawCover(g,pic.im,-pw/2,-fh/2+18,pw,ph,6);
+      if(pic.label){ g.fillStyle='#15202B'; g.font='600 36px Figtree, sans-serif'; const s=fitText(g,pic.label,pw); g.fillText(s,-g.measureText(s).width/2,fh/2-34); }
+      g.restore(); }
     function partial(e, f){ const L=e.len*f; if(f>=1) return e.pts.slice(); const out=[e.pts[0]];
       for(let i=1;i<e.pts.length;i++){ if(e.cum[i]>=L){ const s=(L-e.cum[i-1])/Math.max(e.cum[i]-e.cum[i-1],1e-12), a=e.pts[i-1], b=e.pts[i]; out.push([a[0]+(b[0]-a[0])*s,a[1]+(b[1]-a[1])*s]); return out; } out.push(e.pts[i]); }
       return out; }
@@ -1835,7 +1857,7 @@ const WORLD = __WORLD__;
         g.beginPath(); path(f); g.fillStyle=visited.has(String(f.id))?'#3B2A22':'#24313D'; g.fill(); g.strokeStyle='#101820'; g.lineWidth=1.5; g.stroke(); });
       // route so far
       g.lineCap='round'; g.lineJoin='round'; let head=null, cur=null, km=0;
-      evs.forEach(e=>{ const pr=clamp01((tau-e.ts)/(e.te-e.ts)); if(tau>=e.ts-.6) cur=e; if(pr<=0) return; const f=easeIO(pr); km+=e.km*f;
+      evs.forEach(e=>{ if(!e.pts){ if(tau>=e.ts-.6) cur=e; return; } const pr=clamp01((tau-e.ts)/(e.te-e.ts)); if(tau>=e.ts-.6) cur=e; if(pr<=0) return; const f=easeIO(pr); km+=e.km*f;
         const pts=partial(e,f).map(P), col=e.kind==='track'?'#FF5C8A':MODE_HEX[e.mode], lw=e.kind==='track'?6:7;
         g.setLineDash([]); g.beginPath(); pts.forEach((p,i)=>i?g.lineTo(p[0],p[1]):g.moveTo(p[0],p[1])); g.strokeStyle='rgba(8,12,16,.45)'; g.lineWidth=lw+6; g.stroke();
         g.setLineDash(e.mode==='plane'?[18,14]:[]); g.strokeStyle=col; g.lineWidth=lw; g.stroke(); g.setLineDash([]);
@@ -1852,7 +1874,7 @@ const WORLD = __WORLD__;
         g.save(); g.translate(q[0],q[1]); g.scale(s,s); g.rotate(Math.PI/4); g.fillStyle=done?'#FF7A3D':'#16222D'; g.strokeStyle=done?'#fff':'#FF7A3D'; g.lineWidth=4; g.fillRect(-9,-9,18,18); g.strokeRect(-9,-9,18,18); g.restore(); });
       pins.forEach(({p,s})=>{ g.beginPath(); g.arc(p[0],p[1],11*s,0,7); g.fillStyle='#fff'; g.fill(); g.lineWidth=5; g.strokeStyle='#101820'; g.stroke(); });
       pins.forEach(({c,p,s})=>label(c.city,p,30,clamp01(s)));
-      acts.filter(a=>tau>=a.at&&tau<a.at+2.6).forEach(a=>label(a.p.name,P(a.u),26,clamp01((a.at+2.6-tau)/.5)));
+      acts.filter(a=>!a.card&&tau>=a.at&&tau<a.at+2.6).forEach(a=>label(a.p.name,P(a.u),26,clamp01((a.at+2.6-tau)/.5)));
       if(head){ const [hx,hy]=head.p; g.beginPath(); g.arc(hx,hy,26,0,7); g.fillStyle=head.col; g.fill(); g.lineWidth=4; g.strokeStyle='#fff'; g.stroke();
         const ic=MODE_PATH[head.mode]; if(ic){ g.save(); g.translate(hx-15,hy-15); g.scale(1.25,1.25); g.fillStyle='#fff'; g.fill(ic,'evenodd'); g.restore(); } }
       // header
@@ -1873,13 +1895,19 @@ const WORLD = __WORLD__;
         const where=cur?cur.label:(d.cities[0]||t.name);
         g.fillStyle='#fff'; g.font='700 46px "Barlow Condensed", sans-serif'; g.fillText(fitText(g,where,bw-64-kw), X+32, by+112); g.globalAlpha=1; }
       // photo pop
-      if(seg.type==='photo'){ const pic=seg.pic, pin=backOut(clamp01(u/.22)), out=clamp01((u-.86)/.14);
-        const pw=Math.min(W*.66,(area.y1-area.y0)*.8), ph=pw*(H>1500?1.2:1), fh=ph+(pic.label?96:36);
-        g.save(); g.globalAlpha=1-out; g.translate(acx,acy+(area.y1-area.y0>fh?0:20)); g.rotate(seg.tilt); g.scale(.55+.45*pin,.55+.45*pin);
-        g.shadowColor='rgba(0,0,0,.55)'; g.shadowBlur=50; g.shadowOffsetY=16; g.fillStyle='#fff'; roundRect(g,-pw/2-18,-fh/2,pw+36,fh,14); g.fill(); g.shadowColor='transparent';
-        drawCover(g,pic.im,-pw/2,-fh/2+18,pw,ph,6);
-        if(pic.label){ g.fillStyle='#15202B'; g.font='600 36px Figtree, sans-serif'; const s=fitText(g,pic.label,pw); g.fillText(s,-g.measureText(s).width/2,fh/2-34); }
-        g.restore(); }
+      if(seg.type==='photo') polaroid(g, seg.pic, acx, acy, (area.y1-area.y0)*.95, u, seg.tilt);
+      // moment card: time · category, name, stars, price
+      if(seg.type==='moment'){ const e=seg.ev, a=clamp01((u-.18)/.2), al=a*(1-clamp01((u-.9)/.1)), ch=164, cy=H-234-ch;
+        if(e.pic) polaroid(g, {im:e.pic.im}, acx, (area.y0+cy-20)/2, cy-20-area.y0, clamp01((u-.12)/.88), -.03);
+        if(al>0){ const cw=W-2*X, y0=cy+(1-backOut(a))*40; g.globalAlpha=al;
+          g.shadowColor='rgba(0,0,0,.45)'; g.shadowBlur=30; roundRect(g,X,y0,cw,ch,26); g.fillStyle='#fff'; g.fill(); g.shadowColor='transparent';
+          let tx=X+32; if(e.thumb){ drawCover(g,e.thumb,X+18,y0+18,ch-36,ch-36,16); tx=X+ch+4; } const tw=X+cw-tx-28;
+          g.fillStyle='#E2551B'; g.font='700 24px Figtree, sans-serif'; g.fillText(fitText(g,([e.time,e.cat].filter(Boolean).join(' · ')||(e.isExp?'Spent':'Activity')).toUpperCase(),tw),tx,y0+50);
+          g.fillStyle='#15202B'; g.font='700 52px "Barlow Condensed", sans-serif'; g.fillText(fitText(g,e.name||'',tw),tx,y0+106);
+          g.font='600 28px Figtree, sans-serif'; let bx=tx;
+          if(e.rating){ const st='★'.repeat(Math.min(5,e.rating)); g.fillStyle='#E2551B'; g.fillText(st,bx,y0+144); bx+=g.measureText(st).width+18; }
+          if(o.showCosts&&e.cost){ g.fillStyle='#4C5967'; g.fillText(fmtMoney(e.cost,e.cur),bx,y0+144); }
+          g.globalAlpha=1; } }
       // closing stats, as on the card
       if(outro&&stats){ const sa=clamp01((u-.45)/.25); if(sa>0){ g.globalAlpha=sa;
         const footH=H<=1100?150:190, sy=H-footH-20;
@@ -1914,7 +1942,7 @@ const WORLD = __WORLD__;
     init=init||{};
     const days=[]; if(t.startDate&&t.endDate&&t.endDate>=t.startDate) for(let i=0;i<Math.min(dayCount(t.startDate,t.endDate),90);i++) days.push(addDays(t.startDate,i));
     if(!days.length){ toast('Give the trip start and end dates first.'); return; }
-    const o={from:init.from||days[0], to:init.to||days[days.length-1], format:'post', showMap:true, showStats:true, showActs:true, photoIds:[], title:''};
+    const o={from:init.from||days[0], to:init.to||days[days.length-1], format:'post', showMap:true, showStats:true, showActs:true, showCosts:false, photoIds:[], title:''};
     let titleTouched=false, capTouched=false, picksTouched=false, drawTok=0, canvas=null, presetTitle='';
     const today=todayStr(), cityChips=[];
     tripStops(t.id).filter(s=>!s.home&&s.arrive).forEach(s=>{ const k=norm(s.city); const ex=cityChips.find(x=>x.k===k);
@@ -1929,7 +1957,7 @@ const WORLD = __WORLD__;
       + '<div class="grid2"><div class="field"><label for="shFrom">From</label><select id="shFrom">'+days.map(d=>dayOpt(d,o.from)).join('')+'</select></div><div class="field"><label for="shTo">To</label><select id="shTo">'+days.map(d=>dayOpt(d,o.to)).join('')+'</select></div></div></div>'
       + '<div class="field"><label>Format</label><div class="row" id="shFmt">'+Object.entries(SHARE_FORMATS).map(([k,f])=>'<button type="button" class="chip'+(k===o.format?' on':'')+'" data-fmt="'+k+'">'+f.label+'</button>').join('')+'</div></div>'
       + '<div class="field"><label for="shTitle">Title</label><input id="shTitle"></div>'
-      + '<div class="field"><label>On the image</label><div class="row" id="shShow"><button type="button" class="chip on" data-show="showMap">Map</button><button type="button" class="chip on" data-show="showStats">Stats</button><button type="button" class="chip on" data-show="showActs">Activities</button></div></div>'
+      + '<div class="field"><label>On the image</label><div class="row" id="shShow"><button type="button" class="chip on" data-show="showMap">Map</button><button type="button" class="chip on" data-show="showStats">Stats</button><button type="button" class="chip on" data-show="showActs">Activities</button><button type="button" class="chip" data-show="showCosts">Prices</button></div></div>'
       + '<div class="field" id="shPicsF"><label>Photos <span style="text-transform:none;letter-spacing:0;font-weight:500">(tap to pick up to 4)</span></label><div class="photos" id="shPics"></div></div>'
       + '<div class="field"><label for="cap">Caption</label><textarea id="cap"></textarea></div>'
       + '<div class="row">'+(canShare?'<button class="btn primary" type="button" id="shareNow" disabled>'+ICON.share+' Share…</button>':'')
