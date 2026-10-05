@@ -1752,10 +1752,13 @@ const WORLD = __WORLD__;
   // ---------- share card ----------
   // The viewer picks a slice of the trip (dates), a format and what goes on the image.
   const SHARE_FORMATS={post:{w:1080,h:1350,label:'Post 4:5'}, square:{w:1080,h:1080,label:'Square'}, story:{w:1080,h:1920,label:'Story 9:16'}};
-  function shareSlice(t, from, to){
-    const stops=tripStops(t.id).filter(s=>!s.home&&s.arrive&&s.arrive<=to&&(s.depart||s.arrive)>=from);
-    const legs=tripLegs(t.id).filter(l=>l.date&&l.date>=from&&l.date<=to);
-    const all=S.places.filter(p=>p.tripId===t.id&&p.date&&p.date>=from&&p.date<=to), acts=[];
+  // city (a norm()'d name, optional): only that city's stays and activities, no legs; the dates are the days spent there
+  function shareSlice(t, from, to, city){
+    let stops=tripStops(t.id).filter(s=>!s.home&&s.arrive&&s.arrive<=to&&(s.depart||s.arrive)>=from);
+    if(city) stops=stops.filter(s=>norm(s.city)===city);
+    const legs=city?[]:tripLegs(t.id).filter(l=>l.date&&l.date>=from&&l.date<=to);
+    const inCity=new Set(stops.map(s=>s.id));
+    const all=S.places.filter(p=>p.tripId===t.id&&p.date&&p.date>=from&&p.date<=to&&(!city||inCity.has(p.stopId)||norm((stopOf(p.stopId)||{}).city)===city)), acts=[];
     for(let d=from; d<=to; d=addDays(d,1)) dayOrder(d, legs.filter(l=>l.date===d), all.filter(p=>p.date===d), []).forEach(({k,x})=>{ if(k==='act') acts.push(x); });
     acts.sort((a,b)=>(a.status==='done'?0:1)-(b.status==='done'?0:1)); // stable: plans go last, the rest stay in trip order
     // photos: each activity's, in trip order, then the cities' own photos
@@ -1767,7 +1770,12 @@ const WORLD = __WORLD__;
     photos.forEach(id=>{ if(pick.length<Math.min(3,photos.length)&&!pick.includes(id)) pick.push(id); });
     const cities=[...new Map(stops.map(s=>[norm(s.city),s.city])).values()];
     const byMode={}; let km=0; legs.forEach(l=>{ const k=+l.km||0; km+=k; byMode[l.mode]=(byMode[l.mode]||0)+k; });
-    return {stops, legs, acts, photos, owner, pick, cities, km, byMode, days:dayCount(from,to), countries:new Set(stops.map(s=>s.countryA2).filter(Boolean)).size};
+    // the days covered, as ranges (a city visited twice gives two)
+    let ranges=[[from,to]];
+    if(city){ ranges=[]; stops.map(s=>[s.arrive<from?from:s.arrive, (s.depart||s.arrive)>to?to:(s.depart||s.arrive)]).sort((a,b)=>a[0].localeCompare(b[0])).forEach(r=>{
+      const last=ranges[ranges.length-1]; if(last&&r[0]<=addDays(last[1],1)){ if(r[1]>last[1]) last[1]=r[1]; } else ranges.push(r.slice()); }); if(!ranges.length) ranges=[[from,to]]; }
+    const days=ranges.reduce((n,r)=>n+dayCount(r[0],r[1]),0), meals=acts.filter(p=>MEAL_KEYS.has(p.category)).length;
+    return {stops, legs, acts, photos, owner, pick, cities, km, byMode, days, ranges, meals, city:city||'', countries:new Set(stops.map(s=>s.countryA2).filter(Boolean)).size};
   }
   const imgCache=new Map();
   function loadImg(id){
@@ -1810,12 +1818,12 @@ const WORLD = __WORLD__;
     const F=SHARE_FORMATS[o.format]||SHARE_FORMATS.post, W=F.w, H=F.h;
     const c=document.createElement('canvas'); c.width=W; c.height=H; const g=c.getContext('2d');
     try{ await document.fonts.load('700 40px "Barlow Condensed"'); await document.fonts.load('600 20px Figtree'); }catch(e){}
-    const d=shareSlice(t, o.from, o.to), X=72;
+    const d=shareSlice(t, o.from, o.to, o.city), X=72;
     g.fillStyle='#101820'; g.fillRect(0,0,W,H);
     // header: dates + title (up to 2 lines)
     const whole=o.from===t.startDate&&o.to===t.endDate;
     g.fillStyle='#FF7A3D'; g.font='700 30px "Barlow Condensed", sans-serif';
-    g.fillText(('WAYMARK · '+(o.from===o.to?fmtDate(o.from,{weekday:'short',month:'short',day:'numeric',year:'numeric'}):fmtDate(o.from,{month:'short',day:'numeric'})+' – '+fmtDate(o.to,{month:'short',day:'numeric',year:'numeric'}))).toUpperCase(), X, 100);
+    g.fillText(fitText(g,('WAYMARK · '+shareDates(o,d)).toUpperCase(),W-2*X), X, 100);
     g.fillStyle='#fff'; g.font='700 88px "Barlow Condensed", sans-serif';
     const words=String(o.title||'').split(/\s+/).filter(Boolean); let line=''; const lines=[];
     words.forEach(w=>{ const tryL=line?line+' '+w:w; if(g.measureText(tryL).width>W-2*X&&line){ lines.push(line); line=w; } else line=tryL; }); if(line) lines.push(line);
@@ -1843,7 +1851,8 @@ const WORLD = __WORLD__;
       const proj=d3.geoMercator();
       if(pts.length>=2) proj.fitExtent([[box[0]+70,box[1]+60],[box[0]+box[2]-150,box[1]+box[3]-50]],{type:'MultiPoint',coordinates:pts});
       else proj.scale(pts.length?14000:200).center(pts[0]||[0,20]).translate([box[0]+box[2]/2,box[1]+box[3]/2]);
-      if(pts.length&&proj.scale()>60000){ const cc=[d3.mean(pts,p=>p[0]),d3.mean(pts,p=>p[1])]; proj.scale(60000); const q=proj(cc), tr=proj.translate(); proj.translate([tr[0]+box[0]+box[2]/2-q[0], tr[1]+box[1]+box[3]/2-q[1]]); }
+      const zmax=d.city?400000:60000;
+      if(pts.length&&proj.scale()>zmax){ const cc=[d3.mean(pts,p=>p[0]),d3.mean(pts,p=>p[1])]; proj.scale(zmax); const q=proj(cc), tr=proj.translate(); proj.translate([tr[0]+box[0]+box[2]/2-q[0], tr[1]+box[1]+box[3]/2-q[1]]); }
       g.save(); roundRect(g,...box,22); g.clip(); g.fillStyle='#16222D'; g.fillRect(...box);
       const path=d3.geoPath(proj,g);
       const visited=new Set(d.stops.map(s=>s.countryN3).filter(Boolean));
@@ -1880,7 +1889,7 @@ const WORLD = __WORLD__;
         if(stars){ g.fillStyle='#FF7A3D'; g.fillText(stars,W-X-sw+20,ry); } });
     }
     if(o.showStats){ // stats strip
-      const stats=[[fmtKm(d.km)+' km','DISTANCE'],[String(d.days),d.days===1?'DAY':'DAYS'],[String(d.cities.length),d.cities.length===1?'CITY':'CITIES'],[String(d.acts.filter(p=>p.status==='done').length||d.acts.length),'ACTIVITIES']];
+      const stats=shareStats(d);
       const sy=H-footH-20, cw=(W-2*X)/4;
       g.strokeStyle='#2A3743'; g.lineWidth=2; g.beginPath(); g.moveTo(X,sy); g.lineTo(W-X,sy); g.stroke();
       stats.forEach(([v,k],i)=>{ const x=X+i*cw; let fs=H<=1100?60:72; g.font='700 '+fs+'px "Barlow Condensed", sans-serif'; while(fs>30&&g.measureText(v).width>cw-24){ fs-=4; g.font='700 '+fs+'px "Barlow Condensed", sans-serif'; }
@@ -1891,8 +1900,24 @@ const WORLD = __WORLD__;
     void whole;
     return c;
   }
+  function shareDates(o, d){
+    const r=d.ranges||[[o.from,o.to]], y=r[r.length-1][1].slice(0,4);
+    const one=([a,b])=>a===b?fmtDate(a,{month:'short',day:'numeric'}):fmtDate(a,{month:'short',day:'numeric'})+' – '+fmtDate(b,{month:'short',day:'numeric'});
+    if(r.length===1&&r[0][0]===r[0][1]) return fmtDate(r[0][0],{weekday:'short',month:'short',day:'numeric',year:'numeric'});
+    return r.map(one).join(' & ')+', '+y;
+  }
+  function shareStats(d){
+    const done=d.acts.filter(p=>p.status==='done'), things=(done.length?done:d.acts).filter(p=>!MEAL_KEYS.has(p.category)).length;
+    const st=[];
+    if(d.km) st.push([fmtKm(d.km)+' km','DISTANCE']);
+    st.push([String(d.days),d.days===1?'DAY':'DAYS']);
+    if(!d.city) st.push([String(d.cities.length),d.cities.length===1?'CITY':'CITIES']);
+    st.push([String(d.city?things:(done.length||d.acts.length)),d.city?(things===1?'THING TO DO':'THINGS TO DO'):'ACTIVITIES']);
+    if(d.city) st.push([String(d.meals),d.meals===1?'MEAL':'MEALS']);
+    return st.slice(0,4);
+  }
   function caption(t, o){
-    const d=shareSlice(t, o.from, o.to);
+    const d=shareSlice(t, o.from, o.to, o.city);
     const done=d.acts.filter(p=>p.status==='done'), top=(done.length?done:d.acts).slice(0,3).map(p=>p.name);
     return (o.title||t.name)+' ✦ '+(d.km?fmtKm(d.km)+' km, ':'')+d.days+' day'+(d.days===1?'':'s')+(d.cities.length?', '+d.cities.length+' cit'+(d.cities.length===1?'y':'ies'):'')
       + (d.cities.length>1?'\n'+d.cities.join(' → '):'')+(top.length?'\n'+(done.length?'Highlights: ':'Plans: ')+top.join(', '):'')+'\n#travel #roadtrip';
@@ -1922,7 +1947,7 @@ const WORLD = __WORLD__;
     const F=SHARE_FORMATS[o.format]||SHARE_FORMATS.post, W=F.w, H=F.h, X=72;
     try{ await document.fonts.load('700 40px "Barlow Condensed"'); await document.fonts.load('600 20px Figtree'); }catch(e){}
     if(!countryBounds) countryBounds=worldFeat.features.map(f=>d3.geoBounds(f));
-    const d=shareSlice(t, o.from, o.to), U=(lon,lat)=>unitMerc([lon,lat]);
+    const d=shareSlice(t, o.from, o.to, o.city), U=(lon,lat)=>unitMerc([lon,lat]);
     const visited=new Set(d.stops.map(s=>s.countryN3).filter(Boolean));
     // title lines, measured like the card
     const mg=document.createElement('canvas').getContext('2d'); mg.font='700 88px "Barlow Condensed", sans-serif';
@@ -1930,7 +1955,7 @@ const WORLD = __WORLD__;
     words.forEach(w=>{ const tryL=line?line+' '+w:w; if(mg.measureText(tryL).width>W-2*X&&line){ lines.push(line); line=w; } else line=tryL; }); if(line) lines.push(line);
     const title=lines.slice(0,2).map((l,i)=>i===1&&lines.length>2?fitText(mg,l+' '+lines.slice(2).join(' '),W-2*X):l);
     const headH=190+(Math.max(title.length,1)-1)*86+40;
-    const dateLine=('WAYMARK · '+(o.from===o.to?fmtDate(o.from,{weekday:'short',month:'short',day:'numeric',year:'numeric'}):fmtDate(o.from,{month:'short',day:'numeric'})+' – '+fmtDate(o.to,{month:'short',day:'numeric',year:'numeric'}))).toUpperCase();
+    const dateLine=('WAYMARK · '+shareDates(o,d)).toUpperCase();
     // the route is fitted between the title and the bottom badge
     const area={x0:X, y0:headH+20, x1:W-X, y1:H-250}, acx=(area.x0+area.x1)/2, acy=(area.y0+area.y1)/2;
     const fit=(ll, cap)=>{ const u=ll.map(p=>U(p[0],p[1]));
@@ -2079,7 +2104,7 @@ const WORLD = __WORLD__;
       if(outro&&stats){ const sa=clamp01((u-.45)/.25); if(sa>0){ g.globalAlpha=sa;
         const footH=H<=1100?150:190, sy=H-footH-20;
         const fg=g.createLinearGradient(0,sy-120,0,H); fg.addColorStop(0,'rgba(16,24,32,0)'); fg.addColorStop(.35,'rgba(16,24,32,.92)'); fg.addColorStop(1,'rgba(16,24,32,.98)'); g.fillStyle=fg; g.fillRect(0,sy-120,W,H-sy+120);
-        const st=[[fmtKm(d.km)+' km','DISTANCE'],[String(d.days),d.days===1?'DAY':'DAYS'],[String(d.cities.length),d.cities.length===1?'CITY':'CITIES'],[String(d.acts.filter(p=>p.status==='done').length||d.acts.length),'ACTIVITIES']], cw=(W-2*X)/4;
+        const st=shareStats(d), cw=(W-2*X)/4;
         g.strokeStyle='#2A3743'; g.lineWidth=2; g.beginPath(); g.moveTo(X,sy); g.lineTo(W-X,sy); g.stroke();
         st.forEach(([val,key],i)=>{ const x=X+i*cw; let fs=H<=1100?60:72; g.font='700 '+fs+'px "Barlow Condensed", sans-serif'; while(fs>30&&g.measureText(val).width>cw-24){ fs-=4; g.font='700 '+fs+'px "Barlow Condensed", sans-serif'; }
           g.fillStyle='#fff'; g.fillText(val,x,sy+(H<=1100?70:84)); g.fillStyle='#8FA0AF'; g.font='700 22px Figtree, sans-serif'; g.fillText(key,x,sy+(H<=1100?104:122)); });
@@ -2156,14 +2181,14 @@ const WORLD = __WORLD__;
     init=init||{};
     const days=[]; if(t.startDate&&t.endDate&&t.endDate>=t.startDate) for(let i=0;i<Math.min(dayCount(t.startDate,t.endDate),90);i++) days.push(addDays(t.startDate,i));
     if(!days.length){ toast('Give the trip start and end dates first.'); return; }
-    const o={from:init.from||days[0], to:init.to||days[days.length-1], format:'post', showMap:true, showStats:true, showActs:true, showCosts:false, photoIds:[], title:'', edit:{off:{}, mult:{}, pace:1}, photoFx:{}};
+    const o={from:init.from||days[0], to:init.to||days[days.length-1], city:'', format:'post', showMap:true, showStats:true, showActs:true, showCosts:false, photoIds:[], title:'', edit:{off:{}, mult:{}, pace:1}, photoFx:{}};
     const music={kind:'none', buf:null, name:'', start:0, vol:.8, fade:true};
     let titleTouched=false, capTouched=false, picksTouched=false, drawTok=0, canvas=null, presetTitle='';
     const today=todayStr(), cityChips=[];
     tripStops(t.id).filter(s=>!s.home&&s.arrive).forEach(s=>{ const k=norm(s.city); const ex=cityChips.find(x=>x.k===k);
       if(ex){ if(s.arrive<ex.from) ex.from=s.arrive; if((s.depart||s.arrive)>ex.to) ex.to=s.depart||s.arrive; } else cityChips.push({k, city:s.city, from:s.arrive, to:s.depart||s.arrive}); });
     const presets=[{label:'Whole trip', from:days[0], to:days[days.length-1]}].concat(days.includes(today)?[{label:'Today', from:today, to:today}]:[])
-      .concat(cityChips.map(c=>({label:c.city, title:c.city, from:c.from<days[0]?days[0]:c.from, to:c.to>days[days.length-1]?days[days.length-1]:c.to})))
+      .concat(cityChips.map(c=>({label:c.city, title:c.city, city:c.k, from:c.from<days[0]?days[0]:c.from, to:c.to>days[days.length-1]?days[days.length-1]:c.to})))
       .concat(days.filter(d=>d!==today).map(d=>({label:fmtDate(d,{weekday:'short',month:'short',day:'numeric'}), from:d, to:d})));
     const dayOpt=(d,sel)=>'<option value="'+d+'"'+(d===sel?' selected':'')+'>'+fmtDate(d,{weekday:'short',month:'short',day:'numeric'})+'</option>';
     const canShare=!!(navigator.canShare&&navigator.share);
@@ -2208,10 +2233,10 @@ const WORLD = __WORLD__;
       const sync=()=>{ // range changed: refresh title, photos, caption
         if(o.to<o.from){ const x=o.to; o.to=o.from; o.from=x; }
         $('#shFrom').value=o.from; $('#shTo').value=o.to;
-        $('#shPre').querySelectorAll('[data-pre]').forEach(b=>{ const p=presets[+b.dataset.pre]; b.classList.toggle('on',p.from===o.from&&p.to===o.to); });
+        $('#shPre').querySelectorAll('[data-pre]').forEach(b=>{ const p=presets[+b.dataset.pre]; b.classList.toggle('on',p.city?o.city===p.city:(!o.city&&p.from===o.from&&p.to===o.to)); });
         const onChip=$('#shPre .chip.on'); if(onChip){ const bx=$('#shPre'); bx.scrollLeft=Math.max(0,onChip.offsetLeft-bx.offsetLeft-12); }
         if(!titleTouched){ o.title=presetTitle||defaultTitle(t,o.from,o.to); $('#shTitle').value=o.title; }
-        const sl=shareSlice(t,o.from,o.to), avail=sl.photos;
+        const sl=shareSlice(t,o.from,o.to,o.city), avail=sl.photos;
         o.photoIds=picksTouched?o.photoIds.filter(id=>avail.includes(id)):sl.pick.slice();
         $('#shPicsF').hidden=!avail.length;
         const drawPics=()=>{ $('#shPics').innerHTML=avail.map(id=>{ const n=o.photoIds.indexOf(id);
@@ -2226,9 +2251,9 @@ const WORLD = __WORLD__;
         if(!capTouched) $('#cap').value=caption(t,o);
         later();
       };
-      $('#shPre').querySelectorAll('[data-pre]').forEach(b=>b.onclick=()=>{ const p=presets[+b.dataset.pre]; o.from=p.from; o.to=p.to; presetTitle=p.title||''; picksTouched=false; sync(); });
-      $('#shFrom').onchange=()=>{ o.from=val('shFrom'); presetTitle=''; picksTouched=false; sync(); };
-      $('#shTo').onchange=()=>{ o.to=val('shTo'); presetTitle=''; picksTouched=false; sync(); };
+      $('#shPre').querySelectorAll('[data-pre]').forEach(b=>b.onclick=()=>{ const p=presets[+b.dataset.pre]; o.from=p.from; o.to=p.to; o.city=p.city||''; presetTitle=p.title||''; picksTouched=false; sync(); });
+      $('#shFrom').onchange=()=>{ o.from=val('shFrom'); o.city=''; presetTitle=''; picksTouched=false; sync(); };
+      $('#shTo').onchange=()=>{ o.to=val('shTo'); o.city=''; presetTitle=''; picksTouched=false; sync(); };
       $('#shFmt').querySelectorAll('[data-fmt]').forEach(b=>b.onclick=()=>{ o.format=b.dataset.fmt; $('#shFmt').querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b)); later(); });
       $('#shShow').querySelectorAll('[data-show]').forEach(b=>b.onclick=()=>{ const k=b.dataset.show; o[k]=!o[k]; b.classList.toggle('on',o[k]); later(); });
       $('#shTitle').oninput=()=>{ titleTouched=true; o.title=val('shTitle'); if(!capTouched) $('#cap').value=caption(t,o); later(); };
