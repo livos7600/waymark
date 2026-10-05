@@ -101,7 +101,8 @@
   .day-h .btn{padding:4px 8px;}
   .day-i{display:flex;gap:8px;align-items:center;padding:4px 0;font-size:14px;cursor:pointer;}
   .day-i img{width:30px;height:30px;border-radius:6px;object-fit:cover;flex-shrink:0;cursor:zoom-in;}
-  .drag{margin-left:auto;padding:6px 2px 6px 10px;color:var(--ink-faint);font-size:18px;line-height:1;cursor:grab;touch-action:none;user-select:none;-webkit-user-select:none;flex-shrink:0;}
+  .drag{margin-left:auto;padding:6px 2px 6px 10px;color:var(--ink-faint);font-size:18px;line-height:1;cursor:grab;touch-action:pan-y;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;flex-shrink:0;}
+  .day-i.dragging{transform:scale(1.02);transition:transform .12s;}
   .day-i.dragging{background:var(--surface);box-shadow:var(--shadow);border-radius:8px;position:relative;z-index:2;}
   .night-add{align-self:flex-start;border:1px dashed var(--line);background:transparent;color:var(--ink-faint);border-radius:8px;padding:4px 10px;font-size:13px;margin-top:4px;cursor:pointer;}
   .day-i.night{border-top:1px dashed var(--line);margin-top:2px;padding-top:6px;}
@@ -370,27 +371,40 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
     main.querySelectorAll('.day-list').forEach(list=>{
       const rows=[...list.querySelectorAll('.day-i')]; if(rows.length<2) return;
       rows.forEach(row=>{
-        const h=document.createElement('span'); h.className='drag'; h.setAttribute('role','button'); h.setAttribute('aria-label','Drag to reorder'); h.textContent='⠿';
+        const h=document.createElement('span'); h.className='drag'; h.setAttribute('role','button'); h.setAttribute('aria-label','Press and hold, then drag to reorder'); h.textContent='⠿';
         row.appendChild(h);
         h.addEventListener('click',e=>e.stopPropagation());
+        // Press and hold the handle (~0.35 s) to pick a row up; a quick swipe over it just scrolls the page.
+        let armed=false, holdT=null, finish=null;
+        h.addEventListener('touchmove',e=>{ if(armed) e.preventDefault(); },{passive:false});
+        const ended=()=>{ if(holdT){ clearTimeout(holdT); holdT=null; } if(finish) finish(); };
+        h.addEventListener('touchend',ended); h.addEventListener('touchcancel',ended);
+        h.addEventListener('contextmenu',e=>e.preventDefault());
         h.addEventListener('pointerdown',e=>{
-          e.preventDefault(); e.stopPropagation();
-          try{ h.setPointerCapture(e.pointerId); }catch(err){}
+          e.stopPropagation(); if(e.pointerType==='mouse') e.preventDefault();
+          const y0=e.clientY, id=e.pointerId;
+          const cancel=()=>{ clearTimeout(holdT); holdT=null; h.removeEventListener('pointermove',early); h.removeEventListener('pointerup',cancel); h.removeEventListener('pointercancel',cancel); };
+          const early=ev=>{ if(Math.abs(ev.clientY-y0)>8) cancel(); };
+          h.addEventListener('pointermove',early); h.addEventListener('pointerup',cancel); h.addEventListener('pointercancel',cancel);
+          holdT=setTimeout(()=>{ cancel(); start(id); }, e.pointerType==='mouse'?0:350);
+        });
+        function start(pid){
+          try{ h.setPointerCapture(pid); }catch(err){}
           const before=[...list.querySelectorAll('.day-i')];
-          dragActive=true; row.classList.add('dragging');
+          armed=true; dragActive=true; row.classList.add('dragging'); try{ navigator.vibrate&&navigator.vibrate(12); }catch(err){}
           let scrollT=null;
           const move=ev=>{ const y=ev.clientY;
             const next=[...list.querySelectorAll('.day-i')].filter(x=>x!==row).find(x=>{ const r=x.getBoundingClientRect(); return y<r.top+r.height/2; });
             if((next||null)!==row.nextElementSibling) list.insertBefore(row, next||null);
             clearInterval(scrollT); if(y<90) scrollT=setInterval(()=>window.scrollBy(0,-10),30); else if(y>innerHeight-110) scrollT=setInterval(()=>window.scrollBy(0,10),30); };
-          const up=async()=>{ clearInterval(scrollT);
+          const up=async()=>{ if(finish!==up) return; finish=null; clearInterval(scrollT); armed=false;
             h.removeEventListener('pointermove',move); h.removeEventListener('pointerup',up); h.removeEventListener('pointercancel',up);
             row.classList.remove('dragging');
             const after=[...list.querySelectorAll('.day-i')];
             if(after.some((r,i)=>r!==before[i])) await saveDayOrder(after);
             dragActive=false; if(renderWanted){ renderWanted=false; schedule(); } };
-          h.addEventListener('pointermove',move); h.addEventListener('pointerup',up); h.addEventListener('pointercancel',up);
-        });
+          finish=up; h.addEventListener('pointermove',move); h.addEventListener('pointerup',up); h.addEventListener('pointercancel',up);
+        }
       });
     });
   }
