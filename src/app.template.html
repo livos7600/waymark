@@ -1021,6 +1021,7 @@ const WORLD = __WORLD__;
       + '<div class="field"><label>Status</label><div class="row"><button type="button" class="chip '+(status==='done'?'on':'')+'" data-st="done">Been</button><button type="button" class="chip '+(status==='want'?'on':'')+'" data-st="want">Want to go</button></div></div>'
       + '<div class="field"><label>Rating</label><div class="rating" id="rating">'+[1,2,3,4,5].map(i=>'<button type="button" data-r="'+i+'" aria-label="'+i+' stars" class="'+(i<=rating?'on':'')+'">★</button>').join('')+'</div></div>'
       + '<div class="grid3"><div class="field"><label for="pCost">Price (optional)</label><input id="pCost" inputmode="decimal" value="'+esc(p&&p.cost?p.cost:'')+'"></div><div class="field"><label for="pCur">Currency</label>'+curSelect('pCur', p?p.currency:trip.currency)+'</div></div>'
+      + '<label class="row" style="gap:8px;font-size:14px;cursor:pointer"><input type="checkbox" id="pPriv" style="width:20px;height:20px"'+(p&&p.private?' checked':'')+'> 🔒 Keep off shares <span class="faint">(stays in your log, never on images or videos)</span></label>'
       + '<div class="field"><label for="pNotes">Notes</label><textarea id="pNotes" placeholder="What you did, what you ordered, would you go back?">'+esc(p?p.notes||'':'')+'</textarea></div>'
       + '<div class="hint" id="pPos">'+(p&&p.track&&p.track.length?'📍 Route on the map · '+statsLine(p):pos?'📍 On the map':'')+'</div>'
       + '<div class="err" id="fErr" hidden></div>'
@@ -1104,7 +1105,7 @@ const WORLD = __WORLD__;
         const c=parseFloat(val('pCost').replace(',','.'));
         // a position Claude guessed for another name is stale; a photo's GPS stays
         const keep=pos&&(pos.name==null||pos.name===name);
-        const data=Object.assign({}, pre&&pre.extra||{}, {tripId:trip.id, stopId:st.id, name, address:keep?address:'', category:val('pCat'), date, time:val('pTime'), status, rating, cost:isFinite(c)?c:0, currency:val('pCur'), notes:val('pNotes').trim(), photoIds, updatedAt:now()});
+        const data=Object.assign({}, pre&&pre.extra||{}, {tripId:trip.id, stopId:st.id, name, address:keep?address:'', category:val('pCat'), date, time:val('pTime'), private:$('#pPriv').checked, status, rating, cost:isFinite(c)?c:0, currency:val('pCur'), notes:val('pNotes').trim(), photoIds, updatedAt:now()});
         if(keep){ data.lat=pos.lat; data.lon=pos.lon; }
         let id=p&&p.id;
         if(p){ if(!keep&&p.lat!=null){ data.lat=null; data.lon=null; } if(p.date!==date) data.dayPos=null; await patch('places', p.id, data); }
@@ -1769,13 +1770,15 @@ const WORLD = __WORLD__;
   // The viewer picks a slice of the trip (dates), a format and what goes on the image.
   const SHARE_FORMATS={post:{w:1080,h:1350,label:'Post 4:5'}, square:{w:1080,h:1080,label:'Square'}, story:{w:1080,h:1920,label:'Story 9:16'}};
   // city (a norm()'d name, optional): only that city's stays and activities, no legs; the dates are the days spent there
-  function shareSlice(t, from, to, city){
+  // hide: {placeId:true} for activities/meals left off this share
+  function shareSlice(t, from, to, city, hide){
     let stops=tripStops(t.id).filter(s=>!s.home&&s.arrive&&s.arrive<=to&&(s.depart||s.arrive)>=from);
     if(city) stops=stops.filter(s=>norm(s.city)===city);
     const legs=city?[]:tripLegs(t.id).filter(l=>l.date&&l.date>=from&&l.date<=to);
     const inCity=new Set(stops.map(s=>s.id));
     const all=S.places.filter(p=>p.tripId===t.id&&p.date&&p.date>=from&&p.date<=to&&(!city||inCity.has(p.stopId)||norm((stopOf(p.stopId)||{}).city)===city)), acts=[];
     for(let d=from; d<=to; d=addDays(d,1)) dayOrder(d, legs.filter(l=>l.date===d), all.filter(p=>p.date===d), []).forEach(({k,x})=>{ if(k==='act') acts.push(x); });
+    if(hide) for(let i=acts.length-1;i>=0;i--) if(hide[acts[i].id]) acts.splice(i,1);
     acts.sort((a,b)=>(a.status==='done'?0:1)-(b.status==='done'?0:1)); // stable: plans go last, the rest stay in trip order
     // photos: each activity's, in trip order, then the cities' own photos
     const owner={}; acts.forEach(p=>(p.photoIds||[]).forEach(id=>{ if(!owner[id]) owner[id]=p.name; }));
@@ -1834,7 +1837,7 @@ const WORLD = __WORLD__;
     const F=SHARE_FORMATS[o.format]||SHARE_FORMATS.post, W=F.w, H=F.h;
     const c=document.createElement('canvas'); c.width=W; c.height=H; const g=c.getContext('2d');
     try{ await document.fonts.load('700 40px "Barlow Condensed"'); await document.fonts.load('600 20px Figtree'); }catch(e){}
-    const d=shareSlice(t, o.from, o.to, o.city), X=72;
+    const d=shareSlice(t, o.from, o.to, o.city, o.hide), X=72;
     g.fillStyle='#101820'; g.fillRect(0,0,W,H);
     // header: dates + title (up to 2 lines)
     const whole=o.from===t.startDate&&o.to===t.endDate;
@@ -1936,7 +1939,7 @@ const WORLD = __WORLD__;
     return st.slice(0,4);
   }
   function caption(t, o){
-    const d=shareSlice(t, o.from, o.to, o.city);
+    const d=shareSlice(t, o.from, o.to, o.city, o.hide);
     const done=d.acts.filter(p=>p.status==='done'), top=[...new Set((done.length?done:d.acts).map(p=>shareName(p,o)))].slice(0,3);
     return (o.title||t.name)+' ✦ '+(d.km?fmtKm(d.km)+' km, ':'')+d.days+' day'+(d.days===1?'':'s')+(d.cities.length?', '+d.cities.length+' cit'+(d.cities.length===1?'y':'ies'):'')
       + (d.cities.length>1?'\n'+d.cities.join(' → '):'')+(top.length?'\n'+(done.length?'Highlights: ':'Plans: ')+top.join(', '):'')+'\n#travel #roadtrip';
@@ -1966,7 +1969,7 @@ const WORLD = __WORLD__;
     const F=SHARE_FORMATS[o.format]||SHARE_FORMATS.post, W=F.w, H=F.h, X=72;
     try{ await document.fonts.load('700 40px "Barlow Condensed"'); await document.fonts.load('600 20px Figtree'); }catch(e){}
     if(!countryBounds) countryBounds=worldFeat.features.map(f=>d3.geoBounds(f));
-    const d=shareSlice(t, o.from, o.to, o.city), U=(lon,lat)=>unitMerc([lon,lat]);
+    const d=shareSlice(t, o.from, o.to, o.city, o.hide), U=(lon,lat)=>unitMerc([lon,lat]);
     const visited=new Set(d.stops.map(s=>s.countryN3).filter(Boolean));
     // title lines, measured like the card
     const mg=document.createElement('canvas').getContext('2d'); mg.font='700 88px "Barlow Condensed", sans-serif';
@@ -2200,7 +2203,7 @@ const WORLD = __WORLD__;
     init=init||{};
     const days=[]; if(t.startDate&&t.endDate&&t.endDate>=t.startDate) for(let i=0;i<Math.min(dayCount(t.startDate,t.endDate),90);i++) days.push(addDays(t.startDate,i));
     if(!days.length){ toast('Give the trip start and end dates first.'); return; }
-    const o={from:init.from||days[0], to:init.to||days[days.length-1], city:'', priv:{spots:false, names:false, times:false, dates:false}, format:'post', showMap:true, showStats:true, showActs:true, showCosts:false, photoIds:[], title:'', edit:{off:{}, mult:{}, pace:1}, photoFx:{}};
+    const o={from:init.from||days[0], to:init.to||days[days.length-1], city:'', hide:Object.fromEntries(S.places.filter(p=>p.tripId===t.id&&p.private).map(p=>[p.id,true])), priv:{spots:false, names:false, times:false, dates:false}, format:'post', showMap:true, showStats:true, showActs:true, showCosts:false, photoIds:[], title:'', edit:{off:{}, mult:{}, pace:1}, photoFx:{}};
     const music={kind:'none', buf:null, name:'', start:0, vol:.8, fade:true};
     let titleTouched=false, capTouched=false, picksTouched=false, drawTok=0, canvas=null, presetTitle='';
     const today=todayStr(), cityChips=[];
@@ -2218,6 +2221,7 @@ const WORLD = __WORLD__;
       + '<div class="field"><label>2 · Size</label><div class="row" id="shFmt">'+Object.entries(SHARE_FORMATS).map(([k,f])=>'<button type="button" class="chip'+(k===o.format?' on':'')+'" data-fmt="'+k+'">'+f.label+'</button>').join('')+'</div></div>'
       + '<div class="field"><label for="shTitle">3 · Title</label><input id="shTitle"></div>'
       + '<div class="field"><label>4 · Show on it <span style="text-transform:none;letter-spacing:0;font-weight:500">(tap to turn on or off)</span></label><div class="row" id="shShow"><button type="button" class="chip on" data-show="showMap">Map</button><button type="button" class="chip on" data-show="showStats">Stats</button><button type="button" class="chip on" data-show="showActs">Activity list</button><button type="button" class="chip" data-show="showCosts">Prices</button></div></div>'
+      + '<div class="field"><label>On the share <span style="text-transform:none;letter-spacing:0;font-weight:500">(untick what stays private)</span></label><div id="shActs"></div></div>'
       + '<div class="field"><label>Keep private <span style="text-transform:none;letter-spacing:0;font-weight:500">(on the image, video and caption)</span></label><div class="chips" id="shPriv">'
         + [['spots','📍 Hide exact spots'],['names','🏷️ Hide names'],['times','🕘 Hide times'],['dates','📅 Hide dates']].map(([k,l])=>'<button type="button" class="chip" data-priv="'+k+'">'+l+'</button>').join('')
         + '</div><div class="hint" id="shPrivHint">Prices are off unless you turn them on above. Contacts and notes never go on a share.</div></div>'
@@ -2258,7 +2262,8 @@ const WORLD = __WORLD__;
         $('#shPre').querySelectorAll('[data-pre]').forEach(b=>{ const p=presets[+b.dataset.pre]; b.classList.toggle('on',p.city?o.city===p.city:(!o.city&&p.from===o.from&&p.to===o.to)); });
         const onChip=$('#shPre .chip.on'); if(onChip){ const bx=$('#shPre'); bx.scrollLeft=Math.max(0,onChip.offsetLeft-bx.offsetLeft-12); }
         if(!titleTouched){ o.title=presetTitle||defaultTitle(t,o.from,o.to); $('#shTitle').value=o.title; }
-        const sl=shareSlice(t,o.from,o.to,o.city), avail=sl.photos;
+        const sl=shareSlice(t,o.from,o.to,o.city,o.hide), avail=sl.photos;
+        drawActPick();
         o.photoIds=picksTouched?o.photoIds.filter(id=>avail.includes(id)):sl.pick.slice();
         $('#shPicsF').hidden=!avail.length;
         const drawPics=()=>{ $('#shPics').innerHTML=avail.map(id=>{ const n=o.photoIds.indexOf(id);
@@ -2277,6 +2282,10 @@ const WORLD = __WORLD__;
       $('#shFrom').onchange=()=>{ o.from=val('shFrom'); o.city=''; presetTitle=''; picksTouched=false; sync(); };
       $('#shTo').onchange=()=>{ o.to=val('shTo'); o.city=''; presetTitle=''; picksTouched=false; sync(); };
       $('#shFmt').querySelectorAll('[data-fmt]').forEach(b=>b.onclick=()=>{ o.format=b.dataset.fmt; $('#shFmt').querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b)); later(); });
+      function drawActPick(){ const all=shareSlice(t,o.from,o.to,o.city).acts, box=$('#shActs');
+        box.parentElement.hidden=!all.length;
+        box.innerHTML=all.map(p=>'<label class="ed-row'+(o.hide[p.id]?' off':'')+'" style="cursor:pointer"><input type="checkbox" data-hid="'+p.id+'"'+(o.hide[p.id]?'':' checked')+'><span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+catIcon(p.category)+' '+esc(p.name)+'</span>'+(p.private?'<span class="faint">🔒</span>':'')+'</label>').join('');
+        box.querySelectorAll('[data-hid]').forEach(c=>c.onchange=()=>{ if(c.checked) delete o.hide[c.dataset.hid]; else o.hide[c.dataset.hid]=true; sync(); }); }
       $('#shPriv').querySelectorAll('[data-priv]').forEach(b=>b.onclick=()=>{ const k=b.dataset.priv; o.priv[k]=!o.priv[k]; b.classList.toggle('on',o.priv[k]);
         const on=Object.entries(o.priv).filter(([,v])=>v).map(([k])=>({spots:'only cities show on the map',names:'activities show as their type (e.g. "Lunch")',times:'no times',dates:'"4 days" instead of dates'}[k]));
         $('#shPrivHint').textContent=on.length?'Hiding: '+on.join(', ')+'.':'Prices are off unless you turn them on above. Contacts and notes never go on a share.';
