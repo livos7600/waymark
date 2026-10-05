@@ -8,7 +8,7 @@
     --line:#D3DAE1; --accent:#E2551B; --accent-ink:#FFFFFF; --accent-soft:#FBE4D9;
     --land:#D9DFE5; --land-visited:#F5C6AE; --sea:#F6F8FA; --border-land:#FFFFFF;
     --plane:#2F6FED; --car:#E2551B; --train:#22946A; --bus:#8E55C9; --ferry:#0E9BAD; --walk:#8A7F70;
-    --good:#22946A; --shadow:0 1px 2px rgba(21,32,43,.06),0 8px 24px -12px rgba(21,32,43,.22);
+    --good:#22946A; --track:#D6336C; --shadow:0 1px 2px rgba(21,32,43,.06),0 8px 24px -12px rgba(21,32,43,.22);
   }
   @media (prefers-color-scheme: dark){
     :root:not([data-theme="light"]){
@@ -17,7 +17,7 @@
       --line:#2A3743; --accent:#FF7A3D; --accent-ink:#1A0A02; --accent-soft:#3A2216;
       --land:#25313C; --land-visited:#6B3A24; --sea:#121A21; --border-land:#0F151B;
       --plane:#6F9BFF; --car:#FF7A3D; --train:#4CC795; --bus:#B98BEB; --ferry:#3CC6D6; --walk:#B5AA9B;
-      --good:#4CC795; --shadow:0 1px 2px rgba(0,0,0,.35),0 10px 28px -12px rgba(0,0,0,.6);
+      --good:#4CC795; --track:#FF5C8A; --shadow:0 1px 2px rgba(0,0,0,.35),0 10px 28px -12px rgba(0,0,0,.6);
     }
   }
   :root[data-theme="dark"]{
@@ -26,7 +26,7 @@
     --line:#2A3743; --accent:#FF7A3D; --accent-ink:#1A0A02; --accent-soft:#3A2216;
     --land:#25313C; --land-visited:#6B3A24; --sea:#121A21; --border-land:#0F151B;
     --plane:#6F9BFF; --car:#FF7A3D; --train:#4CC795; --bus:#B98BEB; --ferry:#3CC6D6; --walk:#B5AA9B;
-    --good:#4CC795; --shadow:0 1px 2px rgba(0,0,0,.35),0 10px 28px -12px rgba(0,0,0,.6);
+    --good:#4CC795; --track:#FF5C8A; --shadow:0 1px 2px rgba(0,0,0,.35),0 10px 28px -12px rgba(0,0,0,.6);
   }
   *{box-sizing:border-box;}
   html,body{height:100%;}
@@ -214,7 +214,7 @@ const WORLD = __WORLD__;
 (function(){
   // ---------- state ----------
   const S = { trips:[], stops:[], legs:[], places:[], expenses:[] };
-  let db = null, assets = null, sample = null, downloads = null;
+  let db = null, assets = null, sample = null, downloads = null, mcp = null;
   let sampleImages = 0; // how many images one Claude call can take here (0: none)
   let ready = { db:false };
   let R = { tab:'trips', tripId:null, stopId:null, placeCat:'all' };
@@ -231,7 +231,7 @@ const WORLD = __WORLD__;
     walk:{label:'Walk/Bike', color:'var(--walk)', icon:'<path d="M13 4a2 2 0 1 1-.01 0zM10 8l3-1 3 4 3 1-1 2-4-1-1 3 3 3v4h-2v-3l-3-2-1 5H8l2-9-2 1v3H6V9z" fill="currentColor"/>'}
   };
   const CATS = [
-    ['food','Food & drink'],['restaurant','Restaurant'],['museum','Museum'],['attraction','Attraction'],['hike','Hike'],['run','Run'],
+    ['food','Food & drink'],['restaurant','Restaurant'],['museum','Museum'],['attraction','Attraction'],['hike','Hike'],['run','Run'],['walk','Walk'],['ride','Bike ride'],
     ['hotel','Hotel'],['nightlife','Nightlife'],['shopping','Shopping'],['other','Other']
   ];
   const CAT_LABEL = Object.fromEntries(CATS);
@@ -302,6 +302,7 @@ const WORLD = __WORLD__;
       if(x) x.limits().then(l=>{ sampleImages=(l&&l.images&&l.images.maxCount)||0; render(); }).catch(()=>{}); });
     window.claude.use('assets').then(x=>{ assets=x; render(); });
     window.claude.use('downloads').then(x=>{ downloads=x; });
+    window.claude.use('mcp').then(x=>{ mcp=x; render(); });
     db = await window.claude.use('db');
     if(!db){ main.innerHTML='<div class="status">Storage isn\'t available in this view. Sign in on claude.ai and reopen.</div>'; return; }
     COLS.forEach(c=>{
@@ -384,6 +385,10 @@ const WORLD = __WORLD__;
     const gx=g.append('g').attr('fill','none').attr('stroke','var(--accent)').attr('opacity',.7);
     if(!world) acts.forEach(p=>{ const s=stopOf(p.stopId); if(!s||s.lat==null) return;
       const d=path({type:'LineString',coordinates:[[s.lon,s.lat],[p.lon,p.lat]]}); if(d) lines.push({el:gx.append('path').attr('d',d), w:1.6, dash:[2,4]}); });
+    // routes of imported runs, rides and hikes
+    const gt=g.append('g').attr('fill','none').attr('stroke','var(--track)').attr('stroke-linecap','round').attr('stroke-linejoin','round');
+    if(!world) (opts.places||[]).forEach(p=>{ if(!Array.isArray(p.track)||p.track.length<2) return;
+      const d=path({type:'LineString',coordinates:p.track.map(q=>[q[1],q[0]])}); if(d) lines.push({el:gt.append('path').attr('d',d), w:3, dash:null}); });
     const gl=g.append('g').attr('fill','none').attr('stroke-linecap','round');
     const ga=g.append('g');
     const order=legs.slice().sort((a,b)=>(a.date||'').localeCompare(b.date||'')||(a.order||0)-(b.order||0));
@@ -464,7 +469,7 @@ const WORLD = __WORLD__;
         if(opts.onStop&&!s.home) act=()=>opts.onStop(s);
       } else { const p=it.p;
         html=((p.photoIds||[])[0]?'<img alt="" src="/_blob/'+p.photoIds[0]+'">':'')+'<div style="flex:1;min-width:0"><b>'+esc(p.name)+'</b><div class="faint">'+(p.date?fmtDate(p.date,{weekday:'short',month:'short',day:'numeric'})+' · ':'')
-          +(p.status==='done'?'Been':'Want to go')+(p.rating?' · '+'★'.repeat(p.rating):'')+'</div></div>';
+          +(p.status==='done'?'Been':'Want to go')+(p.rating?' · '+'★'.repeat(p.rating):'')+(statsLine(p)?'<br>'+statsLine(p):'')+'</div></div>';
         if(opts.onPlace) act=()=>opts.onPlace(p);
       }
       card.innerHTML=html+(act?'<button type="button" class="btn small">Open</button>':'')+'<button type="button" class="btn small ghost" aria-label="Close">✕</button>';
@@ -473,9 +478,9 @@ const WORLD = __WORLD__;
     svg.on('click',e=>{ const t=e.target.closest('[data-pin]'); show(t?t.getAttribute('data-pin'):null); });
     if(mapSel[key]) show(mapSel[key]);
   }
-  function legendHtml(modes, acts){
+  function legendHtml(modes, acts, tracks){
     return '<div class="legend">'+modes.map(m=>'<span><i class="dot" style="background:'+MODES[m].color+'"></i>'+MODES[m].label+'</span>').join('')
-      + (acts?'<span><i class="dot" style="background:var(--accent);border-radius:2px;transform:rotate(45deg)"></i>Activity</span>':'')+'</div>';
+      + (acts?'<span><i class="dot" style="background:var(--accent);border-radius:2px;transform:rotate(45deg)"></i>Activity</span>':'')+(tracks?'<span><i class="dot" style="background:var(--track);border-radius:2px;width:14px;height:4px"></i>Route</span>':'')+'</div>';
   }
 
   // ---------- trips list ----------
@@ -519,10 +524,11 @@ const WORLD = __WORLD__;
       + '<div class="cell"><div class="k">Days</div><div class="v">'+st.days+'</div></div>'
       + '<div class="cell"><div class="k">Cities</div><div class="v">'+st.cities+'</div></div>'
       + '<div class="cell"><div class="k">Spent</div><div class="v" style="font-size:'+(money.length>1?'18px':'26px')+'">'+(money.length?money.map(([c,a])=>fmtMoney(a,c)).join('<br>'):'—')+'</div></div></div>'
-      + '<div><div class="map-wrap" id="tripMap"></div><div style="margin-top:8px" class="between">'+legendHtml(modesUsed.length?modesUsed:['plane','car'], tripPlaces.length)
+      + '<div><div class="map-wrap" id="tripMap"></div><div style="margin-top:8px" class="between">'+legendHtml(modesUsed.length?modesUsed:['plane','car'], tripPlaces.length, tripPlaces.some(p=>p.track&&p.track.length))
       + '<span class="faint mono">'+modesUsed.map(m=>MODES[m].label+' '+fmtKm(st.byMode[m])+' km').join(' · ')+'</span></div></div>'
       + '<div class="sec-title"><h2>Days</h2><div class="row" style="flex-wrap:nowrap">'+(assets||(sample&&sampleImages)?'<label class="btn small" for="actPhotoIn">'+ICON.camera+' From photo</label><input id="actPhotoIn" type="file" accept="image/*" multiple hidden>':'')
       + '<button class="btn small" id="addAct">'+ICON.plus+' Activity</button></div></div>'
+      + '<div class="row">'+(mcp?'<button class="btn small ghost" id="fromStrava">⇣ From Strava</button>':'')+'<label class="btn small ghost" for="gpxIn">⇣ GPX file</label><input id="gpxIn" type="file" hidden></div>'
       + (sample&&unplaced.length?'<button class="btn small ghost" id="locateAll" style="align-self:flex-start">📍 Put '+unplaced.length+' activit'+(unplaced.length===1?'y':'ies')+' on the map</button>':'')
       + daysHtml(t)
       + '<div class="sec-title"><h2>Route</h2><button class="btn small" id="addLeg">'+ICON.plus+' Leg</button></div>'
@@ -548,6 +554,8 @@ const WORLD = __WORLD__;
     drawMap($('#tripMap'), {key:'trip:'+t.id, stops, legs, places:tripPlaces, visitedN3, height:520, label:'Route map for '+t.name,
       onStop:s=>go({stopId:s.id, placeCat:'all'}), onPlace:p=>placeSheet(stopOf(p.stopId), p, {trip:t})});
     $('#addAct').onclick=()=>placeSheet(null, null, {trip:t, date:(todayStr()>=t.startDate&&todayStr()<=t.endDate)?todayStr():t.startDate});
+    const fs0=$('#fromStrava'); if(fs0) fs0.onclick=()=>stravaSheet(t);
+    const gx0=$('#gpxIn'); gx0.onchange=()=>{ const f=gx0.files&&gx0.files[0]; gx0.value=''; if(f) gpxImport(t, f); };
     const api=$('#actPhotoIn'); if(api) api.onchange=()=>{ const fs=Array.from(api.files||[]); api.value=''; if(fs.length) placeSheet(null, null, {trip:t, files:fs, any:true}); };
     const loc=$('#locateAll'); if(loc) loc.onclick=async()=>{ loc.disabled=true; loc.textContent='Finding them…';
       try{ const n=await locatePlaces(unplaced); toast(n?n+' on the map':'Couldn\'t place them. Open one and save it to try again.'); }
@@ -607,7 +615,7 @@ const WORLD = __WORLD__;
       + (cityPhotos.length?'<div class="photos">'+cityPhotos.map(id=>'<img alt="Photo in '+esc(s.city)+'" src="/_blob/'+id+'" data-photo="'+id+'" data-list="'+cityPhotos.join(',')+'">').join('')+'</div>':'')
       + (Object.keys(spent).length?'<div class="faint">Spent here: '+Object.entries(spent).map(([c,a])=>fmtMoney(a,c)).join(' + ')+'</div>':'')
       + (cats.length>1?'<div class="chips"><button class="chip '+(R.placeCat==='all'?'on':'')+'" data-cat="all">All</button>'+cats.map(c=>'<button class="chip '+(R.placeCat===c?'on':'')+'" data-cat="'+c+'">'+esc(CAT_LABEL[c]||c)+'</button>').join('')+'</div>':'')
-      + (places.length?places.map(p=>'<div class="card place" data-place="'+p.id+'"><div class="head"><div><h3>'+esc(p.name)+'</h3><div class="faint">'+esc(CAT_LABEL[p.category]||p.category)+(p.date?' · '+fmtDate(p.date):'')+(p.cost?' · '+fmtMoney(p.cost,p.currency):'')+'</div></div>'
+      + (places.length?places.map(p=>'<div class="card place" data-place="'+p.id+'"><div class="head"><div><h3>'+esc(p.name)+'</h3><div class="faint">'+esc(CAT_LABEL[p.category]||p.category)+(p.date?' · '+fmtDate(p.date):'')+(p.cost?' · '+fmtMoney(p.cost,p.currency):'')+(statsLine(p)?' · '+statsLine(p):'')+'</div></div>'
           + '<span class="status-tag '+(p.status==='done'?'done':'want')+'">'+(p.status==='done'?'Been':'Want')+'</span></div>'
           + (p.rating?'<div class="stars" aria-label="'+p.rating+' of 5">'+'★'.repeat(p.rating)+'<span style="color:var(--line)">'+'★'.repeat(5-p.rating)+'</span></div>':'')
           + (p.notes?'<div class="notes">'+esc(p.notes)+'</div>':'')
@@ -853,12 +861,13 @@ const WORLD = __WORLD__;
     const tStops=tripStops(trip.id).filter(s=>!s.home);
     if(!tStops.length){ toast('Add a leg first so the trip has a city.'); return; }
     const cityNames=[...new Set(tStops.map(s=>s.city))];
-    const date0=p?p.date||'':(opts.date||(stop&&stop.arrive)||todayStr());
+    const pre=opts.prefill||null;
+    const date0=p?p.date||'':((pre&&pre.date)||opts.date||(stop&&stop.arrive)||todayStr());
     const cur=(p&&stopOf(p.stopId))||stop||stopOnDate(trip.id,date0)||tStops[0];
     const canRead=!!(sample&&sampleImages);
     let rating=p?p.rating||0:0, status=p?p.status||'done':(date0&&date0>todayStr()?'want':'done'), photoIds=p?(p.photoIds||[]).slice():[];
     let picked=[], uploading=false, reading=false, cityTouched=!!stop||!!p, statusTouched=!!p;
-    let pos=p&&p.lat!=null?{lat:p.lat, lon:p.lon, name:p.name}:null;
+    let pos=p&&p.lat!=null?{lat:p.lat, lon:p.lon, name:p.name}:(pre&&pre.lat!=null?{lat:pre.lat, lon:pre.lon}:null);
     openSheet('<h2>'+(p?'Edit activity':'Add an activity')+'</h2>'
       + (assets||canRead?'<div class="field"><label>Photos</label><div class="photos" id="pPhotos"></div><div class="row"><label class="btn small" for="pPhotoIn">'+ICON.camera+' Add photos</label><input id="pPhotoIn" type="file" accept="image/*" multiple hidden>'
         + (canRead?'<button type="button" class="btn small" id="pRead" hidden>'+ICON.spark+' Fill in from photo</button>':'')+'</div>'
@@ -871,7 +880,7 @@ const WORLD = __WORLD__;
       + '<div class="field"><label>Rating</label><div class="rating" id="rating">'+[1,2,3,4,5].map(i=>'<button type="button" data-r="'+i+'" aria-label="'+i+' stars" class="'+(i<=rating?'on':'')+'">★</button>').join('')+'</div></div>'
       + '<div class="grid3"><div class="field"><label for="pCost">Price (optional)</label><input id="pCost" inputmode="decimal" value="'+esc(p&&p.cost?p.cost:'')+'"></div><div class="field"><label for="pCur">Currency</label>'+curSelect('pCur', p?p.currency:trip.currency)+'</div></div>'
       + '<div class="field"><label for="pNotes">Notes</label><textarea id="pNotes" placeholder="What you did, what you ordered, would you go back?">'+esc(p?p.notes||'':'')+'</textarea></div>'
-      + '<div class="hint" id="pPos">'+(pos?'📍 On the map':'')+'</div>'
+      + '<div class="hint" id="pPos">'+(p&&p.track&&p.track.length?'📍 Route on the map · '+statsLine(p):pos?'📍 On the map':'')+'</div>'
       + '<div class="err" id="fErr" hidden></div>'
       + '<div class="row"><button class="btn primary" type="submit" id="pSave">Save</button><button class="btn" type="button" id="xCancel">Cancel</button>'+(p?'<button class="btn danger" type="button" id="xDel" style="margin-left:auto">Delete</button>':'')+'</div>',
     form=>{
@@ -924,6 +933,8 @@ const WORLD = __WORLD__;
       const pin=$('#pPhotoIn'); if(pin) pin.onchange=()=>{ const fs=Array.from(pin.files||[]); pin.value=''; if(fs.length) addFiles(fs, !p&&!val('pName').trim()); };
       const rb=$('#pRead'); if(rb) rb.onclick=fill;
       if(opts.files&&opts.files.length) addFiles(opts.files, true);
+      if(pre){ if(pre.name) $('#pName').value=pre.name; if(pre.category) $('#pCat').value=pre.category; setStatus('done'); statusTouched=true;
+        const ln=statsLine(Object.assign({category:pre.category}, pre.extra||{})); $('#pPos').textContent='📍 Route on the map'+(ln?' · '+ln:''); }
       if(p) $('#xDel').onclick=()=>confirmDelete(form,'"'+p.name+'"', ()=>del('places', p.id));
       form.onsubmit=async e=>{ e.preventDefault();
         const name=val('pName').trim(); if(!name){ const er=$('#fErr'); er.hidden=false; er.textContent='Say what it was (a name is enough).'; return; }
@@ -933,7 +944,7 @@ const WORLD = __WORLD__;
         const c=parseFloat(val('pCost').replace(',','.'));
         // a position Claude guessed for another name is stale; a photo's GPS stays
         const keep=pos&&(pos.name==null||pos.name===name);
-        const data={tripId:trip.id, stopId:st.id, name, category:val('pCat'), date, status, rating, cost:isFinite(c)?c:0, currency:val('pCur'), notes:val('pNotes').trim(), photoIds, updatedAt:now()};
+        const data=Object.assign({}, pre&&pre.extra||{}, {tripId:trip.id, stopId:st.id, name, category:val('pCat'), date, status, rating, cost:isFinite(c)?c:0, currency:val('pCur'), notes:val('pNotes').trim(), photoIds, updatedAt:now()});
         if(keep){ data.lat=pos.lat; data.lon=pos.lon; }
         let id=p&&p.id;
         if(p){ if(!keep&&p.lat!=null){ data.lat=null; data.lon=null; } await patch('places', p.id, data); }
@@ -1079,6 +1090,164 @@ const WORLD = __WORLD__;
     return n;
   }
 
+  // ---------- tracks: Strava (via the viewer's Strava connector) and GPX files ----------
+  // Imported runs/rides/hikes become activities with: track [[lat,lon],…] (≤400 points), distanceKm,
+  // movingS, elevM, sport, and stravaId when they came from Strava.
+  const STRAVA='Strava';
+  function sportCat(s){ s=String(s||'').toLowerCase();
+    if(/run|jog|^9$/.test(s)) return 'run'; if(/hike|^4$/.test(s)) return 'hike'; if(/walk|^10$/.test(s)) return 'walk';
+    if(/ride|bike|cycl|^1$/.test(s)) return 'ride'; return 'other'; }
+  const SPORT_ICON={run:'🏃',hike:'🥾',walk:'🚶',ride:'🚴',other:'⚡'};
+  function fmtDur(s){ s=Math.round(s||0); const h=Math.floor(s/3600), m=Math.floor(s%3600/60); return h?h+'h'+pad2(m):m+' min'; }
+  function statsLine(p){
+    if(!p||!p.distanceKm) return '';
+    const parts=[(+p.distanceKm).toFixed(p.distanceKm<10?2:1)+' km'];
+    if(p.movingS) parts.push(fmtDur(p.movingS));
+    if(p.movingS&&p.category==='ride') parts.push((p.distanceKm/(p.movingS/3600)).toFixed(1)+' km/h');
+    else if(p.movingS){ const sec=Math.round(p.movingS/p.distanceKm); parts.push(Math.floor(sec/60)+':'+pad2(sec%60)+' /km'); }
+    if(p.elevM) parts.push('↑'+Math.round(p.elevM)+' m');
+    return parts.join(' · ');
+  }
+  function decodePolyline(str){ // Google encoded polyline (what Strava uses for maps)
+    const pts=[]; let i=0, lat=0, lon=0;
+    while(i<str.length){ for(const k of [0,1]){ let b, shift=0, r=0; do{ b=str.charCodeAt(i++)-63; r|=(b&31)<<shift; shift+=5; }while(b>=32&&i<=str.length);
+      const d=(r&1)?~(r>>1):(r>>1); if(k===0) lat+=d; else lon+=d; } pts.push([lat/1e5, lon/1e5]); }
+    return pts;
+  }
+  function thinTrack(pts, max){ max=max||400; const ok=(pts||[]).filter(p=>Array.isArray(p)&&isFinite(+p[0])&&isFinite(+p[1])&&Math.abs(p[0])<=90&&Math.abs(p[1])<=180&&(p[0]||p[1]));
+    if(ok.length<=max) return ok.map(p=>[+(+p[0]).toFixed(5), +(+p[1]).toFixed(5)]);
+    const out=[], step=(ok.length-1)/(max-1); for(let k=0;k<max;k++){ const p=ok[Math.round(k*step)]; out.push([+(+p[0]).toFixed(5), +(+p[1]).toFixed(5)]); } return out; }
+  // first array in a payload whose items are objects (the activity list), searched breadth-first
+  function findObjArray(x, depth){ depth=depth||0; if(depth>4||!x) return null;
+    if(Array.isArray(x)) return x.length&&x.every(v=>v&&typeof v==='object'&&!Array.isArray(v))?x:null;
+    if(typeof x==='object'){ for(const v of Object.values(x)) if(Array.isArray(v)&&v.length&&v.every(o=>o&&typeof o==='object'&&!Array.isArray(o))) return v;
+      for(const v of Object.values(x)){ const r=findObjArray(v,depth+1); if(r) return r; } }
+    return null; }
+  // first array of [lat,lon] pairs anywhere in a payload (activity streams)
+  function findLatLng(x, depth){ depth=depth||0; if(depth>5||!x) return null;
+    if(Array.isArray(x)&&x.length>3&&x.every(v=>Array.isArray(v)&&v.length>=2&&typeof v[0]==='number'&&typeof v[1]==='number')) return x;
+    if(typeof x==='object') for(const v of Object.values(x)){ const r=findLatLng(v,depth+1); if(r) return r; }
+    return null; }
+  const num=v=>{ const n=typeof v==='number'?v:parseFloat(String(v==null?'':v).replace(',','.')); return isFinite(n)?n:null; };
+  function normActivity(o){
+    const start=String(o.start_date_local||o.startLocal||o.start_date||o.startDate||o.start_time||o.date||'');
+    const ll=o.start_latlng||o.startLatLng||(o.startLat!=null?[o.startLat,o.startLon]:null);
+    const poly=(o.map&&(o.map.summary_polyline||o.map.polyline))||o.summary_polyline||o.polyline||'';
+    const dist=num(o.distanceM!=null?o.distanceM:o.distance), mov=num(o.movingS!=null?o.movingS:(o.moving_time!=null?o.moving_time:o.elapsed_time));
+    return { id:String(o.id!=null?o.id:''), name:String(o.name||'').trim()||'Activity', sport:String(o.sport_type||o.sport||o.type||''),
+      date:/^\d{4}-\d\d-\d\d/.test(start)?start.slice(0,10):'', time:/T\d\d:\d\d/.test(start)?start.slice(11,16):'',
+      distanceKm:dist!=null?Math.round(dist/10)/100:null, movingS:mov, elevM:num(o.elevM!=null?o.elevM:o.total_elevation_gain),
+      start:Array.isArray(ll)&&ll.length===2&&isFinite(+ll[0])?[+ll[0],+ll[1]]:null, polyline:typeof poly==='string'?poly:'' };
+  }
+  async function stravaInput(tool, ctx){
+    let props=null;
+    try{ const d=await mcp.describeTool(STRAVA, tool); props=(d&&d.inputSchema&&d.inputSchema.properties)||{}; }catch(e){}
+    const inp={}; if(!props) return inp;
+    for(const [k,s] of Object.entries(props)){ const n=k.toLowerCase(), ty=(s&&s.type)||'', isNum=ty==='integer'||ty==='number';
+      if(/after|since|oldest|start_?date|from/.test(n)&&ctx.after) inp[k]=isNum?ctx.after:ctx.afterIso;
+      else if(/before|until|latest|end_?date/.test(n)&&ctx.before) inp[k]=isNum?ctx.before:ctx.beforeIso;
+      else if(/per_?page|limit|count|max/.test(n)) { if(isNum) inp[k]=100; }
+      else if(n==='page') { if(isNum) inp[k]=1; }
+      else if(/^(activity_?)?id$/.test(n)&&ctx.id!=null) inp[k]=isNum?Number(ctx.id):String(ctx.id);
+      else if(/keys|types|stream/.test(n)&&ctx.keys) inp[k]=ty==='array'?ctx.keys:ctx.keys.join(',');
+      else if(/resolution/.test(n)&&ty==='string') inp[k]='medium';
+    }
+    return inp;
+  }
+  function stravaError(e){ const c=e&&e.code;
+    return c==='server_not_connected'?'Strava isn\'t connected yet. On claude.ai open Settings → Connectors → Strava and sign in, then come back here.'
+      : c==='needs_reauth'?'Strava needs to be reconnected: claude.ai → Settings → Connectors → Strava.'
+      : c==='not_in_manifest'?'Strava isn\'t allowed for this page. Allow it in the page\'s permissions, then try again.'
+      : c==='selection_required'?'Pick which Strava connection to use when asked, then try again.'
+      : c==='server_unavailable'?'Strava didn\'t answer. Try again in a minute.'
+      : c==='tool_error'?'Strava said: '+(e.message||'error')
+      : c==='not_granted'||c==='capability_disabled'||c==='capability_removed'?'Strava can\'t be reached from this view. Open the app from claude.ai.'
+      : 'Couldn\'t reach Strava'+(c?' ('+c+')':'')+'. Try again.'; }
+  async function stravaActivities(t){
+    const perms=await window.claude.use('permissions').catch(()=>null);
+    if(perms) await perms.request(['mcp:'+STRAVA]).catch(()=>{});
+    const a=new Date(t.startDate+'T00:00:00'), b=new Date(addDays(t.endDate,1)+'T00:00:00');
+    const ctx={after:Math.floor(a.getTime()/1000)-86400, before:Math.floor(b.getTime()/1000)+86400, afterIso:a.toISOString(), beforeIso:b.toISOString()};
+    const r=await mcp.callTool(STRAVA, 'list_activities', await stravaInput('list_activities', ctx), {cache:false});
+    let list=findObjArray(r.payload);
+    let acts=(list||[]).map(normActivity).filter(x=>x.date);
+    if(!acts.length&&sample){ // unfamiliar shape: let Claude read it
+      const raw=typeof r.payload==='string'?r.payload:JSON.stringify(r.payload!=null?r.payload:r.content);
+      const j=await sample.json('This is the raw answer of a Strava tool that lists a person\'s activities. Extract every activity. Reply with only a JSON array of '
+        +'{"id": string, "name": string, "sport": string, "startLocal": "YYYY-MM-DDTHH:MM", "distanceM": number|null, "movingS": number|null, "elevM": number|null, "startLat": number|null, "startLon": number|null, "polyline": string|null}.\n\n'+String(raw).slice(0,120000), {modelTier:'quick'});
+      acts=(Array.isArray(j)?j:[]).map(normActivity).filter(x=>x.date);
+    }
+    return acts.filter(x=>x.date>=t.startDate&&x.date<=t.endDate).sort((x,y)=>(y.date+y.time).localeCompare(x.date+x.time));
+  }
+  async function stravaTrack(id){
+    try{ const r=await mcp.callTool(STRAVA, 'get_activity_streams', await stravaInput('get_activity_streams', {id, keys:['latlng']}), {cache:false});
+      return findLatLng(r.payload)||[]; }catch(e){ return []; }
+  }
+  function stopForPoint(tid, ll, date){
+    const stops=tripStops(tid).filter(s=>!s.home&&s.lat!=null);
+    let best=null; if(ll) stops.forEach(s=>{ const d=haversine({lat:ll[0],lon:ll[1]},s); if(d<60&&(!best||d<best.d)) best={s,d}; });
+    return (best&&best.s)||stopOnDate(tid,date)||stops[0]||null;
+  }
+  function stravaSheet(t){
+    openSheet('<h2>Import from Strava</h2><div class="hint" id="stHint">Loading your Strava activities for this trip…</div><div class="card" id="stList" hidden></div>'
+      + '<div class="row"><button class="btn primary" type="submit" id="stGo" disabled>Import</button><button class="btn" type="button" id="xCancel">Close</button></div>',
+    async form=>{
+      $('#xCancel').onclick=closeSheet;
+      const hint=s=>{ const el=$('#stHint'); if(el) el.textContent=s; };
+      let acts=[];
+      try{ acts=await stravaActivities(t); }catch(e){ hint(e&&e.code&&!e.text?stravaError(e):(e&&e.code==='invalid_json'?'Couldn\'t read Strava\'s answer. Try again.':stravaError(e))); return; }
+      if(!form.isConnected) return;
+      if(!acts.length){ hint('No Strava activities between '+fmtDate(t.startDate)+' and '+fmtDate(t.endDate)+'.'); return; }
+      const have=new Set(S.places.filter(p=>p.stravaId).map(p=>String(p.stravaId)));
+      hint('Tick the ones to add as activities. Their route goes on the map.');
+      const el=$('#stList'); el.hidden=false;
+      el.innerHTML=acts.map((a,i)=>{ const cat=sportCat(a.sport), done=have.has(a.id);
+        return '<label class="budget-row" style="gap:10px;align-items:center;cursor:pointer"><input type="checkbox" data-i="'+i+'"'+(done?' disabled':(cat!=='other'?' checked':''))+' style="width:20px;height:20px;flex-shrink:0">'
+          + '<span style="flex:1;min-width:0"><b>'+SPORT_ICON[cat]+' '+esc(a.name)+'</b><span class="faint" style="display:block">'+fmtDate(a.date,{weekday:'short',month:'short',day:'numeric'})+(a.time?' '+a.time:'')
+          + (a.distanceKm?' · '+statsLine({distanceKm:a.distanceKm,movingS:a.movingS,elevM:a.elevM,category:cat}):'')+(done?' · already added':'')+'</span></span></label>'; }).join('');
+      const go=$('#stGo'); const sync=()=>{ const n=el.querySelectorAll('input:checked').length; go.disabled=!n; go.textContent=n?'Import '+n:'Import'; };
+      el.querySelectorAll('input').forEach(c=>c.onchange=sync); sync();
+      form.onsubmit=async e=>{ e.preventDefault(); go.disabled=true;
+        const pick=[...el.querySelectorAll('input:checked')].map(c=>acts[+c.dataset.i]); let n=0;
+        for(const a of pick){ hint('Adding '+a.name+'…');
+          let track=a.polyline?decodePolyline(a.polyline):[]; if(track.length<2&&a.id) track=await stravaTrack(a.id);
+          track=thinTrack(track); const start=a.start||track[0]||null;
+          const st=stopForPoint(t.id, start, a.date); if(!st){ hint('Add a leg first so the trip has a city.'); break; }
+          const cat=sportCat(a.sport);
+          const data={tripId:t.id, stopId:st.id, name:a.name, category:CAT_LABEL[cat]?cat:'other', date:a.date, status:'done', rating:0, cost:0, currency:t.currency||'EUR', notes:'',
+            photoIds:[], sport:a.sport, stravaId:a.id, distanceKm:a.distanceKm, movingS:a.movingS, elevM:a.elevM, track, createdAt:now(), updatedAt:now()};
+          if(start){ data.lat=start[0]; data.lon=start[1]; }
+          try{ await put('places', null, data); n++; }catch(err){}
+        }
+        if(form.isConnected) closeSheet(); toast(n?n+' activit'+(n>1?'ies':'y')+' added from Strava':'Nothing was added');
+      };
+    });
+  }
+  function parseGpx(text){
+    const doc=new DOMParser().parseFromString(text,'application/xml');
+    if(doc.getElementsByTagName('parsererror').length) throw new Error('That file isn\'t a GPX file.');
+    const tag=(el,n)=>{ const x=el.getElementsByTagName(n)[0]; return x?x.textContent.trim():''; };
+    let nodes=[...doc.getElementsByTagName('trkpt')]; if(!nodes.length) nodes=[...doc.getElementsByTagName('rtept')];
+    const P=nodes.map(p=>({lat:+p.getAttribute('lat'), lon:+p.getAttribute('lon'), ele:parseFloat(tag(p,'ele')), t:Date.parse(tag(p,'time'))})).filter(p=>isFinite(p.lat)&&isFinite(p.lon));
+    if(P.length<2) throw new Error('No route found in that file.');
+    let dist=0, up=0, moving=0, lastEle=null;
+    for(let i=1;i<P.length;i++){ const d=haversine(P[i-1],P[i])*1000; dist+=d;
+      const dt=(P[i].t-P[i-1].t)/1000; if(isFinite(dt)&&dt>0&&dt<120&&d/dt>0.4) moving+=dt; }
+    P.forEach(p=>{ if(!isFinite(p.ele)) return; if(lastEle==null) lastEle=p.ele; else if(p.ele-lastEle>2){ up+=p.ele-lastEle; lastEle=p.ele; } else if(lastEle-p.ele>2) lastEle=p.ele; });
+    const t0=P.find(p=>isFinite(p.t)); const d0=t0?new Date(t0.t):null;
+    const trk=doc.getElementsByTagName('trk')[0];
+    return { name:(trk&&tag(trk,'name'))||tag(doc.documentElement,'name')||'', sport:(trk&&tag(trk,'type'))||'',
+      date:d0?d0.getFullYear()+'-'+pad2(d0.getMonth()+1)+'-'+pad2(d0.getDate()):'', distanceKm:Math.round(dist/10)/100, movingS:moving?Math.round(moving):null,
+      elevM:up?Math.round(up):null, track:thinTrack(P.map(p=>[p.lat,p.lon])) };
+  }
+  async function gpxImport(t, file){
+    let g; try{ g=parseGpx(await file.text()); }catch(e){ toast(e.message||'Couldn\'t read that file'); return; }
+    const cat=sportCat(g.sport||g.name);
+    const start=g.track[0], st=stopForPoint(t.id, start, g.date);
+    placeSheet(st, null, {trip:t, prefill:{ name:g.name||({run:'Run',hike:'Hike',walk:'Walk',ride:'Bike ride'}[cat]||'Activity'), category:CAT_LABEL[cat]?cat:'other', date:g.date,
+      lat:start[0], lon:start[1], extra:{track:g.track, distanceKm:g.distanceKm, movingS:g.movingS, elevM:g.elevM, sport:g.sport||cat} }});
+  }
+
   // ---------- days ----------
   function addDays(s, n){ const [y,m,d]=s.split('-').map(Number); const t=new Date(y,m-1,d+n); return t.getFullYear()+'-'+pad2(t.getMonth()+1)+'-'+pad2(t.getDate()); }
   function stopOnDate(tid, d){ const xs=tripStops(tid).filter(s=>!s.home&&s.arrive&&s.arrive<=d&&d<=(s.depart||s.arrive)); return xs.find(s=>s.arrive!==d)||xs[xs.length-1]||null; }
@@ -1094,7 +1263,7 @@ const WORLD = __WORLD__;
         + legs.map(l=>{ const a=stopOf(l.fromId)||{}, b=stopOf(l.toId)||{};
             return '<div class="day-i" data-leg="'+l.id+'"><span class="mini" style="background:'+(MODES[l.mode]||MODES.car).color+'">'+modeIcon(l.mode)+'</span><span style="flex:1">'+esc(a.city||'?')+' → '+esc(b.city||'?')+'</span><span class="faint mono">'+(l.kmEstimated?'≈':'')+fmtKm(l.km||0)+' km</span></div>'; }).join('')
         + acts.map(p=>'<div class="day-i" data-pl="'+p.id+'"><span class="status-tag '+(p.status==='done'?'done':'want')+'">'+(p.status==='done'?'Been':'Want')+'</span><span style="flex:1;min-width:0">'+esc(p.name)
-            +(p.rating?' <span class="stars">'+'★'.repeat(p.rating)+'</span>':'')+'</span>'+(p.photoIds||[]).slice(0,3).map(id=>'<img alt="" src="/_blob/'+id+'" data-photo="'+id+'">').join('')+'</div>').join('')
+            +(p.rating?' <span class="stars">'+'★'.repeat(p.rating)+'</span>':'')+(statsLine(p)?' <span class="faint">'+statsLine(p)+'</span>':'')+'</span>'+(p.photoIds||[]).slice(0,3).map(id=>'<img alt="" src="/_blob/'+id+'" data-photo="'+id+'">').join('')+'</div>').join('')
         + exps.map(e=>'<div class="day-i" data-exp="'+e.id+'"><span class="mini" style="background:var(--ink-faint)">'+ICON.coin+'</span><span style="flex:1;min-width:0">'+esc(e.label)+'</span><span class="faint mono">'+fmtMoney(e.amount,e.currency)+'</span></div>').join('')
         + (legs.length||acts.length||exps.length?'':'<div class="faint">Nothing logged yet</div>')
         + '</div>';
@@ -1291,6 +1460,8 @@ const WORLD = __WORLD__;
       const colors={plane:'#6F9BFF',car:'#FF7A3D',train:'#4CC795',bus:'#B98BEB',ferry:'#3CC6D6',walk:'#B5AA9B'};
       g.lineCap='round';
       d.acts.forEach(p=>{ const s=stopOf(p.stopId); if(p.lat==null||!s||s.lat==null) return; g.beginPath(); path({type:'LineString',coordinates:[[s.lon,s.lat],[p.lon,p.lat]]}); g.strokeStyle='rgba(255,122,61,.7)'; g.lineWidth=3; g.setLineDash([4,8]); g.stroke(); });
+      g.setLineDash([]); g.lineJoin='round';
+      d.acts.forEach(p=>{ if(!Array.isArray(p.track)||p.track.length<2) return; g.beginPath(); path({type:'LineString',coordinates:p.track.map(q=>[q[1],q[0]])}); g.strokeStyle='#FF5C8A'; g.lineWidth=6; g.stroke(); });
       d.legs.forEach(l=>{ const a=stopOf(l.fromId), b=stopOf(l.toId); if(!a||!b||a.home||b.home||a.lat==null||b.lat==null) return;
         g.beginPath(); path({type:'LineString',coordinates:[[a.lon,a.lat],[b.lon,b.lat]]}); g.strokeStyle=colors[l.mode]||'#FF7A3D'; g.lineWidth=7; g.setLineDash(l.mode==='plane'?[18,14]:[]); g.stroke(); });
       g.setLineDash([]);
