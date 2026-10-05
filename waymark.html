@@ -1745,6 +1745,172 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
     const c=shareSlice(t, from, to).cities;
     return c.length>2?c[0]+' → '+c[c.length-1]:c.join(' → ')||t.name;
   }
+  // ---------- route video ----------
+  // Same slice and choices as the share card, drawn frame by frame (line traced leg by leg, camera following)
+  // and recorded with MediaRecorder. MP4 when the browser can (iPhone can), WebM otherwise.
+  const VIDEO_TYPES=['video/mp4;codecs=avc1','video/mp4','video/webm;codecs=vp9','video/webm;codecs=vp8','video/webm'];
+  function videoType(){
+    if(typeof MediaRecorder==='undefined'||!HTMLCanvasElement.prototype.captureStream) return null;
+    if(!MediaRecorder.isTypeSupported) return '';
+    return VIDEO_TYPES.find(x=>{ try{ return MediaRecorder.isTypeSupported(x); }catch(e){ return false; } })||'';
+  }
+  const MODE_HEX={plane:'#6F9BFF',car:'#FF7A3D',train:'#4CC795',bus:'#B98BEB',ferry:'#3CC6D6',walk:'#B5AA9B'};
+  const MODE_PATH={}; try{ Object.entries(MODES).forEach(([k,m])=>{ const d=(m.icon.match(/ d="([^"]+)"/)||[])[1]; if(d) MODE_PATH[k]=new Path2D(d); }); }catch(e){}
+  const unitMerc=d3.geoMercator().scale(1).translate([0,0]);
+  let countryBounds=null;
+  const clamp01=x=>Math.max(0,Math.min(1,x)), easeIO=x=>x<.5?2*x*x:1-Math.pow(-2*x+2,2)/2;
+  const backOut=x=>{ const c=1.7; return 1+(c+1)*Math.pow(x-1,3)+c*Math.pow(x-1,2); };
+  async function routeVideoPlan(t, o){
+    const F=SHARE_FORMATS[o.format]||SHARE_FORMATS.post, W=F.w, H=F.h, X=72;
+    try{ await document.fonts.load('700 40px "Barlow Condensed"'); await document.fonts.load('600 20px Figtree'); }catch(e){}
+    if(!countryBounds) countryBounds=worldFeat.features.map(f=>d3.geoBounds(f));
+    const d=shareSlice(t, o.from, o.to), U=(lon,lat)=>unitMerc([lon,lat]);
+    const visited=new Set(d.stops.map(s=>s.countryN3).filter(Boolean));
+    // title lines, measured like the card
+    const mg=document.createElement('canvas').getContext('2d'); mg.font='700 88px "Barlow Condensed", sans-serif';
+    const words=String(o.title||'').split(/\s+/).filter(Boolean), lines=[]; let line='';
+    words.forEach(w=>{ const tryL=line?line+' '+w:w; if(mg.measureText(tryL).width>W-2*X&&line){ lines.push(line); line=w; } else line=tryL; }); if(line) lines.push(line);
+    const title=lines.slice(0,2).map((l,i)=>i===1&&lines.length>2?fitText(mg,l+' '+lines.slice(2).join(' '),W-2*X):l);
+    const headH=190+(Math.max(title.length,1)-1)*86+40;
+    const dateLine=('WAYMARK · '+(o.from===o.to?fmtDate(o.from,{weekday:'short',month:'short',day:'numeric',year:'numeric'}):fmtDate(o.from,{month:'short',day:'numeric'})+' – '+fmtDate(o.to,{month:'short',day:'numeric',year:'numeric'}))).toUpperCase();
+    // the route is fitted between the title and the bottom badge
+    const area={x0:X, y0:headH+20, x1:W-X, y1:H-250}, acx=(area.x0+area.x1)/2, acy=(area.y0+area.y1)/2;
+    const fit=(ll, cap)=>{ const u=ll.map(p=>U(p[0],p[1]));
+      const x0=d3.min(u,p=>p[0]), x1=d3.max(u,p=>p[0]), y0=d3.min(u,p=>p[1]), y1=d3.max(u,p=>p[1]), pad=80;
+      const k=Math.min((area.x1-area.x0-2*pad)/Math.max(x1-x0,1e-9),(area.y1-area.y0-2*pad)/Math.max(y1-y0,1e-9), cap||60000);
+      return [(x0+x1)/2,(y0+y1)/2,W/k]; };
+    // events in the Days order: legs, and Strava/GPX tracks when activities are on
+    const evs=[], legEv=l=>{ const a=stopOf(l.fromId), b=stopOf(l.toId); if(!a||!b||a.lat==null||b.lat==null||norm(a.city)===norm(b.city)) return;
+      const ua=U(a.lon,a.lat), ub=U(b.lon,b.lat); let pts=[ua,ub];
+      if(l.mode==='plane'){ const dx=ub[0]-ua[0], dy=ub[1]-ua[1], m=[(ua[0]+ub[0])/2+dy*.2,(ua[1]+ub[1])/2-dx*.2];
+        pts=d3.range(41).map(i=>{ const s=i/40, q=1-s; return [q*q*ua[0]+2*s*q*m[0]+s*s*ub[0], q*q*ua[1]+2*s*q*m[1]+s*s*ub[1]]; }); }
+      evs.push({kind:'leg', date:l.date, mode:MODE_HEX[l.mode]?l.mode:'car', pts, km:+l.km||0, label:a.city+' → '+b.city, from:a, to:b, far:!!(a.home||b.home), ll:[[a.lon,a.lat],[b.lon,b.lat]]}); };
+    const trackEv=p=>{ if(!o.showActs||!Array.isArray(p.track)||p.track.length<2) return; const ll=p.track.map(q=>[q[1],q[0]]);
+      evs.push({kind:'track', date:p.date, mode:'walk', pts:ll.map(q=>U(q[0],q[1])), km:0, label:p.name+(p.distanceKm?' · '+(+p.distanceKm).toFixed(1)+' km':''), act:p, ll}); };
+    for(let day=o.from; day<=o.to; day=addDays(day,1))
+      dayOrder(day, d.legs.filter(l=>l.date===day), d.acts.filter(p=>p.date===day), []).forEach(({k,x})=>k==='leg'?legEv(x):k==='act'?trackEv(x):0);
+    evs.forEach(e=>{ e.cum=[0]; for(let i=1;i<e.pts.length;i++) e.cum.push(e.cum[i-1]+Math.hypot(e.pts[i][0]-e.pts[i-1][0],e.pts[i][1]-e.pts[i-1][1])); e.len=e.cum[e.cum.length-1]; });
+    // whole-slice view, like the card's map
+    let all=d.stops.filter(s=>s.lat!=null).map(s=>[s.lon,s.lat]).concat(d.acts.filter(p=>p.lat!=null).map(p=>[p.lon,p.lat]));
+    if(!all.length) all=[].concat(...evs.filter(e=>!e.far).map(e=>e.ll));
+    if(!all.length) all=[].concat(...evs.map(e=>e.ll));
+    const overall=all.length?fit(all, all.length<2?14000:60000):[0,-.35,W/200];
+    // photos go after the moment they belong to
+    const pics=(await Promise.all(o.photoIds.slice(0,4).map(async id=>{ const im=await loadImg(id); if(!im) return null;
+      const act=d.acts.find(p=>(p.photoIds||[]).includes(id)), st=act?stopOf(act.stopId):d.stops.find(s=>(s.photoIds||[]).includes(id));
+      const own=act?evs.findIndex(e=>e.act===act):-1;
+      let after=own; if(own<0){ const pd=(act&&act.date)||(st&&st.arrive)||o.from; evs.forEach((e,i)=>{ if(e.date<=pd) after=i; }); }
+      return {im, after, label:act?act.name:st?st.city:''}; }))).filter(Boolean);
+    // timeline
+    const segs=[]; let T=0, cam=overall;
+    const add=s=>{ s.t0=T; T+=s.dur; s.t1=T; segs.push(s); };
+    const photosAfter=i=>pics.filter(p=>p.after===i).forEach(p=>add({type:'photo', dur:1.7, pic:p, c0:cam, tilt:(segs.length%2?1:-1)*.04}));
+    add({type:'intro', dur:1.6, c0:overall});
+    photosAfter(-1);
+    const moveDur=evs.length?Math.max(1.1,Math.min(2.1,16/evs.length)):0;
+    evs.forEach((e,i)=>{ const c1=fit(e.ll, e.kind==='track'?120000:60000), dur=moveDur+(e.far?.9:0)+(e.kind==='track'?.6:0);
+      const s={type:'move', dur, ev:e, c0:cam, zi:d3.interpolateZoom(cam,c1)}; add(s); e.ts=s.t0+dur*.3; e.te=s.t0+dur*.92; cam=c1; photosAfter(i); });
+    if(!evs.length&&!pics.length) add({type:'hold', dur:1.2, c0:cam});
+    add({type:'outro', dur:3.4, c0:cam, zi:d3.interpolateZoom(cam,overall)});
+    // when each city and activity appears
+    const cities=new Map(), cityAt=(s,at)=>{ if(!s||s.lat==null) return; const k=norm(s.city), c=cities.get(k); if(!c) cities.set(k,{city:s.city, u:U(s.lon,s.lat), at}); else c.at=Math.min(c.at,at); };
+    evs.forEach(e=>{ if(e.kind==='leg'){ cityAt(e.from, e.ts-.2); cityAt(e.to, e.te); } });
+    d.stops.forEach(s=>cityAt(s, .5));
+    const moves=segs.filter(s=>s.type==='move');
+    const acts=o.showActs?d.acts.filter(p=>p.lat!=null).map(p=>{ const own=evs.find(e=>e.act===p); let at=1.2;
+      if(own) at=own.te; else moves.forEach(s=>{ if(s.ev.date<=(p.date||'')) at=s.ev.te; });
+      return {p, u:U(p.lon,p.lat), at}; }):[];
+    const kmTotal=d3.sum(evs,e=>e.km);
+    function partial(e, f){ const L=e.len*f; if(f>=1) return e.pts.slice(); const out=[e.pts[0]];
+      for(let i=1;i<e.pts.length;i++){ if(e.cum[i]>=L){ const s=(L-e.cum[i-1])/Math.max(e.cum[i]-e.cum[i-1],1e-12), a=e.pts[i-1], b=e.pts[i]; out.push([a[0]+(b[0]-a[0])*s,a[1]+(b[1]-a[1])*s]); return out; } out.push(e.pts[i]); }
+      return out; }
+    function draw(g, tau){
+      const seg=segs.find(s=>tau<s.t1)||segs[segs.length-1], u=clamp01((tau-seg.t0)/seg.dur);
+      const v=seg.zi?seg.zi(easeIO(seg.type==='outro'?clamp01((u-.05)/.55):clamp01(u/.5))):seg.c0;
+      const k=W/v[2], tx=acx-v[0]*k, ty=acy-v[1]*k, P=p=>[p[0]*k+tx,p[1]*k+ty];
+      g.fillStyle='#16222D'; g.fillRect(0,0,W,H);
+      const proj=d3.geoMercator().scale(k).translate([tx,ty]).clipExtent([[-20,-20],[W+20,H+20]]), path=d3.geoPath(proj,g);
+      const nw=proj.invert([0,0]), se=proj.invert([W,H]);
+      worldFeat.features.forEach((f,i)=>{ const bb=countryBounds[i];
+        if(bb[0][0]<=bb[1][0]&&(bb[1][0]<nw[0]||bb[0][0]>se[0]||bb[1][1]<se[1]||bb[0][1]>nw[1])) return;
+        g.beginPath(); path(f); g.fillStyle=visited.has(String(f.id))?'#3B2A22':'#24313D'; g.fill(); g.strokeStyle='#101820'; g.lineWidth=1.5; g.stroke(); });
+      // route so far
+      g.lineCap='round'; g.lineJoin='round'; let head=null, cur=null, km=0;
+      evs.forEach(e=>{ const pr=clamp01((tau-e.ts)/(e.te-e.ts)); if(tau>=e.ts-.6) cur=e; if(pr<=0) return; const f=easeIO(pr); km+=e.km*f;
+        const pts=partial(e,f).map(P), col=e.kind==='track'?'#FF5C8A':MODE_HEX[e.mode], lw=e.kind==='track'?6:7;
+        g.setLineDash([]); g.beginPath(); pts.forEach((p,i)=>i?g.lineTo(p[0],p[1]):g.moveTo(p[0],p[1])); g.strokeStyle='rgba(8,12,16,.45)'; g.lineWidth=lw+6; g.stroke();
+        g.setLineDash(e.mode==='plane'?[18,14]:[]); g.strokeStyle=col; g.lineWidth=lw; g.stroke(); g.setLineDash([]);
+        if(pr<1) head={p:pts[pts.length-1], col, mode:e.mode}; });
+      // activities, pins, labels
+      const boxes=[], hit=b=>boxes.some(o=>b[0]<o[2]&&b[2]>o[0]&&b[1]<o[3]&&b[3]>o[1]), inside=b=>b[0]>8&&b[2]<W-8&&b[1]>8&&b[3]<H-8;
+      const label=(txt,p,size,alpha)=>{ g.font='600 '+size+'px Figtree, sans-serif'; const w=g.measureText(txt).width, h=size;
+        const spots=[[p[0]+18,p[1]-12],[p[0]+18,p[1]+h+8],[p[0]-18-w,p[1]-12],[p[0]-18-w,p[1]+h+8],[p[0]-w/2,p[1]-22],[p[0]-w/2,p[1]+h+16]];
+        for(const [lx,ly] of spots){ const b=[lx-4,ly-h+4,lx+w+4,ly+8]; if(!inside(b)||hit(b)) continue;
+          boxes.push(b); g.globalAlpha=alpha; g.lineWidth=8; g.strokeStyle='#16222D'; g.strokeText(txt,lx,ly); g.fillStyle='#fff'; g.fillText(txt,lx,ly); g.globalAlpha=1; return; } };
+      const pins=[...cities.values()].filter(c=>tau>=c.at).map(c=>({c, p:P(c.u), s:backOut(clamp01((tau-c.at)/.4))}));
+      pins.forEach(({p})=>boxes.push([p[0]-12,p[1]-12,p[0]+12,p[1]+12]));
+      acts.filter(a=>tau>=a.at).forEach(a=>{ const q=P(a.u), s=backOut(clamp01((tau-a.at)/.35)), done=a.p.status==='done';
+        g.save(); g.translate(q[0],q[1]); g.scale(s,s); g.rotate(Math.PI/4); g.fillStyle=done?'#FF7A3D':'#16222D'; g.strokeStyle=done?'#fff':'#FF7A3D'; g.lineWidth=4; g.fillRect(-9,-9,18,18); g.strokeRect(-9,-9,18,18); g.restore(); });
+      pins.forEach(({p,s})=>{ g.beginPath(); g.arc(p[0],p[1],11*s,0,7); g.fillStyle='#fff'; g.fill(); g.lineWidth=5; g.strokeStyle='#101820'; g.stroke(); });
+      pins.forEach(({c,p,s})=>label(c.city,p,30,clamp01(s)));
+      acts.filter(a=>tau>=a.at&&tau<a.at+2.6).forEach(a=>label(a.p.name,P(a.u),26,clamp01((a.at+2.6-tau)/.5)));
+      if(head){ const [hx,hy]=head.p; g.beginPath(); g.arc(hx,hy,26,0,7); g.fillStyle=head.col; g.fill(); g.lineWidth=4; g.strokeStyle='#fff'; g.stroke();
+        const ic=MODE_PATH[head.mode]; if(ic){ g.save(); g.translate(hx-15,hy-15); g.scale(1.25,1.25); g.fillStyle='#fff'; g.fill(ic,'evenodd'); g.restore(); } }
+      // header
+      const hg=g.createLinearGradient(0,0,0,headH+90); hg.addColorStop(0,'rgba(16,24,32,.96)'); hg.addColorStop(.72,'rgba(16,24,32,.82)'); hg.addColorStop(1,'rgba(16,24,32,0)');
+      g.fillStyle=hg; g.fillRect(0,0,W,headH+90);
+      const ta=clamp01(tau/.7), dy=(1-easeIO(ta))*24; g.globalAlpha=ta;
+      g.fillStyle='#FF7A3D'; g.font='700 30px "Barlow Condensed", sans-serif'; g.fillText(dateLine, X, 100+dy);
+      g.fillStyle='#fff'; g.font='700 88px "Barlow Condensed", sans-serif'; title.forEach((l,i)=>g.fillText(l, X, 190+i*86+dy)); g.globalAlpha=1;
+      // bottom badge: day, where, running km
+      const outro=seg.type==='outro', stats=o.showStats;
+      const ba=outro&&stats?1-clamp01((u-.3)/.2):clamp01((tau-.4)/.5);
+      if(ba>0){ g.globalAlpha=ba; const by=H-210, bw=W-2*X;
+        roundRect(g,X,by,bw,150,26); g.fillStyle='rgba(16,24,32,.9)'; g.fill(); g.lineWidth=2; g.strokeStyle='#2A3743'; g.stroke();
+        const date=cur?cur.date:o.from, dn=t.startDate?dayCount(t.startDate,date):0;
+        g.fillStyle='#FF7A3D'; g.font='700 26px Figtree, sans-serif'; g.fillText(((dn>0?'DAY '+dn+' · ':'')+fmtDate(date,{weekday:'short',month:'short',day:'numeric'})).toUpperCase(), X+32, by+56);
+        let kw=0; if(kmTotal){ const ks=fmtKm(outro?kmTotal:km); g.font='700 76px "Barlow Condensed", sans-serif'; const w1=g.measureText(ks).width; g.font='700 28px "Barlow Condensed", sans-serif'; const w2=g.measureText(' KM').width; kw=w1+w2+24;
+          g.fillStyle='#fff'; g.font='700 76px "Barlow Condensed", sans-serif'; g.fillText(ks, X+bw-32-w1-w2, by+104); g.fillStyle='#8FA0AF'; g.font='700 28px "Barlow Condensed", sans-serif'; g.fillText(' KM', X+bw-32-w2, by+104); }
+        const where=cur?cur.label:(d.cities[0]||t.name);
+        g.fillStyle='#fff'; g.font='700 46px "Barlow Condensed", sans-serif'; g.fillText(fitText(g,where,bw-64-kw), X+32, by+112); g.globalAlpha=1; }
+      // photo pop
+      if(seg.type==='photo'){ const pic=seg.pic, pin=backOut(clamp01(u/.22)), out=clamp01((u-.86)/.14);
+        const pw=Math.min(W*.66,(area.y1-area.y0)*.8), ph=pw*(H>1500?1.2:1), fh=ph+(pic.label?96:36);
+        g.save(); g.globalAlpha=1-out; g.translate(acx,acy+(area.y1-area.y0>fh?0:20)); g.rotate(seg.tilt); g.scale(.55+.45*pin,.55+.45*pin);
+        g.shadowColor='rgba(0,0,0,.55)'; g.shadowBlur=50; g.shadowOffsetY=16; g.fillStyle='#fff'; roundRect(g,-pw/2-18,-fh/2,pw+36,fh,14); g.fill(); g.shadowColor='transparent';
+        drawCover(g,pic.im,-pw/2,-fh/2+18,pw,ph,6);
+        if(pic.label){ g.fillStyle='#15202B'; g.font='600 36px Figtree, sans-serif'; const s=fitText(g,pic.label,pw); g.fillText(s,-g.measureText(s).width/2,fh/2-34); }
+        g.restore(); }
+      // closing stats, as on the card
+      if(outro&&stats){ const sa=clamp01((u-.45)/.25); if(sa>0){ g.globalAlpha=sa;
+        const footH=H<=1100?150:190, sy=H-footH-20;
+        const fg=g.createLinearGradient(0,sy-120,0,H); fg.addColorStop(0,'rgba(16,24,32,0)'); fg.addColorStop(.35,'rgba(16,24,32,.92)'); fg.addColorStop(1,'rgba(16,24,32,.98)'); g.fillStyle=fg; g.fillRect(0,sy-120,W,H-sy+120);
+        const st=[[fmtKm(d.km)+' km','DISTANCE'],[String(d.days),d.days===1?'DAY':'DAYS'],[String(d.cities.length),d.cities.length===1?'CITY':'CITIES'],[String(d.acts.filter(p=>p.status==='done').length||d.acts.length),'ACTIVITIES']], cw=(W-2*X)/4;
+        g.strokeStyle='#2A3743'; g.lineWidth=2; g.beginPath(); g.moveTo(X,sy); g.lineTo(W-X,sy); g.stroke();
+        st.forEach(([val,key],i)=>{ const x=X+i*cw; let fs=H<=1100?60:72; g.font='700 '+fs+'px "Barlow Condensed", sans-serif'; while(fs>30&&g.measureText(val).width>cw-24){ fs-=4; g.font='700 '+fs+'px "Barlow Condensed", sans-serif'; }
+          g.fillStyle='#fff'; g.fillText(val,x,sy+(H<=1100?70:84)); g.fillStyle='#8FA0AF'; g.font='700 22px Figtree, sans-serif'; g.fillText(key,x,sy+(H<=1100?104:122)); });
+        const modes=Object.entries(d.byMode).sort((a,b)=>b[1]-a[1]).map(([m,v])=>(MODES[m]||MODES.car).label+' '+fmtKm(v)+' km').join('  ·  ');
+        if(modes&&H>1100){ g.fillStyle='#C9D3DC'; g.font='500 26px Figtree, sans-serif'; g.fillText(fitText(g,modes,W-2*X), X, sy+170); }
+        g.globalAlpha=1; } }
+    }
+    return {W, H, T, draw, events:evs.length, photos:pics.length};
+  }
+  // Plays the plan on `cv` in real time while recording it; resolves to the video Blob (null if stopped).
+  async function recordRouteVideo(plan, cv, onTick, alive){
+    const R=720/plan.W; cv.width=720; cv.height=Math.round(plan.H*R); const g=cv.getContext('2d');
+    const type=videoType(), stream=cv.captureStream(30);
+    const rec=new MediaRecorder(stream, type?{mimeType:type, videoBitsPerSecond:5000000}:undefined);
+    const chunks=[]; rec.ondataavailable=e=>{ if(e.data&&e.data.size) chunks.push(e.data); };
+    const stopped=new Promise(r=>{ rec.onstop=r; });
+    const paint=tau=>{ g.setTransform(R,0,0,R,0,0); plan.draw(g,tau); };
+    paint(0); rec.start(250);
+    await new Promise(res=>{ let t0=null; const step=now=>{ if(!alive()) return res(); if(t0==null) t0=now;
+      const tau=Math.max(0,(now-t0)/1000); paint(Math.min(tau,plan.T)); onTick(tau);
+      if(tau<plan.T+.5) requestAnimationFrame(step); else res(); }; requestAnimationFrame(step); });
+    rec.stop(); await stopped; stream.getTracks().forEach(x=>x.stop());
+    if(!alive()||!chunks.length) return null;
+    return new Blob(chunks,{type:(rec.mimeType||type||'video/webm').split(';')[0]});
+  }
   async function shareSheet(t, init){
     init=init||{};
     const days=[]; if(t.startDate&&t.endDate&&t.endDate>=t.startDate) for(let i=0;i<Math.min(dayCount(t.startDate,t.endDate),90);i++) days.push(addDays(t.startDate,i));
@@ -1768,12 +1934,17 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
       + '<div class="field" id="shPicsF"><label>Photos <span style="text-transform:none;letter-spacing:0;font-weight:500">(tap to pick up to 4)</span></label><div class="photos" id="shPics"></div></div>'
       + '<div class="field"><label for="cap">Caption</label><textarea id="cap"></textarea></div>'
       + '<div class="row">'+(canShare?'<button class="btn primary" type="button" id="shareNow" disabled>'+ICON.share+' Share…</button>':'')
-      + '<button class="btn'+(canShare?'':' primary')+'" type="button" id="saveImg" disabled>Save image</button><button class="btn" type="button" id="copyCap">Copy caption</button><button class="btn" type="button" id="xCancel">Close</button></div>'
+      + '<button class="btn primary" type="button" id="saveVid" hidden>Save video</button>'
+      + '<button class="btn'+(canShare?'':' primary')+'" type="button" id="saveImg" disabled>Save image</button>'
+      + (videoType()!==null?'<button class="btn" type="button" id="mkVid">🎬 Video</button>':'')
+      + '<button class="btn" type="button" id="copyCap">Copy caption</button><button class="btn" type="button" id="xCancel">Close</button></div>'
       + '<div class="hint" id="shareHint"></div>',
     ()=>{
       $('#xCancel').onclick=closeSheet;
       const sheet=$('#sheet');
-      const redraw=async()=>{ const tok=++drawTok; const cv=await makeCard(t, o); if(tok!==drawTok||!sheet.isConnected) return; canvas=cv;
+      let vidBlob=null, vidTok=0, vidUrl=null;
+      const dropVideo=()=>{ vidTok++; vidBlob=null; if(vidUrl){ URL.revokeObjectURL(vidUrl); vidUrl=null; } $('#saveVid').hidden=true; const m=$('#mkVid'); if(m){ m.disabled=false; m.textContent='🎬 Video'; } };
+      const redraw=async()=>{ const tok=++drawTok; dropVideo(); const cv=await makeCard(t, o); if(tok!==drawTok||!sheet.isConnected) return; canvas=cv;
         $('#cardBox').innerHTML='<img class="share-preview" style="max-height:46vh;width:auto;max-width:100%" alt="Share image preview" src="'+cv.toDataURL('image/jpeg',.85)+'">';
         const s=$('#shareNow'); if(s) s.disabled=false; const b=$('#saveImg'); if(b) b.disabled=!downloads; };
       let timer=null; const later=()=>{ clearTimeout(timer); timer=setTimeout(redraw,200); };
@@ -1803,10 +1974,11 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
       $('#shTitle').oninput=()=>{ titleTouched=true; o.title=val('shTitle'); if(!capTouched) $('#cap').value=caption(t,o); later(); };
       $('#cap').oninput=()=>{ capTouched=true; };
       $('#copyCap').onclick=async()=>{ const txt=val('cap'); try{ await navigator.clipboard.writeText(txt); toast('Caption copied'); }catch(e){ const ta=$('#cap'); ta.focus(); ta.select(); $('#shareHint').textContent='Press copy on your keyboard to copy the selected caption.'; } };
-      const fname=()=>((o.title||t.name).replace(/→/g,'-').replace(/[^\w\- ]+/g,'').replace(/\s+/g,' ').trim()||'trip')+'.png';
+      const base=()=>(o.title||t.name).replace(/→/g,'-').replace(/[^\w\- ]+/g,'').replace(/\s+/g,' ').trim()||'trip', fname=()=>base()+'.png';
+      const vidName=()=>base()+(vidBlob&&/mp4/.test(vidBlob.type)?'.mp4':'.webm');
       const blob=()=>new Promise(r=>canvas.toBlob(r,'image/png'));
       const sn=$('#shareNow'); if(sn) sn.onclick=async()=>{ if(!canvas) return; sn.disabled=true;
-        try{ const file=new File([await blob()], fname(), {type:'image/png'});
+        try{ const file=vidBlob?new File([vidBlob], vidName(), {type:vidBlob.type}):new File([await blob()], fname(), {type:'image/png'});
           if(!navigator.canShare({files:[file]})) throw {name:'NotAllowedError'};
           try{ await navigator.clipboard.writeText(val('cap')); }catch(e){}
           await navigator.share({files:[file], text:val('cap')}); }
@@ -1818,6 +1990,26 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
         try{ await downloads.save({filename:fname(), data:await blob()}); toast('Saved'); }
         catch(e){ if(e&&e.code!=='declined') $('#shareHint').textContent='Couldn\'t save the image. Long‑press the preview to save it instead.'; }
         finally{ btn.disabled=false; } };
+      const mk=$('#mkVid');
+      if(mk) mk.onclick=async()=>{ dropVideo(); const tok=vidTok; mk.disabled=true; $('#shareHint').textContent='';
+        const alive=()=>tok===vidTok&&sheet.isConnected;
+        try{
+          const plan=await routeVideoPlan(t, JSON.parse(JSON.stringify(o))); if(!alive()) return;
+          const cv=document.createElement('canvas'); cv.className='share-preview'; cv.style.cssText='max-height:46vh;width:auto;max-width:100%';
+          $('#cardBox').innerHTML=''; $('#cardBox').appendChild(cv);
+          const vb=await recordRouteVideo(plan, cv, tau=>{ if(alive()) mk.textContent='Recording '+Math.min(100,Math.round(tau/plan.T*100))+'%'; }, alive);
+          if(!vb||!alive()) return;
+          vidBlob=vb; vidUrl=URL.createObjectURL(vb);
+          $('#cardBox').innerHTML='<video class="share-preview" style="max-height:46vh;width:auto;max-width:100%" src="'+vidUrl+'" controls playsinline muted loop autoplay></video>';
+          $('#saveVid').hidden=!downloads; mk.textContent='🎬 Again';
+          $('#shareHint').textContent=Math.round(plan.T)+' s video'+(/mp4/.test(vb.type)?'':' (WebM)')+'. Change any option to go back to the image.';
+        }catch(e){ if(alive()) $('#shareHint').textContent='Couldn\'t record a video here: '+((e&&e.message)||e); }
+        finally{ if(tok===vidTok) mk.disabled=false; } };
+      const sv=$('#saveVid');
+      sv.onclick=async()=>{ if(!vidBlob||!downloads) return; sv.disabled=true;
+        try{ await downloads.save({filename:vidName(), data:vidBlob}); toast('Saved'); }
+        catch(e){ if(e&&e.code!=='declined') $('#shareHint').textContent='Couldn\'t save the video.'; }
+        finally{ sv.disabled=false; } };
       sync();
     });
   }
