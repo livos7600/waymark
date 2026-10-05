@@ -101,6 +101,8 @@
   .day-h .btn{padding:4px 8px;}
   .day-i{display:flex;gap:8px;align-items:center;padding:4px 0;font-size:14px;cursor:pointer;}
   .day-i img{width:30px;height:30px;border-radius:6px;object-fit:cover;flex-shrink:0;cursor:zoom-in;}
+  .drag{margin-left:auto;padding:6px 2px 6px 10px;color:var(--ink-faint);font-size:18px;line-height:1;cursor:grab;touch-action:none;user-select:none;-webkit-user-select:none;flex-shrink:0;}
+  .day-i.dragging{background:var(--surface);box-shadow:var(--shadow);border-radius:8px;position:relative;z-index:2;}
   .mini{width:22px;height:22px;border-radius:6px;display:inline-flex;align-items:center;justify-content:center;color:#fff;flex-shrink:0;}
   .mini svg{width:13px;height:13px;}
   .legend{display:flex;gap:10px;flex-wrap:wrap;font-size:12.5px;color:var(--ink-soft);}
@@ -330,7 +332,42 @@ const WORLD = __WORLD__;
   }
 
   // ---------- render ----------
-  let pending=false;
+  let pending=false, dragActive=false, renderWanted=false;
+  // Days: press the ⠿ handle and slide a row up or down; the day's order is saved as dayPos.
+  function enableDayDrag(){
+    main.querySelectorAll('.day-list').forEach(list=>{
+      const rows=[...list.querySelectorAll('.day-i')]; if(rows.length<2) return;
+      rows.forEach(row=>{
+        const h=document.createElement('span'); h.className='drag'; h.setAttribute('role','button'); h.setAttribute('aria-label','Drag to reorder'); h.textContent='⠿';
+        row.appendChild(h);
+        h.addEventListener('click',e=>e.stopPropagation());
+        h.addEventListener('pointerdown',e=>{
+          e.preventDefault(); e.stopPropagation();
+          try{ h.setPointerCapture(e.pointerId); }catch(err){}
+          const before=[...list.querySelectorAll('.day-i')];
+          dragActive=true; row.classList.add('dragging');
+          let scrollT=null;
+          const move=ev=>{ const y=ev.clientY;
+            const next=[...list.querySelectorAll('.day-i')].filter(x=>x!==row).find(x=>{ const r=x.getBoundingClientRect(); return y<r.top+r.height/2; });
+            if((next||null)!==row.nextElementSibling) list.insertBefore(row, next||null);
+            clearInterval(scrollT); if(y<90) scrollT=setInterval(()=>window.scrollBy(0,-10),30); else if(y>innerHeight-110) scrollT=setInterval(()=>window.scrollBy(0,10),30); };
+          const up=async()=>{ clearInterval(scrollT);
+            h.removeEventListener('pointermove',move); h.removeEventListener('pointerup',up); h.removeEventListener('pointercancel',up);
+            row.classList.remove('dragging');
+            const after=[...list.querySelectorAll('.day-i')];
+            if(after.some((r,i)=>r!==before[i])) await saveDayOrder(after);
+            dragActive=false; if(renderWanted){ renderWanted=false; schedule(); } };
+          h.addEventListener('pointermove',move); h.addEventListener('pointerup',up); h.addEventListener('pointercancel',up);
+        });
+      });
+    });
+  }
+  async function saveDayOrder(rows){
+    const writes=[];
+    rows.forEach((r,i)=>{ const pos=(i+1)*10, c=r.dataset.leg?'legs':r.dataset.pl?'places':'expenses', id=r.dataset.leg||r.dataset.pl||r.dataset.exp;
+      const x=S[c].find(y=>y.id===id); if(x&&x.dayPos!==pos) writes.push(patch(c, id, {dayPos:pos})); });
+    try{ await Promise.all(writes); }catch(e){ toast('Couldn\'t save the new order. Try again.'); }
+  }
   function schedule(){ if(pending) return; pending=true; requestAnimationFrame(()=>{ pending=false; render(); }); }
   function go(next){ Object.assign(R, next); window.scrollTo(0,0); render(); }
 
@@ -347,6 +384,7 @@ const WORLD = __WORLD__;
     if(opts.back) $('#tBack').onclick=opts.back;
   }
   function render(){
+    if(dragActive){ renderWanted=true; return; }
     renderTabs();
     if(!ready.db){ return; }
     if(R.tab==='trips'){ if(R.stopId) return renderCity(); if(R.tripId) return renderTrip(); return renderTrips(); }
@@ -531,6 +569,7 @@ const WORLD = __WORLD__;
       + '<div class="sec-title"><h2>Days</h2><div class="row" style="flex-wrap:nowrap">'+(assets||(sample&&sampleImages)?'<label class="btn small" for="actPhotoIn">'+ICON.camera+' From photo</label><input id="actPhotoIn" type="file" accept="image/*" multiple hidden>':'')
       + '<button class="btn small" id="addAct">'+ICON.plus+' Activity</button></div></div>'
       + '<div class="row">'+(mcp?'<button class="btn small ghost" id="fromStrava">⇣ From Strava</button>':'')+'<label class="btn small ghost" for="gpxIn">⇣ GPX file</label><input id="gpxIn" type="file" hidden></div>'
+      + '<div class="faint">Wrong order in a day? Hold ⠿ and slide the row.</div>'
       + (sample&&unplaced.length?'<button class="btn small ghost" id="locateAll" style="align-self:flex-start">📍 Put '+unplaced.length+' activit'+(unplaced.length===1?'y':'ies')+' on the map</button>':'')
       + daysHtml(t)
       + '<div class="sec-title"><h2>Route</h2><button class="btn small" id="addLeg">'+ICON.plus+' Leg</button></div>'
@@ -562,6 +601,7 @@ const WORLD = __WORLD__;
     const loc=$('#locateAll'); if(loc) loc.onclick=async()=>{ loc.disabled=true; loc.textContent='Finding them…';
       try{ const n=await locatePlaces(unplaced); toast(n?n+' on the map':'Couldn\'t place them. Open one and save it to try again.'); }
       catch(e){ toast(photoError(e)||'Couldn\'t place them'); } };
+    enableDayDrag();
     main.querySelectorAll('[data-shareday]').forEach(b=>b.onclick=()=>shareSheet(t, {from:b.dataset.shareday, to:b.dataset.shareday}));
     main.querySelectorAll('[data-addact]').forEach(b=>b.onclick=()=>placeSheet(null, null, {trip:t, date:b.dataset.addact}));
     main.querySelectorAll('[data-pl]').forEach(el=>el.onclick=e=>{ if(e.target.dataset.photo) return; const p=S.places.find(x=>x.id===el.dataset.pl); if(p) placeSheet(stopOf(p.stopId), p, {trip:t}); });
@@ -808,6 +848,7 @@ const WORLD = __WORLD__;
           const costIn=parseFloat(val('lCost').replace(',','.'));
           const data={tripId:trip.id, mode, fromId:A.id, toId:B.id, date, time:val('lTime'), km, kmEstimated:!(isFinite(kmIn)&&kmIn>0)&&mode!=='plane',
             cost:isFinite(costIn)?costIn:0, currency:val('lCur'), notes:val('lNotes').trim(), updatedAt:now()};
+          if(l&&l.date!==date) data.dayPos=null;
           if(l) await patch('legs', l.id, data); else await put('legs', null, Object.assign({order:Date.now(), createdAt:now()}, data));
           closeSheet();
         }catch(err){ er.hidden=false; er.textContent=(err&&err.message)||'Couldn\'t save. Try again.'; btn.disabled=false; btn.textContent='Save'; }
@@ -906,10 +947,11 @@ const WORLD = __WORLD__;
         if(assets){ uploading=true; sync(); hint('Uploading…'); const up=await uploadPhotos(fs); added.push(...up); photoIds=photoIds.concat(up); uploading=false; if(!form.isConnected) return; drawPhotos(); hint(''); }
         sync();
         if(autoRead&&canRead) await fill();
-        else if(!p){ // no Claude here: still take date and place from the photo itself
+        else { // no Claude here: still take date, time and place from the photo itself
           const m=await readExif(fs[0]); if(!form.isConnected||!m) return;
-          if(m.date&&!val('pName').trim()){ $('#pDate').value=m.date; $('#pDate').onchange(); }
-          if(m.lat!=null){ pos={lat:m.lat, lon:m.lon}; $('#pPos').textContent='📍 Location taken from the photo'; }
+          if(!p&&m.date&&!val('pName').trim()){ $('#pDate').value=m.date; $('#pDate').onchange(); }
+          if(m.time&&!val('pTime')&&(!m.date||m.date===val('pDate'))) $('#pTime').value=m.time;
+          if(!p&&m.lat!=null){ pos={lat:m.lat, lon:m.lon}; $('#pPos').textContent='📍 Location taken from the photo'; }
         }
       }
       async function fill(){
@@ -952,7 +994,7 @@ const WORLD = __WORLD__;
         const data=Object.assign({}, pre&&pre.extra||{}, {tripId:trip.id, stopId:st.id, name, category:val('pCat'), date, time:val('pTime'), status, rating, cost:isFinite(c)?c:0, currency:val('pCur'), notes:val('pNotes').trim(), photoIds, updatedAt:now()});
         if(keep){ data.lat=pos.lat; data.lon=pos.lon; }
         let id=p&&p.id;
-        if(p){ if(!keep&&p.lat!=null){ data.lat=null; data.lon=null; } await patch('places', p.id, data); }
+        if(p){ if(!keep&&p.lat!=null){ data.lat=null; data.lon=null; } if(p.date!==date) data.dayPos=null; await patch('places', p.id, data); }
         else id=(await put('places', null, Object.assign({createdAt:now()}, data))).id;
         closeSheet();
         for(const x of orig.concat(added)) if(!photoIds.includes(x)) forgetAsset(x, p);
@@ -1027,6 +1069,7 @@ const WORLD = __WORLD__;
         if(!label||!isFinite(a)){ const er=$('#fErr'); er.hidden=false; er.textContent='Add what it was and an amount.'; return; }
         const city=val('eCity').trim(), st=city&&tripStops(trip.id).find(s=>norm(s.city)===norm(city));
         const data={tripId:trip.id, label, amount:a, currency:val('eCur'), category:val('eCat'), date:val('eDate'), time:val('eTime'), city:st?st.city:city, stopId:st?st.id:'', paidBy:val('ePaid').trim(), notes:val('eNote').trim(), photoIds, updatedAt:now()};
+        if(x&&x.date!==data.date) data.dayPos=null;
         if(x) await patch('expenses', x.id, data); else await put('expenses', null, Object.assign({createdAt:now()}, data));
         closeSheet();
         for(const y of orig.concat(added)) if(!photoIds.includes(y)) forgetAsset(y, x); };
@@ -1275,6 +1318,10 @@ const WORLD = __WORLD__;
     acts.forEach(x=>buckets[segOf(x)].push({k:'act',x})); exps.forEach(x=>buckets[segOf(x)].push({k:'exp',x}));
     const key=e=>hhmm(e.x)||loggedAt(e.x,d)||'~';
     const out=[]; buckets.forEach((b,i)=>{ b.sort((a,c)=>key(a).localeCompare(key(c))); out.push(...b); if(L[i]) out.push({k:'leg',x:L[i]}); });
+    const first=out.findIndex(e=>e.x.dayPos!=null);
+    if(first>=0){ let last=null;
+      out.forEach((e,i)=>{ if(e.x.dayPos!=null){ last=e.x.dayPos; e.p=last; } else e.p=last==null?out[first].x.dayPos-(first-i):last+(i+1)/1000; });
+      out.sort((a,b)=>a.p-b.p); }
     return out;
   }
   function daysHtml(t){
@@ -1286,12 +1333,12 @@ const WORLD = __WORLD__;
       const legs=tripLegs(t.id).filter(l=>l.date===d), acts=S.places.filter(p=>p.tripId===t.id&&p.date===d), exps=S.expenses.filter(e=>e.tripId===t.id&&e.date===d);
       html+='<div class="day'+(d===today?' today':'')+'"><div class="day-h"><div><b>'+fmtDate(d,{weekday:'short',month:'short',day:'numeric'})+'</b>'+(d===today?' <span class="pill accent">Today</span>':'')
         +' <span class="faint">'+esc(cities.join(' → '))+'</span></div><div class="row" style="flex-wrap:nowrap;gap:4px"><button type="button" class="btn small ghost" data-shareday="'+d+'" aria-label="Share '+fmtDate(d)+'">'+ICON.share+'</button><button type="button" class="btn small ghost" data-addact="'+d+'" aria-label="Add an activity on '+fmtDate(d)+'">'+ICON.plus+'</button></div></div>'
-        + dayOrder(d, legs, acts, exps).map(({k,x})=>{ const tm=hhmm(x)?'<span class="faint mono" style="flex-shrink:0">'+hhmm(x)+'</span>':'';
+        + '<div class="day-list" data-day="'+d+'">'+dayOrder(d, legs, acts, exps).map(({k,x})=>{ const tm=hhmm(x)?'<span class="faint mono" style="flex-shrink:0">'+hhmm(x)+'</span>':'';
             if(k==='leg'){ const l=x; const a=stopOf(l.fromId)||{}, b=stopOf(l.toId)||{};
             return '<div class="day-i" data-leg="'+l.id+'">'+tm+'<span class="mini" style="background:'+(MODES[l.mode]||MODES.car).color+'">'+modeIcon(l.mode)+'</span><span style="flex:1">'+esc(a.city||'?')+' → '+esc(b.city||'?')+'</span><span class="faint mono">'+(l.kmEstimated?'≈':'')+fmtKm(l.km||0)+' km</span></div>'; }
             if(k==='act'){ const p=x; return '<div class="day-i" data-pl="'+p.id+'">'+tm+'<span class="status-tag '+(p.status==='done'?'done':'want')+'">'+(p.status==='done'?'Been':'Want')+'</span><span style="flex:1;min-width:0">'+esc(p.name)
             +(p.rating?' <span class="stars">'+'★'.repeat(p.rating)+'</span>':'')+(statsLine(p)?' <span class="faint">'+statsLine(p)+'</span>':'')+'</span>'+(p.photoIds||[]).slice(0,3).map(id=>'<img alt="" src="/_blob/'+id+'" data-photo="'+id+'">').join('')+'</div>'; }
-            const e=x; return '<div class="day-i" data-exp="'+e.id+'">'+tm+'<span class="mini" style="background:var(--ink-faint)">'+ICON.coin+'</span><span style="flex:1;min-width:0">'+esc(e.label)+'</span><span class="faint mono">'+fmtMoney(e.amount,e.currency)+'</span></div>'; }).join('')
+            const e=x; return '<div class="day-i" data-exp="'+e.id+'">'+tm+'<span class="mini" style="background:var(--ink-faint)">'+ICON.coin+'</span><span style="flex:1;min-width:0">'+esc(e.label)+'</span><span class="faint mono">'+fmtMoney(e.amount,e.currency)+'</span></div>'; }).join('')+'</div>'
         + (legs.length||acts.length||exps.length?'':'<div class="faint">Nothing logged yet</div>')
         + '</div>';
     }
