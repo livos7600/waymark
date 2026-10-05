@@ -258,6 +258,8 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
   const esc = s => String(s==null?'':s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const now = () => new Date().toISOString();
   const pad2 = n => String(n).padStart(2,'0');
+  const nowHM = () => { const d=new Date(); return pad2(d.getHours())+':'+pad2(d.getMinutes()); };
+  const hhmm = x => (x&&/^\d\d:\d\d/.test(x.time||''))?x.time.slice(0,5):'';
   const todayStr = () => { const d=new Date(); return d.getFullYear()+'-'+pad2(d.getMonth()+1)+'-'+pad2(d.getDate()); };
   function fmtDate(s, opts){ if(!s) return ''; const [y,m,d]=s.split('-').map(Number); return new Date(y,m-1,d).toLocaleDateString(undefined, opts||{month:'short',day:'numeric'}); }
   function dayCount(a,b){ if(!a||!b) return 0; const A=new Date(a+'T12:00'),B=new Date(b+'T12:00'); return Math.round((B-A)/864e5)+1; }
@@ -782,7 +784,8 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
       + '<div class="grid2"><div class="field"><label for="lFrom">From</label><input id="lFrom" list="kc" value="'+esc(defaultFrom)+'" placeholder="City"></div><div class="field"><label for="lTo">To</label><input id="lTo" list="kc" value="'+esc(b?b.city:'')+'" placeholder="City"></div></div>'
       + '<datalist id="kc">'+known.map(c=>'<option value="'+esc(c)+'">').join('')+'</datalist>'
       + '<div class="grid2"><div class="field"><label for="lDate">Date</label><input id="lDate" type="date" value="'+esc(l?l.date:(prevLeg?prevLeg.date:trip.startDate))+'"></div>'
-      + '<div class="field"><label for="lKm">Distance km (optional)</label><input id="lKm" inputmode="numeric" value="'+esc(l&&!l.kmEstimated?l.km:'')+'" placeholder="'+(l&&l.kmEstimated?'≈'+fmtKm(l.km):'Auto')+'"></div></div>'
+      + '<div class="field"><label for="lTime">Time (optional)</label><input id="lTime" type="time" value="'+esc(l?hhmm(l):'')+'"></div></div>'
+      + '<div class="field"><label for="lKm">Distance km (optional)</label><input id="lKm" inputmode="numeric" value="'+esc(l&&!l.kmEstimated?l.km:'')+'" placeholder="'+(l&&l.kmEstimated?'≈'+fmtKm(l.km):'Auto')+'"></div>'
       + '<div class="grid3"><div class="field"><label for="lCost">Cost (optional)</label><input id="lCost" inputmode="decimal" value="'+esc(l&&l.cost?l.cost:'')+'"></div><div class="field"><label for="lCur">Currency</label>'+curSelect('lCur', l?l.currency:trip.currency)+'</div></div>'
       + '<div class="field"><label for="lNotes">Notes (optional)</label><input id="lNotes" value="'+esc(l?l.notes||'':'')+'" placeholder="Flight number, rental car, scenic route…"></div>'
       + '<div class="hint">Leave distance blank: flights use straight‑line km, drives and trains an estimate (≈) you can correct later.</div>'
@@ -804,7 +807,7 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
           const straight=haversine(A,B);
           const km = isFinite(kmIn)&&kmIn>0 ? kmIn : Math.round(straight*(ROAD_FACTOR[mode]||1.2));
           const costIn=parseFloat(val('lCost').replace(',','.'));
-          const data={tripId:trip.id, mode, fromId:A.id, toId:B.id, date, km, kmEstimated:!(isFinite(kmIn)&&kmIn>0)&&mode!=='plane',
+          const data={tripId:trip.id, mode, fromId:A.id, toId:B.id, date, time:val('lTime'), km, kmEstimated:!(isFinite(kmIn)&&kmIn>0)&&mode!=='plane',
             cost:isFinite(costIn)?costIn:0, currency:val('lCur'), notes:val('lNotes').trim(), updatedAt:now()};
           if(l) await patch('legs', l.id, data); else await put('legs', null, Object.assign({order:Date.now(), createdAt:now()}, data));
           closeSheet();
@@ -875,9 +878,10 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
         + '<div class="hint" id="pUp">'+(canRead&&!p?'Start with a photo: Claude reads where and when it was taken and what it shows.':'')+'</div></div>':'')
       + '<div class="field"><label for="pName">What</label><input id="pName" value="'+esc(p?p.name:'')+'" placeholder="e.g. Dune du Pilat, surf lesson, Guggenheim"></div>'
       + '<div class="grid2"><div class="field"><label for="pDate">Date</label><input id="pDate" type="date" value="'+esc(date0)+'"></div>'
-      + '<div class="field"><label for="pCity">City</label><select id="pCity">'+cityNames.map(c=>'<option'+(c===cur.city?' selected':'')+'>'+esc(c)+'</option>').join('')+'</select></div></div>'
-      + '<div class="grid2"><div class="field"><label for="pCat">Type</label><select id="pCat">'+CATS.map(([k,l])=>'<option value="'+k+'"'+((p?p.category:'attraction')===k?' selected':'')+'>'+l+'</option>').join('')+'</select></div>'
-      + '<div class="field"><label>Status</label><div class="row"><button type="button" class="chip '+(status==='done'?'on':'')+'" data-st="done">Been</button><button type="button" class="chip '+(status==='want'?'on':'')+'" data-st="want">Want to go</button></div></div></div>'
+      + '<div class="field"><label for="pTime">Time (optional)</label><input id="pTime" type="time" value="'+esc(p?hhmm(p):((pre&&pre.time)||(date0===todayStr()?nowHM():'')))+'"></div></div>'
+      + '<div class="grid2"><div class="field"><label for="pCity">City</label><select id="pCity">'+cityNames.map(c=>'<option'+(c===cur.city?' selected':'')+'>'+esc(c)+'</option>').join('')+'</select></div>'
+      + '<div class="field"><label for="pCat">Type</label><select id="pCat">'+CATS.map(([k,l])=>'<option value="'+k+'"'+((p?p.category:'attraction')===k?' selected':'')+'>'+l+'</option>').join('')+'</select></div></div>'
+      + '<div class="field"><label>Status</label><div class="row"><button type="button" class="chip '+(status==='done'?'on':'')+'" data-st="done">Been</button><button type="button" class="chip '+(status==='want'?'on':'')+'" data-st="want">Want to go</button></div></div>'
       + '<div class="field"><label>Rating</label><div class="rating" id="rating">'+[1,2,3,4,5].map(i=>'<button type="button" data-r="'+i+'" aria-label="'+i+' stars" class="'+(i<=rating?'on':'')+'">★</button>').join('')+'</div></div>'
       + '<div class="grid3"><div class="field"><label for="pCost">Price (optional)</label><input id="pCost" inputmode="decimal" value="'+esc(p&&p.cost?p.cost:'')+'"></div><div class="field"><label for="pCur">Currency</label>'+curSelect('pCur', p?p.currency:trip.currency)+'</div></div>'
       + '<div class="field"><label for="pNotes">Notes</label><textarea id="pNotes" placeholder="What you did, what you ordered, would you go back?">'+esc(p?p.notes||'':'')+'</textarea></div>'
@@ -922,6 +926,7 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
           const set=(id,v)=>{ if(v!=null&&v!=='') $('#'+id).value=v; };
           set('pName', r.name); set('pCat', r.actCat);
           if(r.date){ $('#pDate').value=r.date; }
+          if(r.time) $('#pTime').value=r.time; else if(r.date&&r.date!==todayStr()&&!p) $('#pTime').value='';
           if(r.city&&cityNames.includes(r.city)){ $('#pCity').value=r.city; cityTouched=true; }
           $('#pDate').onchange();
           if(r.amount!=null&&!val('pCost').trim()){ set('pCost', String(r.amount)); if(r.currency){ const sel=$('#pCur'); if(![...sel.options].some(o=>o.value===r.currency)) sel.add(new Option(r.currency)); sel.value=r.currency; } }
@@ -945,7 +950,7 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
         const c=parseFloat(val('pCost').replace(',','.'));
         // a position Claude guessed for another name is stale; a photo's GPS stays
         const keep=pos&&(pos.name==null||pos.name===name);
-        const data=Object.assign({}, pre&&pre.extra||{}, {tripId:trip.id, stopId:st.id, name, category:val('pCat'), date, status, rating, cost:isFinite(c)?c:0, currency:val('pCur'), notes:val('pNotes').trim(), photoIds, updatedAt:now()});
+        const data=Object.assign({}, pre&&pre.extra||{}, {tripId:trip.id, stopId:st.id, name, category:val('pCat'), date, time:val('pTime'), status, rating, cost:isFinite(c)?c:0, currency:val('pCur'), notes:val('pNotes').trim(), photoIds, updatedAt:now()});
         if(keep){ data.lat=pos.lat; data.lon=pos.lon; }
         let id=p&&p.id;
         if(p){ if(!keep&&p.lat!=null){ data.lat=null; data.lon=null; } await patch('places', p.id, data); }
@@ -972,7 +977,8 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
         + '<div class="hint" id="eUp">'+(canRead&&!x?'Add a photo of the receipt and Claude fills in the amount, date and place.':'')+'</div></div>':'')
       + '<div class="field"><label for="eLabel">What</label><input id="eLabel" value="'+esc(x?x.label:'')+'" placeholder="e.g. Car rental, tolls, SIM card"></div>'
       + '<div class="grid3"><div class="field"><label for="eAmt">Amount</label><input id="eAmt" inputmode="decimal" value="'+esc(x?x.amount:'')+'"></div><div class="field"><label for="eCur">Currency</label>'+curSelect('eCur', x?x.currency:trip.currency)+'</div></div>'
-      + '<div class="grid2"><div class="field"><label for="eCat">Category</label><select id="eCat">'+cats.map(c=>'<option'+((x?x.category:'Other')===c?' selected':'')+'>'+c+'</option>').join('')+'</select></div><div class="field"><label for="eDate">Date</label><input id="eDate" type="date" value="'+esc(x?x.date||'':todayStr())+'"></div></div>'
+      + '<div class="grid2"><div class="field"><label for="eDate">Date</label><input id="eDate" type="date" value="'+esc(x?x.date||'':todayStr())+'"></div><div class="field"><label for="eTime">Time (optional)</label><input id="eTime" type="time" value="'+esc(x?hhmm(x):nowHM())+'"></div></div>'
+      + '<div class="field"><label for="eCat">Category</label><select id="eCat">'+cats.map(c=>'<option'+((x?x.category:'Other')===c?' selected':'')+'>'+c+'</option>').join('')+'</select></div>'
       + '<div class="grid2"><div class="field"><label for="eCity">Where</label><input id="eCity" list="eCities" autocomplete="off" value="'+esc(x?x.city||'':'')+'" placeholder="City"><datalist id="eCities">'+cities.map(c=>'<option value="'+esc(c)+'">').join('')+'</datalist></div>'
       + '<div class="field"><label for="ePaid">Paid by</label><input id="ePaid" list="payers" autocomplete="off" value="'+esc(x?x.paidBy||'':lastPayer(trip.id))+'" placeholder="e.g. Me, Sam, split"><datalist id="payers">'+payers(trip.id).map(n=>'<option value="'+esc(n)+'">').join('')+'</datalist></div></div>'
       + '<div class="field"><label for="eNote">Note (optional)</label><textarea id="eNote" placeholder="Receipt details, what it covered, who owes what…">'+esc(x?x.notes||'':'')+'</textarea></div>'
@@ -995,7 +1001,7 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
       }
       function applyResult(r){
           const set=(id,v)=>{ if(v!=null&&v!=='') $('#'+id).value=v; };
-          set('eLabel', r.name); set('eAmt', r.amount!=null?String(r.amount):null); set('eDate', r.date); set('eCity', r.city); set('eCat', r.expCat);
+          if(r.time) set('eTime', r.time); else if(r.date&&r.date!==todayStr()) $('#eTime').value=''; set('eLabel', r.name); set('eAmt', r.amount!=null?String(r.amount):null); set('eDate', r.date); set('eCity', r.city); set('eCat', r.expCat);
           if(r.currency){ const sel=$('#eCur'); if(![...sel.options].some(o=>o.value===r.currency)) sel.add(new Option(r.currency)); sel.value=r.currency; }
           if(r.notes&&!val('eNote').trim()) $('#eNote').value=r.notes;
           hint(r.amount==null?'Couldn\'t read a total. Add the amount, then save.':'Filled in from the photo. Check it, then save.');
@@ -1021,7 +1027,7 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
       form.onsubmit=async e=>{ e.preventDefault(); const a=parseFloat(val('eAmt').replace(',','.')); const label=val('eLabel').trim();
         if(!label||!isFinite(a)){ const er=$('#fErr'); er.hidden=false; er.textContent='Add what it was and an amount.'; return; }
         const city=val('eCity').trim(), st=city&&tripStops(trip.id).find(s=>norm(s.city)===norm(city));
-        const data={tripId:trip.id, label, amount:a, currency:val('eCur'), category:val('eCat'), date:val('eDate'), city:st?st.city:city, stopId:st?st.id:'', paidBy:val('ePaid').trim(), notes:val('eNote').trim(), photoIds, updatedAt:now()};
+        const data={tripId:trip.id, label, amount:a, currency:val('eCur'), category:val('eCat'), date:val('eDate'), time:val('eTime'), city:st?st.city:city, stopId:st?st.id:'', paidBy:val('ePaid').trim(), notes:val('eNote').trim(), photoIds, updatedAt:now()};
         if(x) await patch('expenses', x.id, data); else await put('expenses', null, Object.assign({createdAt:now()}, data));
         closeSheet();
         for(const y of orig.concat(added)) if(!photoIds.includes(y)) forgetAsset(y, x); };
@@ -1050,7 +1056,7 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
       + '"name": string (receipt: merchant and item, e.g. "Dinner at Bar Nestor"; activity: the specific place or activity, e.g. "Dune du Pilat", "Guggenheim Bilbao", "Surf lesson, Côte des Basques"; max 50 characters), '
       + '"amount": number or null (receipt: final total paid incl. tax and tip; activity: only if a price is visible), "currency": ISO 4217 code or null, '
       + '"expenseCategory": one of '+JSON.stringify(EXP_CATS)+', "activityCategory": one of '+JSON.stringify(CATS.map(c=>c[0]))+', '
-      + '"date": "YYYY-MM-DD" or null (date printed on it, else the photo date), '
+      + '"date": "YYYY-MM-DD" or null (date printed on it, else the photo date), "time": "HH:MM" or null (24h time printed on it, else the photo time), '
       + '"city": string or null (the trip city it belongs to when within about 40 km of one, else the real nearest town), '
       + '"lat": number or null, "lon": number or null (where the place is: the GPS if given, else your best estimate for the place you named; null if you cannot tell), '
       + '"notes": string (one short line of useful detail: what you see, main items, ticket route; "" if nothing useful)}.', {images:blobs});
@@ -1061,7 +1067,7 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
       name:String(o.name||o.label||'').trim().slice(0,80), amount:isFinite(amt)?Math.round(amt*100)/100:null,
       currency:/^[A-Za-z]{3}$/.test(o.currency||'')?o.currency.toUpperCase():'',
       expCat:EXP_CATS.includes(o.expenseCategory)?o.expenseCategory:'', actCat:CAT_LABEL[o.activityCategory]?o.activityCategory:'',
-      date:/^\d{4}-\d\d-\d\d$/.test(o.date||'')?o.date:(meta&&meta.date)||'', notes:String(o.notes||'').trim().slice(0,300), city:'', lat:null, lon:null };
+      date:/^\d{4}-\d\d-\d\d$/.test(o.date||'')?o.date:(meta&&meta.date)||'', time:/^\d\d:\d\d/.test(o.time||'')?o.time.slice(0,5):((meta&&meta.time)||''), notes:String(o.notes||'').trim().slice(0,300), city:'', lat:null, lon:null };
     if(meta&&meta.lat!=null){ out.lat=meta.lat; out.lon=meta.lon; }
     else if(isFinite(la)&&isFinite(lo)&&Math.abs(la)<=90&&Math.abs(lo)<=180&&(la||lo)){ out.lat=la; out.lon=lo; }
     if(near&&near.d<40) out.city=near.s.city;
@@ -1215,7 +1221,7 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
           track=thinTrack(track); const start=a.start||track[0]||null;
           const st=stopForPoint(t.id, start, a.date); if(!st){ hint('Add a leg first so the trip has a city.'); break; }
           const cat=sportCat(a.sport);
-          const data={tripId:t.id, stopId:st.id, name:a.name, category:CAT_LABEL[cat]?cat:'other', date:a.date, status:'done', rating:0, cost:0, currency:t.currency||'EUR', notes:'',
+          const data={tripId:t.id, stopId:st.id, name:a.name, category:CAT_LABEL[cat]?cat:'other', date:a.date, time:a.time||'', status:'done', rating:0, cost:0, currency:t.currency||'EUR', notes:'',
             photoIds:[], sport:a.sport, stravaId:a.id, distanceKm:a.distanceKm, movingS:a.movingS, elevM:a.elevM, track, createdAt:now(), updatedAt:now()};
           if(start){ data.lat=start[0]; data.lon=start[1]; }
           try{ await put('places', null, data); n++; }catch(err){}
@@ -1238,20 +1244,40 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
     const t0=P.find(p=>isFinite(p.t)); const d0=t0?new Date(t0.t):null;
     const trk=doc.getElementsByTagName('trk')[0];
     return { name:(trk&&tag(trk,'name'))||tag(doc.documentElement,'name')||'', sport:(trk&&tag(trk,'type'))||'',
-      date:d0?d0.getFullYear()+'-'+pad2(d0.getMonth()+1)+'-'+pad2(d0.getDate()):'', distanceKm:Math.round(dist/10)/100, movingS:moving?Math.round(moving):null,
+      date:d0?d0.getFullYear()+'-'+pad2(d0.getMonth()+1)+'-'+pad2(d0.getDate()):'', time:d0?pad2(d0.getHours())+':'+pad2(d0.getMinutes()):'', distanceKm:Math.round(dist/10)/100, movingS:moving?Math.round(moving):null,
       elevM:up?Math.round(up):null, track:thinTrack(P.map(p=>[p.lat,p.lon])) };
   }
   async function gpxImport(t, file){
     let g; try{ g=parseGpx(await file.text()); }catch(e){ toast(e.message||'Couldn\'t read that file'); return; }
     const cat=sportCat(g.sport||g.name);
     const start=g.track[0], st=stopForPoint(t.id, start, g.date);
-    placeSheet(st, null, {trip:t, prefill:{ name:g.name||({run:'Run',hike:'Hike',walk:'Walk',ride:'Bike ride'}[cat]||'Activity'), category:CAT_LABEL[cat]?cat:'other', date:g.date,
+    placeSheet(st, null, {trip:t, prefill:{ name:g.name||({run:'Run',hike:'Hike',walk:'Walk',ride:'Bike ride'}[cat]||'Activity'), category:CAT_LABEL[cat]?cat:'other', date:g.date, time:g.time,
       lat:start[0], lon:start[1], extra:{track:g.track, distanceKm:g.distanceKm, movingS:g.movingS, elevM:g.elevM, sport:g.sport||cat} }});
   }
 
   // ---------- days ----------
   function addDays(s, n){ const [y,m,d]=s.split('-').map(Number); const t=new Date(y,m-1,d+n); return t.getFullYear()+'-'+pad2(t.getMonth()+1)+'-'+pad2(t.getDate()); }
   function stopOnDate(tid, d){ const xs=tripStops(tid).filter(s=>!s.home&&s.arrive&&s.arrive<=d&&d<=(s.depart||s.arrive)); return xs.find(s=>s.arrive!==d)||xs[xs.length-1]||null; }
+  // One day's items in the order they happened. Times win when known. Otherwise an item goes with
+  // its city: after the leg that brings you there, before the leg that takes you on. Items with no
+  // city go last. Inside a stretch: by time, then by when they were logged that day.
+  function loggedAt(x, d){ const c=new Date(x.createdAt||''); if(isNaN(c)) return '';
+    return (c.getFullYear()+'-'+pad2(c.getMonth()+1)+'-'+pad2(c.getDate()))===d?pad2(c.getHours())+':'+pad2(c.getMinutes()):''; }
+  function dayOrder(d, legs, acts, exps){
+    const L=legs.slice().sort((a,b)=>{ const x=hhmm(a), y=hhmm(b); return (x&&y&&x!==y)?x.localeCompare(y):(a.order||0)-(b.order||0); });
+    const cityOf=x=>norm((stopOf(x.stopId)||{}).city||x.city||'');
+    const seg=L.length?[norm((stopOf(L[0].fromId)||{}).city)].concat(L.map(l=>norm((stopOf(l.toId)||{}).city))):[''];
+    const timedLegs=L.map((l,k)=>[hhmm(l),k]).filter(z=>z[0]);
+    const segOf=x=>{ const t=hhmm(x);
+      if(t&&timedLegs.length){ let s=0; timedLegs.forEach(([lt,k])=>{ if(lt<=t) s=k+1; }); return s; }
+      const c=cityOf(x); if(!c) return L.length;
+      const k=seg.indexOf(c); return k<0?L.length:k; };
+    const buckets=seg.map(()=>[]);
+    acts.forEach(x=>buckets[segOf(x)].push({k:'act',x})); exps.forEach(x=>buckets[segOf(x)].push({k:'exp',x}));
+    const key=e=>hhmm(e.x)||loggedAt(e.x,d)||'~';
+    const out=[]; buckets.forEach((b,i)=>{ b.sort((a,c)=>key(a).localeCompare(key(c))); out.push(...b); if(L[i]) out.push({k:'leg',x:L[i]}); });
+    return out;
+  }
   function daysHtml(t){
     if(!t.startDate||!t.endDate||t.endDate<t.startDate) return '';
     const n=Math.min(dayCount(t.startDate,t.endDate),90), today=todayStr(), stops=tripStops(t.id).filter(s=>!s.home);
@@ -1261,11 +1287,12 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
       const legs=tripLegs(t.id).filter(l=>l.date===d), acts=S.places.filter(p=>p.tripId===t.id&&p.date===d), exps=S.expenses.filter(e=>e.tripId===t.id&&e.date===d);
       html+='<div class="day'+(d===today?' today':'')+'"><div class="day-h"><div><b>'+fmtDate(d,{weekday:'short',month:'short',day:'numeric'})+'</b>'+(d===today?' <span class="pill accent">Today</span>':'')
         +' <span class="faint">'+esc(cities.join(' → '))+'</span></div><div class="row" style="flex-wrap:nowrap;gap:4px"><button type="button" class="btn small ghost" data-shareday="'+d+'" aria-label="Share '+fmtDate(d)+'">'+ICON.share+'</button><button type="button" class="btn small ghost" data-addact="'+d+'" aria-label="Add an activity on '+fmtDate(d)+'">'+ICON.plus+'</button></div></div>'
-        + legs.map(l=>{ const a=stopOf(l.fromId)||{}, b=stopOf(l.toId)||{};
-            return '<div class="day-i" data-leg="'+l.id+'"><span class="mini" style="background:'+(MODES[l.mode]||MODES.car).color+'">'+modeIcon(l.mode)+'</span><span style="flex:1">'+esc(a.city||'?')+' → '+esc(b.city||'?')+'</span><span class="faint mono">'+(l.kmEstimated?'≈':'')+fmtKm(l.km||0)+' km</span></div>'; }).join('')
-        + acts.map(p=>'<div class="day-i" data-pl="'+p.id+'"><span class="status-tag '+(p.status==='done'?'done':'want')+'">'+(p.status==='done'?'Been':'Want')+'</span><span style="flex:1;min-width:0">'+esc(p.name)
-            +(p.rating?' <span class="stars">'+'★'.repeat(p.rating)+'</span>':'')+(statsLine(p)?' <span class="faint">'+statsLine(p)+'</span>':'')+'</span>'+(p.photoIds||[]).slice(0,3).map(id=>'<img alt="" src="/_blob/'+id+'" data-photo="'+id+'">').join('')+'</div>').join('')
-        + exps.map(e=>'<div class="day-i" data-exp="'+e.id+'"><span class="mini" style="background:var(--ink-faint)">'+ICON.coin+'</span><span style="flex:1;min-width:0">'+esc(e.label)+'</span><span class="faint mono">'+fmtMoney(e.amount,e.currency)+'</span></div>').join('')
+        + dayOrder(d, legs, acts, exps).map(({k,x})=>{ const tm=hhmm(x)?'<span class="faint mono" style="flex-shrink:0">'+hhmm(x)+'</span>':'';
+            if(k==='leg'){ const l=x; const a=stopOf(l.fromId)||{}, b=stopOf(l.toId)||{};
+            return '<div class="day-i" data-leg="'+l.id+'">'+tm+'<span class="mini" style="background:'+(MODES[l.mode]||MODES.car).color+'">'+modeIcon(l.mode)+'</span><span style="flex:1">'+esc(a.city||'?')+' → '+esc(b.city||'?')+'</span><span class="faint mono">'+(l.kmEstimated?'≈':'')+fmtKm(l.km||0)+' km</span></div>'; }
+            if(k==='act'){ const p=x; return '<div class="day-i" data-pl="'+p.id+'">'+tm+'<span class="status-tag '+(p.status==='done'?'done':'want')+'">'+(p.status==='done'?'Been':'Want')+'</span><span style="flex:1;min-width:0">'+esc(p.name)
+            +(p.rating?' <span class="stars">'+'★'.repeat(p.rating)+'</span>':'')+(statsLine(p)?' <span class="faint">'+statsLine(p)+'</span>':'')+'</span>'+(p.photoIds||[]).slice(0,3).map(id=>'<img alt="" src="/_blob/'+id+'" data-photo="'+id+'">').join('')+'</div>'; }
+            const e=x; return '<div class="day-i" data-exp="'+e.id+'">'+tm+'<span class="mini" style="background:var(--ink-faint)">'+ICON.coin+'</span><span style="flex:1;min-width:0">'+esc(e.label)+'</span><span class="faint mono">'+fmtMoney(e.amount,e.currency)+'</span></div>'; }).join('')
         + (legs.length||acts.length||exps.length?'':'<div class="faint">Nothing logged yet</div>')
         + '</div>';
     }

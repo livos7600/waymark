@@ -23,9 +23,9 @@ Waymark is a travel-log web app published as a claude.ai artifact. The owner (Ol
 ## Data model (artifact `db` collections)
 - `trips`: name, startDate, endDate, currency, notes
 - `stops` (cities): tripId, city, country, countryA2, countryN3, lat, lon, arrive, depart, home (bool, for the home city), photoIds[]
-- `legs`: tripId, mode (plane|car|train|bus|ferry|walk), fromId, toId, date, km, kmEstimated, cost, currency, notes
-- `places` (shown as "activities"): tripId, stopId, name, category, date, status (want|done), rating 0–5, cost, currency, notes, photoIds[], lat, lon (pin on the trip map; from photo GPS or Claude); imported runs/rides/hikes also carry track [[lat,lon],…] (≤400 pts), distanceKm, movingS, elevM, sport, stravaId
-- `expenses`: tripId, label, amount, currency, category, date, city, stopId (set when city matches a trip stop), paidBy, notes, photoIds[] (receipt photos; "Scan" reads them with `sample` images)
+- `legs`: tripId, mode (plane|car|train|bus|ferry|walk), fromId, toId, date, time (optional HH:MM), km, kmEstimated, cost, currency, notes
+- `places` (shown as "activities"): tripId, stopId, name, category, date, time (optional HH:MM), status (want|done), rating 0–5, cost, currency, notes, photoIds[], lat, lon (pin on the trip map; from photo GPS or Claude); imported runs/rides/hikes also carry track [[lat,lon],…] (≤400 pts), distanceKm, movingS, elevM, sport, stravaId
+- `expenses`: tripId, label, amount, currency, category, date, time (optional HH:MM), city, stopId (set when city matches a trip stop), paidBy, notes, photoIds[] (receipt photos; "Scan" reads them with `sample` images)
 - Photos are artifact assets, shown via `/_blob/<id>`.
 
 ## Runtime
@@ -34,6 +34,7 @@ Waymark is a travel-log web app published as a claude.ai artifact. The owner (Ol
 - Strava import (Days → From Strava): reads tool input schemas at runtime with `describeTool`, falls back to Claude to normalize an unfamiliar payload. GPX import (Days → GPX file) is parsed in the page.
 - When republishing with `capabilities`, pass the full set: {db:{}, assets:{}, sample:{}, downloads:{}, mcp:{servers:[{server:"Strava", tools:["list_activities","get_activity_streams"]}]}}. Omitting `capabilities` keeps the stored ones, which is the normal case.
 - Trip page: zoomable map (pinch with two fingers or +/−, tap a pin, ▶ replays the route), then a Days timeline. "From photo" reads a picture's EXIF date/GPS and asks Claude what it shows; a receipt becomes an expense, anything else an activity.
+- Days order (dayOrder): times win when known; untimed items go with their city between the legs (after the leg arriving there, before the leg leaving); items with no city go last. Time is pre-filled from photo EXIF/receipt, Strava/GPX start, or now when logging on the same day.
 - Share (trip header, or the share icon on a day): pick dates/city, format (post 4:5, square, story 9:16), title, map/stats/activities, up to 4 photos; drawn on a canvas, saved via `downloads` or the phone's share sheet.
 - Photos: tapping any photo opens the viewer (swipe, make cover = first in photoIds, replace, delete everywhere). Forms show ✕ / tap-for-cover and apply on Save. The app calls `assets.delete` only for files nothing references any more, after the owner deletes or replaces them.
 - Artifacts can't embed other sites (no map tiles, no iframes); the map is drawn with d3 from the inlined world data.
