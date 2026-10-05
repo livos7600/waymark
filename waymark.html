@@ -107,6 +107,12 @@
   .night-add{align-self:flex-start;border:1px dashed var(--line);background:transparent;color:var(--ink-faint);border-radius:8px;padding:4px 10px;font-size:13px;margin-top:4px;cursor:pointer;}
   .day-i.night{border-top:1px dashed var(--line);margin-top:2px;padding-top:6px;}
   .mini{width:22px;height:22px;border-radius:6px;display:inline-flex;align-items:center;justify-content:center;color:#fff;flex-shrink:0;}
+  .tset{position:relative;flex-shrink:0;min-width:42px;font-family:'IBM Plex Mono',monospace;font-size:13px;color:var(--ink-faint);cursor:pointer;}
+  .tset.empty{font-family:inherit;font-size:11px;min-width:0;border:1px dashed var(--line);border-radius:6px;padding:1px 5px;opacity:.8;}
+  .tset input{position:absolute;inset:0;width:100%;height:100%;opacity:0;border:0;padding:0;margin:0;font-size:16px;}
+  .found{display:flex;flex-direction:column;gap:4px;}
+  .found button{text-align:left;border:1px solid var(--line);background:var(--surface-2);border-radius:10px;padding:8px 10px;cursor:pointer;font-size:14px;}
+  .found button small{display:block;color:var(--ink-faint);font-size:12px;}
   .mini.emo{background:var(--surface-2);font-size:13px;line-height:1;}
   .mini svg{width:13px;height:13px;}
   .legend{display:flex;gap:10px;flex-wrap:wrap;font-size:12.5px;color:var(--ink-soft);}
@@ -655,6 +661,11 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
       try{ const n=await locatePlaces(unplaced); toast(n?n+' on the map':'Couldn\'t place them. Open one and save it to try again.'); }
       catch(e){ toast(photoError(e)||'Couldn\'t place them'); } };
     enableDayDrag();
+    // tap the time (or "+ time") on any Days line to set it with the phone's time wheel
+    main.querySelectorAll('.tset').forEach(l=>{ const i=l.querySelector('input'); let last=i.value;
+      l.addEventListener('click',e=>e.stopPropagation());
+      const save=()=>{ if(i.value===last) return; last=i.value; patch(l.dataset.tcol, l.dataset.tid, {time:i.value}).catch(()=>toast('Couldn\'t save the time.')); };
+      i.addEventListener('change',save); i.addEventListener('blur',save); });
     $('#addStay').onclick=()=>{ const td=todayStr(); staySheet(null, {trip:t, date:(td>=t.startDate&&td<t.endDate)?td:t.startDate}); };
     main.querySelectorAll('[data-night]').forEach(b=>b.onclick=()=>staySheet(null, {trip:t, date:b.dataset.night}));
     main.querySelectorAll('[data-stay]').forEach(el=>el.onclick=e=>{ if(e.target.dataset.photo) return; const x=S.stays.find(y=>y.id===el.dataset.stay); if(x) staySheet(x, {trip:t}); });
@@ -981,7 +992,7 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
       + (assets||canRead?'<div class="field"><label>Photos</label><div class="photos" id="pPhotos"></div><div class="row"><label class="btn small" for="pPhotoIn">'+ICON.camera+' Add photos</label><input id="pPhotoIn" type="file" accept="image/*" multiple hidden>'
         + (canRead?'<button type="button" class="btn small" id="pRead" hidden>'+ICON.spark+' Fill in from photo</button>':'')+'</div>'
         + '<div class="hint" id="pUp">'+(canRead&&!p?'Start with a photo: Claude reads where and when it was taken and what it shows.':'')+'</div></div>':'')
-      + '<div class="field"><label for="pName">What</label><input id="pName" value="'+esc(p?p.name:'')+'" placeholder="'+(pre&&isMeal(pre.category)?'e.g. Chez Pierre, oysters at the market':'e.g. Dune du Pilat, surf lesson, Guggenheim')+'"></div>'
+      + '<div class="field"><label for="pName">What</label><input id="pName" value="'+esc(p?p.name:'')+'" placeholder="'+(pre&&isMeal(pre.category)?'e.g. Chez Pierre, oysters at the market':'e.g. Dune du Pilat, surf lesson, Guggenheim')+'"><div class="row"><button type="button" class="btn small" id="pFind">🔎 Find the place</button></div><div id="pFound"></div></div>'
       + '<div class="grid2"><div class="field"><label for="pDate">Date</label><input id="pDate" type="date" value="'+esc(date0)+'"></div>'
       + '<div class="field"><label for="pTime">Time (optional)</label><input id="pTime" type="time" value="'+esc(p?hhmm(p):((pre&&pre.time)||(date0===todayStr()?nowHM():'')))+'"></div></div>'
       + '<div class="grid2"><div class="field"><label for="pCity">City</label><select id="pCity">'+cityNames.map(c=>'<option'+(c===cur.city?' selected':'')+'>'+esc(c)+'</option>').join('')+'</select></div>'
@@ -1053,6 +1064,11 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
         if(pre.cost){ $('#pCost').value=pre.cost; if(pre.currency){ const sel=$('#pCur'); if(![...sel.options].some(o=>o.value===pre.currency)) sel.add(new Option(pre.currency)); sel.value=pre.currency; } }
         if(pre.notes) $('#pNotes').value=pre.notes;
         if(pre.extra){ setStatus('done'); statusTouched=true; const ln=statsLine(Object.assign({category:pre.category}, pre.extra)); $('#pPos').textContent='📍 Route on the map'+(ln?' · '+ln:''); } }
+      let address=p&&p.address||'';
+      placeFinder(trip, $('#pFind'), $('#pFound'), ()=>val('pName'), ()=>val('pCity')+', '+((tStops.find(s=>s.city===val('pCity'))||{}).country||''), r=>{
+        $('#pName').value=r.name; pos={lat:r.lat, lon:r.lon, name:r.name}; address=r.address;
+        if(r.city&&cityNames.includes(r.city)){ $('#pCity').value=r.city; cityTouched=true; }
+        $('#pPos').textContent='📍 On the map'+(r.address?' · '+r.address:''); });
       // a meal: time of day picks breakfast/lunch/dinner until the type is chosen by hand
       let catTouched=!!p;
       $('#pCat').onchange=()=>{ catTouched=true; $('#pTitle').textContent=(p?'Edit ':'Add ')+(isMeal(val('pCat'))?'a meal':'an activity').replace(/^a(n)? /, p?'':'$&'); };
@@ -1067,7 +1083,7 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
         const c=parseFloat(val('pCost').replace(',','.'));
         // a position Claude guessed for another name is stale; a photo's GPS stays
         const keep=pos&&(pos.name==null||pos.name===name);
-        const data=Object.assign({}, pre&&pre.extra||{}, {tripId:trip.id, stopId:st.id, name, category:val('pCat'), date, time:val('pTime'), status, rating, cost:isFinite(c)?c:0, currency:val('pCur'), notes:val('pNotes').trim(), photoIds, updatedAt:now()});
+        const data=Object.assign({}, pre&&pre.extra||{}, {tripId:trip.id, stopId:st.id, name, address:keep?address:'', category:val('pCat'), date, time:val('pTime'), status, rating, cost:isFinite(c)?c:0, currency:val('pCur'), notes:val('pNotes').trim(), photoIds, updatedAt:now()});
         if(keep){ data.lat=pos.lat; data.lon=pos.lon; }
         let id=p&&p.id;
         if(p){ if(!keep&&p.lat!=null){ data.lat=null; data.lon=null; } if(p.date!==date) data.dayPos=null; await patch('places', p.id, data); }
@@ -1093,7 +1109,7 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
       + (assets||canRead?'<div class="field"><label>Receipt / photo</label><div class="photos" id="ePhotos"></div><div class="row"><label class="btn small" for="ePhotoIn">'+ICON.camera+' Add photo</label><input id="ePhotoIn" type="file" accept="image/*" multiple hidden>'
         + (canRead?'<button type="button" class="btn small" id="eRead" hidden>'+ICON.spark+' Fill in from photo</button>':'')+'</div>'
         + '<div class="hint" id="eUp">'+(canRead&&!x?'Add a photo of the receipt and Claude fills in the amount, date and place.':'')+'</div></div>':'')
-      + '<div class="field"><label for="eLabel">What</label><input id="eLabel" value="'+esc(x?x.label:'')+'" placeholder="e.g. Car rental, tolls, SIM card"></div>'
+      + '<div class="field"><label for="eLabel">What</label><input id="eLabel" value="'+esc(x?x.label:'')+'" placeholder="e.g. Car rental, tolls, SIM card"><div class="row"><button type="button" class="btn small" id="eFind">🔎 Find the place</button></div><div id="eFound"></div></div>'
       + '<div class="grid3"><div class="field"><label for="eAmt">Amount</label><input id="eAmt" inputmode="decimal" value="'+esc(x?x.amount:'')+'"></div><div class="field"><label for="eCur">Currency</label>'+curSelect('eCur', x?x.currency:trip.currency)+'</div></div>'
       + '<div class="grid2"><div class="field"><label for="eDate">Date</label><input id="eDate" type="date" value="'+esc(x?x.date||'':todayStr())+'"></div><div class="field"><label for="eTime">Time (optional)</label><input id="eTime" type="time" value="'+esc(x?hhmm(x):nowHM())+'"></div></div>'
       + '<div class="field"><label for="eCat">Category</label><select id="eCat">'+cats.map(c=>'<option'+((x?x.category:'Other')===c?' selected':'')+'>'+c+'</option>').join('')+'</select></div>'
@@ -1105,6 +1121,10 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
       + '<div class="row"><button class="btn primary" type="submit" id="eSave">Save</button><button class="btn" type="button" id="xCancel">Cancel</button>'+(x?'<button class="btn danger" type="button" id="xDel" style="margin-left:auto">Delete</button>':'')+'</div>',
     form=>{ $('#xCancel').onclick=closeSheet;
       if(x) $('#xDel').onclick=()=>confirmDelete(form,'this expense', ()=>del('expenses', x.id));
+      let epos=x&&x.lat!=null?{lat:x.lat, lon:x.lon, address:x.address||''}:null;
+      placeFinder(trip, $('#eFind'), $('#eFound'), ()=>val('eLabel'), ()=>val('eCity')||((stopOnDate(trip.id, val('eDate')||todayStr())||{}).city||''), r=>{
+        const lb=val('eLabel').trim(); $('#eLabel').value=lb.split(/\s+/).length<=2?r.name:lb+' – '+r.name;
+        $('#eCity').value=r.city||r.address.split(',').pop().replace(/\d+/g,'').trim()||val('eCity'); epos={lat:r.lat, lon:r.lon, address:r.address}; });
       const mealHint=()=>{ $('#eMeal').hidden=val('eCat')!=='Food & drink'; };
       $('#eCat').addEventListener('change', mealHint);
       $('#eToMeal').onclick=()=>{ const a=parseFloat(val('eAmt').replace(',','.')), tm=val('eTime'), d=val('eDate')||todayStr(), city=val('eCity').trim();
@@ -1156,6 +1176,7 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
         if(!label||!isFinite(a)){ const er=$('#fErr'); er.hidden=false; er.textContent='Add what it was and an amount.'; return; }
         const city=val('eCity').trim(), st=city&&tripStops(trip.id).find(s=>norm(s.city)===norm(city));
         const data={tripId:trip.id, label, amount:a, currency:val('eCur'), category:val('eCat'), date:val('eDate'), time:val('eTime'), city:st?st.city:city, stopId:st?st.id:'', paidBy:val('ePaid').trim(), notes:val('eNote').trim(), photoIds, updatedAt:now()};
+        if(epos){ data.lat=epos.lat; data.lon=epos.lon; data.address=epos.address; }
         if(x&&x.date!==data.date) data.dayPos=null;
         if(x) await patch('expenses', x.id, data); else await put('expenses', null, Object.assign({createdAt:now()}, data));
         closeSheet();
@@ -1210,6 +1231,31 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
       : c==='image_rejected'?'Claude couldn\'t open that image. Try a JPEG or a sharper shot.'
       : c==='rate_limited'?'Too many requests. Try again in a minute.'
       : c==='cancelled'?'' : 'Couldn\'t read the photo. Try again, or fill it in by hand.'; }
+
+  // Search for a real place ("Enterprise", "oyster bar", "bakery") near a trip city. Artifacts can't reach
+  // map services, so Claude answers from what it knows: good for well-known places, worth a glance for small ones.
+  async function findPlaces(q, near){
+    const r=await sample.json('A traveller wants to find a place. Search: '+JSON.stringify(String(q).slice(0,120))+'. Near: '+JSON.stringify(near||'')+'.\n'
+      + 'List up to 5 real places that match, closest to "near" first (for a brand or chain, its branches in that area: airport, station, town centre). '
+      + 'Reply with only a JSON array of {"name": string (as signposted, e.g. "Enterprise Rent-A-Car – Bordeaux Gare Saint-Jean"), "address": string (street, postcode, town), "what": string (2-4 words, e.g. "car rental"), "lat": number, "lon": number}. '
+      + 'Only places you are fairly sure exist; [] if none.', {cache:{gcTime:86400000}});
+    return (Array.isArray(r)?r:[]).map(x=>({name:String(x.name||'').slice(0,90), address:String(x.address||'').slice(0,140), what:String(x.what||'').slice(0,40), lat:+x.lat, lon:+x.lon}))
+      .filter(x=>x.name&&isFinite(x.lat)&&isFinite(x.lon)&&Math.abs(x.lat)<=90&&Math.abs(x.lon)<=180).slice(0,5);
+  }
+  // A "🔎 Find" button + result list. getQ/getNear read the form; onPick gets {name,address,lat,lon,city}.
+  function placeFinder(trip, btn, out, getQ, getNear, onPick){
+    if(!sample){ btn.hidden=true; return; }
+    btn.onclick=async()=>{ const q=getQ().trim(); if(!q){ out.innerHTML='<div class="hint">Type what you\'re looking for first, e.g. "Enterprise" or "oyster bar".</div>'; return; }
+      btn.disabled=true; out.innerHTML='<div class="hint">Searching near '+esc(getNear())+'…</div>';
+      try{ const rs=await findPlaces(q, getNear()); if(!out.isConnected) return;
+        if(!rs.length){ out.innerHTML='<div class="hint">Nothing found. Try another spelling or a bigger town nearby.</div>'; return; }
+        out.innerHTML='<div class="found">'+rs.map((r,i)=>'<button type="button" data-f="'+i+'"><b>'+esc(r.name)+'</b><small>'+esc([r.what,r.address].filter(Boolean).join(' · '))+'</small></button>').join('')+'</div><div class="hint">From Claude\'s knowledge, not a live map: check the address for small places.</div>';
+        out.querySelectorAll('[data-f]').forEach(b=>b.onclick=()=>{ const r=rs[+b.dataset.f];
+          let near=null; tripStops(trip.id).filter(s=>!s.home&&s.lat!=null).forEach(s=>{ const d=haversine(r,s); if(d<40&&(!near||d<near.d)) near={s,d}; });
+          r.city=near?near.s.city:''; out.innerHTML='<div class="hint">📍 '+esc(r.name)+(r.address?' · '+esc(r.address):'')+'</div>'; onPick(r); });
+      }catch(e){ out.innerHTML='<div class="hint">'+esc(photoError(e)||'Search failed. Try again.')+'</div>'; }
+      finally{ btn.disabled=false; } };
+  }
 
   // Coordinates for activities that have none, so they get a pin. One quick Claude call for the lot.
   async function locatePlaces(list){
@@ -1448,7 +1494,7 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
       + '<div class="grid3"><div class="field"><label for="sCost">Total price (optional)</label><input id="sCost" inputmode="decimal" value="'+esc(st&&st.cost?st.cost:'')+'"></div><div class="field"><label for="sCur">Currency</label>'+curSelect('sCur', st?st.currency:trip.currency)+'</div></div>'
       + '<div class="grid2"><div class="field"><label for="sPlat">Booked via</label><select id="sPlat">'+PLATFORMS.map(x=>'<option value="'+esc(x)+'"'+((st?st.platform||'':'')===x?' selected':'')+'>'+(x||'—')+'</option>').join('')+'</select></div>'
       + '<div class="field"><label for="sRef">Booking ref</label><input id="sRef" value="'+esc(st?st.bookingRef||'':'')+'" autocomplete="off"></div></div>'
-      + '<div class="field"><label for="sAddr">Address (optional)</label><input id="sAddr" value="'+esc(st?st.address||'':'')+'"></div>'
+      + '<div class="field"><label for="sAddr">Address (optional)</label><input id="sAddr" value="'+esc(st?st.address||'':'')+'"><div class="row"><button type="button" class="btn small" id="sFind">🔎 Find it from the name</button></div><div id="sFound"></div></div>'
       + '<div class="field"><label>Rating</label><div class="rating" id="sRating">'+[1,2,3,4,5].map(i=>'<button type="button" data-r="'+i+'" aria-label="'+i+' stars" class="'+(i<=rating?'on':'')+'">★</button>').join('')+'</div></div>'
       + '<div class="field"><label for="sNotes">Notes</label><textarea id="sNotes" placeholder="Room, breakfast, would you stay again?">'+esc(st?st.notes||'':'')+'</textarea></div>'
       + '<div class="err" id="fErr" hidden></div>'
@@ -1494,6 +1540,10 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
       if(opts.files&&opts.files.length) addFiles(opts.files, true);
       else if(opts.pre&&canRead) fill();
       if(st) $('#xDel').onclick=()=>confirmDelete(form,'"'+st.name+'"', ()=>del('stays', st.id));
+      placeFinder(trip, $('#sFind'), $('#sFound'), ()=>val('sName')||val('sAddr'), ()=>val('sCity'), r=>{
+        if(!val('sName').trim()) $('#sName').value=r.name; if(r.address) $('#sAddr').value=r.address;
+        if(r.city){ const c=$('#sCity'); if(c.tagName==='SELECT'){ if([...c.options].some(o=>o.value===r.city)) c.value=r.city; } else c.value=r.city; }
+        pos={lat:r.lat, lon:r.lon, name:val('sName').trim()}; });
       form.onsubmit=async e=>{ e.preventDefault(); const er=$('#fErr');
         const name=val('sName').trim()||(kind==='friends'?'With friends':kind==='camping'?'Camping':''), checkIn=val('sIn'), checkOut=val('sOut');
         if(!name){ er.hidden=false; er.textContent='Give it a name (the hotel, or "Airbnb in…").'; return; }
@@ -1552,7 +1602,7 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
       const legs=tripLegs(t.id).filter(l=>l.date===d), acts=S.places.filter(p=>p.tripId===t.id&&p.date===d), exps=S.expenses.filter(e=>e.tripId===t.id&&e.date===d);
       html+='<div class="day'+(d===today?' today':'')+'"><div class="day-h"><div><b>'+fmtDate(d,{weekday:'short',month:'short',day:'numeric'})+'</b>'+(d===today?' <span class="pill accent">Today</span>':'')
         +' <span class="faint">'+esc(cities.join(' → '))+'</span></div><div class="row" style="flex-wrap:nowrap;gap:4px"><button type="button" class="btn small ghost" data-shareday="'+d+'" aria-label="Share '+fmtDate(d)+'">'+ICON.share+'</button><button type="button" class="btn small ghost" data-addmeal="'+d+'" aria-label="Add a meal on '+fmtDate(d)+'" style="font-size:15px">🍽️</button><button type="button" class="btn small ghost" data-addact="'+d+'" aria-label="Add an activity on '+fmtDate(d)+'">'+ICON.plus+'</button></div></div>'
-        + '<div class="day-list" data-day="'+d+'">'+dayOrder(d, legs, acts, exps).map(({k,x})=>{ const tm=hhmm(x)?'<span class="faint mono" style="flex-shrink:0">'+hhmm(x)+'</span>':'';
+        + '<div class="day-list" data-day="'+d+'">'+dayOrder(d, legs, acts, exps).map(({k,x})=>{ const tv=hhmm(x), tm='<label class="tset'+(tv?'':' empty')+'" data-tcol="'+(k==='leg'?'legs':k==='act'?'places':'expenses')+'" data-tid="'+x.id+'">'+(tv||'+ time')+'<input type="time" value="'+tv+'" aria-label="Time"></label>';
             if(k==='leg'){ const l=x; const a=stopOf(l.fromId)||{}, b=stopOf(l.toId)||{};
             return '<div class="day-i" data-leg="'+l.id+'">'+tm+'<span class="mini" style="background:'+(MODES[l.mode]||MODES.car).color+'">'+modeIcon(l.mode)+'</span><span style="flex:1">'+esc(a.city||'?')+' → '+esc(b.city||'?')+'</span><span class="faint mono">'+(l.kmEstimated?'≈':'')+fmtKm(l.km||0)+' km</span></div>'; }
             if(k==='act'){ const p=x; return '<div class="day-i" data-pl="'+p.id+'">'+tm+emo(catIcon(p.category))+'<span style="flex:1;min-width:0">'+esc(p.name)+(p.status==='want'?' <span class="faint">· planned</span>':'')
