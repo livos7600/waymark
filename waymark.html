@@ -771,7 +771,7 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
     form=>{
       $('#xCancel').onclick=closeSheet;
       $('#modes').querySelectorAll('[data-mode]').forEach(btn=>btn.onclick=()=>{ mode=btn.dataset.mode; $('#modes').querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===btn)); });
-      if(l) $('#xDel').onclick=()=>confirmDelete(form,'this leg', ()=>del('legs', l.id));
+      if(l) $('#xDel').onclick=()=>confirmDelete(form,'this leg', async()=>{ await del('legs', l.id); await dropEmptyStops([l.fromId, l.toId], l.id); });
       form.onsubmit=async e=>{ e.preventDefault();
         const er=$('#fErr'); er.hidden=true;
         const from=val('lFrom').trim(), to=val('lTo').trim(), date=val('lDate');
@@ -793,14 +793,42 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
     });
   }
 
+  // Stops no remaining leg uses: delete the empty ones, say which still hold activities or photos.
+  async function dropEmptyStops(ids, goneLegId){
+    const kept=[];
+    for(const id of [...new Set(ids)]){ const s=stopOf(id); if(!s) continue;
+      if(S.legs.some(l=>l.id!==goneLegId&&(l.fromId===id||l.toId===id))) continue;
+      const busy=(s.photoIds||[]).length||S.places.some(p=>p.stopId===id)||S.expenses.some(e=>e.stopId===id);
+      if(busy){ kept.push(s.city); continue; }
+      try{ await del('stops', id); }catch(e){}
+    }
+    if(kept.length) setTimeout(()=>toast([...new Set(kept)].join(', ')+' still has activities or photos. Open it and use Remove city to take it off the trip.'), 300);
+  }
+  // Remove a city (every visit to it in this trip) with its legs and activities. Photos stay in storage; expenses keep their city name.
+  async function removeCity(stops){
+    const ids=stops.map(x=>x.id);
+    for(const l of S.legs.filter(l=>ids.includes(l.fromId)||ids.includes(l.toId))) await del('legs', l.id);
+    for(const p of S.places.filter(p=>ids.includes(p.stopId))) await del('places', p.id);
+    for(const e of S.expenses.filter(e=>ids.includes(e.stopId))) await patch('expenses', e.id, {stopId:''});
+    for(const id of ids) await del('stops', id);
+  }
+
   function stopSheet(s){
     openSheet('<h2>Edit city</h2>'
       + '<div class="field"><label for="sCity">City</label><input id="sCity" value="'+esc(s.city)+'"></div>'
       + '<div class="grid2"><div class="field"><label for="sArr">Arrive</label><input id="sArr" type="date" value="'+esc(s.arrive||'')+'"></div><div class="field"><label for="sDep">Leave</label><input id="sDep" type="date" value="'+esc(s.depart||'')+'"></div></div>'
       + '<div class="grid2"><div class="field"><label for="sLat">Latitude</label><input id="sLat" inputmode="decimal" value="'+esc(s.lat)+'"></div><div class="field"><label for="sLon">Longitude</label><input id="sLon" inputmode="decimal" value="'+esc(s.lon)+'"></div></div>'
       + '<div class="hint">Coordinates place the city on the map. Only change them if the pin is wrong.</div>'
-      + '<div class="row"><button class="btn primary" type="submit">Save</button><button class="btn" type="button" id="xCancel">Cancel</button></div>',
+      + '<div class="row"><button class="btn primary" type="submit">Save</button><button class="btn" type="button" id="xCancel">Cancel</button>'+(s.home?'':'<button class="btn danger" type="button" id="xDel" style="margin-left:auto">Remove city</button>')+'</div>',
     form=>{ $('#xCancel').onclick=closeSheet;
+      const del0=$('#xDel'); if(del0) del0.onclick=()=>{
+        const twins=S.stops.filter(x=>x.tripId===s.tripId&&!x.home&&norm(x.city)===norm(s.city)), ids=twins.map(x=>x.id);
+        const nl=S.legs.filter(l=>ids.includes(l.fromId)||ids.includes(l.toId)).length, np=S.places.filter(p=>ids.includes(p.stopId)).length;
+        const nph=twins.reduce((a,x)=>a+(x.photoIds||[]).length,0)+S.places.filter(p=>ids.includes(p.stopId)).reduce((a,p)=>a+(p.photoIds||[]).length,0);
+        const parts=[nl?nl+' leg'+(nl>1?'s':''):'', np?np+' activit'+(np>1?'ies':'y'):''].filter(Boolean);
+        confirmDelete(form, s.city+' from this trip'+(parts.length?', with its '+parts.join(' and '):'')+(nph?' ('+nph+' photo'+(nph>1?'s':'')+' will no longer be shown)':''),
+          async()=>{ await removeCity(twins); go({stopId:null}); toast(s.city+' removed'); });
+      };
       form.onsubmit=async e=>{ e.preventDefault(); const lat=parseFloat(val('sLat')), lon=parseFloat(val('sLon'));
         await patch('stops', s.id, {city:val('sCity').trim()||s.city, arrive:val('sArr'), depart:val('sDep'), lat:isFinite(lat)?lat:s.lat, lon:isFinite(lon)?lon:s.lon}); closeSheet(); };
     });
