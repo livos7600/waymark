@@ -624,6 +624,7 @@ const WORLD = __WORLD__;
     stops.filter(s=>!s.home).forEach(s=>{ const k=norm(s.city); if(!cityMap.has(k)) cityMap.set(k,[]); cityMap.get(k).push(s); });
     main.innerHTML =
       '<div class="faint">'+fmtDate(t.startDate,{weekday:'short',month:'short',day:'numeric'})+' – '+fmtDate(t.endDate,{weekday:'short',month:'short',day:'numeric',year:'numeric'})+(t.notes?' · '+esc(t.notes):'')+'</div>'
+      + ((t.people||[]).length?'<div class="faint" style="margin-top:-10px">👥 '+t.people.length+' '+(t.people.length===1?'traveller':'travellers')+': '+esc(t.people.map(x=>x.name||x.email||'?').join(', '))+'</div>':'')
       + '<div class="pass"><div class="cell"><div class="k">Distance</div><div class="v mono">'+fmtKm(st.km)+'<small style="font-size:14px"> km</small></div></div>'
       + '<div class="cell"><div class="k">Days</div><div class="v">'+st.days+'</div></div>'
       + '<div class="cell"><div class="k">Cities</div><div class="v">'+st.cities+'</div></div>'
@@ -853,10 +854,24 @@ const WORLD = __WORLD__;
       + '<div class="grid2"><div class="field"><label for="tStart">Start</label><input id="tStart" type="date" value="'+esc(t?t.startDate:todayStr())+'"></div><div class="field"><label for="tEnd">End</label><input id="tEnd" type="date" value="'+esc(t?t.endDate:todayStr())+'"></div></div>'
       + '<div class="field"><label for="tCur">Main currency</label>'+curSelect('tCur', t?t.currency:'EUR')+'</div>'
       + '<div class="field"><label for="tNotes">Note (optional)</label><input id="tNotes" value="'+esc(t?t.notes||'':'')+'"></div>'
+      + '<div class="field"><label>Who\'s going <span style="text-transform:none;letter-spacing:0;font-weight:500" id="tPplN"></span></label><div id="tPpl" style="display:flex;flex-direction:column;gap:8px"></div>'
+        + '<div class="row"><button type="button" class="btn small" id="tPplAdd">+ Add a traveller</button></div>'
+        + '<div class="hint">Names show in "Paid by" for splitting costs. Email and phone stay in the app (anyone you share the app with can see them) and never go on a share image or video.</div></div>'
       + '<div class="err" id="fErr" hidden></div>'
       + '<div class="row"><button class="btn primary" type="submit">Save</button><button class="btn" type="button" id="xCancel">Cancel</button>'+(t?'<button class="btn danger" type="button" id="xDel" style="margin-left:auto">Delete</button>':'')+'</div>',
     form=>{
       $('#xCancel').onclick=closeSheet;
+      let people=(t&&Array.isArray(t.people)?t.people:[]).map(x=>Object.assign({},x));
+      const readPpl=()=>{ $('#tPpl').querySelectorAll('[data-pi]').forEach(r=>{ const i=+r.dataset.pi; ['name','email','phone'].forEach(k=>{ people[i][k]=r.querySelector('[data-k="'+k+'"]').value.trim(); }); }); };
+      const drawPpl=()=>{ $('#tPpl').innerHTML=people.map((x,i)=>'<div data-pi="'+i+'" style="display:grid;grid-template-columns:1fr 1fr auto;gap:6px;align-items:center;border:1px solid var(--line);border-radius:10px;padding:8px">'
+          + '<input data-k="name" placeholder="Name" value="'+esc(x.name||'')+'" style="grid-column:1/3">'
+          + '<button type="button" class="btn small ghost" data-prm="'+i+'" aria-label="Remove">✕</button>'
+          + '<input data-k="email" type="email" inputmode="email" autocomplete="off" placeholder="Email" value="'+esc(x.email||'')+'">'
+          + '<input data-k="phone" type="tel" inputmode="tel" autocomplete="off" placeholder="Phone" value="'+esc(x.phone||'')+'"></div>').join('');
+        $('#tPplN').textContent=people.length?'('+people.length+(people.length===1?' person':' people')+')':'';
+        $('#tPpl').querySelectorAll('[data-prm]').forEach(b=>b.onclick=()=>{ readPpl(); people.splice(+b.dataset.prm,1); drawPpl(); }); };
+      drawPpl();
+      $('#tPplAdd').onclick=()=>{ readPpl(); people.push({name:'',email:'',phone:''}); drawPpl(); const r=$('#tPpl').lastElementChild; if(r) r.querySelector('input').focus(); };
       if(t) $('#xDel').onclick=()=>confirmDelete(form,'this trip and everything in it', async()=>{
         for(const c of ['legs','stops','places','expenses','stays']) for(const x of S[c].filter(x=>x.tripId===t.id)) await del(c,x.id);
         await del('trips', t.id); go({tripId:null});
@@ -864,7 +879,8 @@ const WORLD = __WORLD__;
       form.onsubmit=async e=>{ e.preventDefault();
         const name=val('tName').trim(), a=val('tStart'), b=val('tEnd');
         if(!name||!a||!b){ const er=$('#fErr'); er.hidden=false; er.textContent='Add a name and both dates.'; return; }
-        const data={name, startDate:a<=b?a:b, endDate:a<=b?b:a, currency:val('tCur'), notes:val('tNotes').trim(), updatedAt:now()};
+        readPpl();
+        const data={name, startDate:a<=b?a:b, endDate:a<=b?b:a, currency:val('tCur'), notes:val('tNotes').trim(), people:people.filter(x=>x.name||x.email||x.phone).map(x=>({name:x.name.slice(0,60), email:x.email.slice(0,120), phone:x.phone.slice(0,40)})), updatedAt:now()};
         if(t){ await patch('trips', t.id, data); closeSheet(); }
         else { const ref=await put('trips', null, Object.assign({createdAt:now()}, data)); closeSheet(); go({tripId:ref.id}); }
       };
@@ -1101,7 +1117,7 @@ const WORLD = __WORLD__;
     });
   }
 
-  function payers(tid){ const set=new Set(['Me']); S.expenses.filter(e=>e.tripId===tid&&e.paidBy).forEach(e=>set.add(e.paidBy)); return [...set]; }
+  function payers(tid){ const set=new Set(['Me']); ((tripOf(tid)||{}).people||[]).forEach(x=>{ if(x.name) set.add(x.name); }); S.expenses.filter(e=>e.tripId===tid&&e.paidBy).forEach(e=>set.add(e.paidBy)); return [...set]; }
   function lastPayer(tid){ const l=S.expenses.filter(e=>e.tripId===tid&&e.paidBy).sort((a,b)=>(b.updatedAt||'').localeCompare(a.updatedAt||''))[0]; return l?l.paidBy:'Me'; }
 
   const EXP_CATS=['Transport','Lodging','Food & drink','Activities','Shopping','Fees & insurance','Other'];
@@ -1859,13 +1875,12 @@ const WORLD = __WORLD__;
       worldFeat.features.forEach(f=>{ g.beginPath(); path(f); g.fillStyle=visited.has(String(f.id))?'#3B2A22':'#24313D'; g.fill(); g.strokeStyle='#101820'; g.lineWidth=1.5; g.stroke(); });
       const colors={plane:'#6F9BFF',car:'#FF7A3D',train:'#4CC795',bus:'#B98BEB',ferry:'#3CC6D6',walk:'#B5AA9B'};
       g.lineCap='round';
-      d.acts.forEach(p=>{ const s=stopOf(p.stopId); if(p.lat==null||!s||s.lat==null) return; g.beginPath(); path({type:'LineString',coordinates:[[s.lon,s.lat],[p.lon,p.lat]]}); g.strokeStyle='rgba(255,122,61,.7)'; g.lineWidth=3; g.setLineDash([4,8]); g.stroke(); });
       g.setLineDash([]); g.lineJoin='round';
-      d.acts.forEach(p=>{ if(!Array.isArray(p.track)||p.track.length<2) return; g.beginPath(); path({type:'LineString',coordinates:p.track.map(q=>[q[1],q[0]])}); g.strokeStyle='#FF5C8A'; g.lineWidth=6; g.stroke(); });
+      if(!priv(o,'spots')) d.acts.forEach(p=>{ if(!Array.isArray(p.track)||p.track.length<2) return; g.beginPath(); path({type:'LineString',coordinates:p.track.map(q=>[q[1],q[0]])}); g.strokeStyle='#FF5C8A'; g.lineWidth=6; g.stroke(); });
       d.legs.forEach(l=>{ const a=stopOf(l.fromId), b=stopOf(l.toId); if(!a||!b||a.home||b.home||a.lat==null||b.lat==null) return;
         g.beginPath(); path({type:'LineString',coordinates:[[a.lon,a.lat],[b.lon,b.lat]]}); g.strokeStyle=colors[l.mode]||'#FF7A3D'; g.lineWidth=7; g.setLineDash(l.mode==='plane'?[18,14]:[]); g.stroke(); });
       g.setLineDash([]);
-      d.acts.forEach(p=>{ if(p.lat==null) return; const q=proj([p.lon,p.lat]); g.save(); g.translate(q[0],q[1]); g.rotate(Math.PI/4); g.fillStyle=p.status==='done'?'#FF7A3D':'#16222D'; g.strokeStyle=p.status==='done'?'#fff':'#FF7A3D'; g.lineWidth=4; g.fillRect(-9,-9,18,18); g.strokeRect(-9,-9,18,18); g.restore(); });
+      if(!priv(o,'spots')) d.acts.forEach(p=>{ if(p.lat==null) return; const q=proj([p.lon,p.lat]); g.save(); g.translate(q[0],q[1]); g.rotate(Math.PI/4); g.fillStyle=p.status==='done'?'#FF7A3D':'#16222D'; g.strokeStyle=p.status==='done'?'#fff':'#FF7A3D'; g.lineWidth=4; g.fillRect(-9,-9,18,18); g.strokeRect(-9,-9,18,18); g.restore(); });
       const seen=new Set(), pins=[];
       d.stops.forEach(s=>{ if(s.lat==null) return; const k=norm(s.city); if(seen.has(k)) return; seen.add(k); const p=proj([s.lon,s.lat]); pins.push([s,p]);
         g.beginPath(); g.arc(p[0],p[1],11,0,7); g.fillStyle='#fff'; g.fill(); g.lineWidth=5; g.strokeStyle='#101820'; g.stroke(); });
@@ -1884,7 +1899,7 @@ const WORLD = __WORLD__;
         g.font='30px sans-serif'; g.fillStyle='#fff'; g.fillText(catIcon(p.category),X-4,ry);
         const stars=p.rating?'★'.repeat(p.rating):'', price=o.showCosts&&+p.cost?fmtMoney(+p.cost,p.currency||t.currency):'';
         g.font='600 34px Figtree, sans-serif'; const sw=stars?g.measureText(stars).width+20:0, pw=price?g.measureText(price).width+20:0;
-        g.fillStyle='#fff'; g.fillText(fitText(g,p.name,W-2*X-50-sw-pw),X+40,ry);
+        g.fillStyle='#fff'; g.fillText(fitText(g,shareName(p,o),W-2*X-50-sw-pw),X+40,ry);
         if(price){ g.fillStyle='#8FA0AF'; g.fillText(price,W-X-sw-pw+20,ry); }
         if(stars){ g.fillStyle='#FF7A3D'; g.fillText(stars,W-X-sw+20,ry); } });
     }
@@ -1900,7 +1915,11 @@ const WORLD = __WORLD__;
     void whole;
     return c;
   }
+  // privacy choices on the share sheet: o.priv = {spots, names, times, dates}
+  const priv=(o,k)=>!!(o&&o.priv&&o.priv[k]);
+  const shareName=(p,o,isExp)=>priv(o,'names')?(isExp?(p.category||'Expense'):(CAT_LABEL[p.category]||'Activity')):(isExp?p.label:p.name);
   function shareDates(o, d){
+    if(priv(o,'dates')) return d.days+' day'+(d.days===1?'':'s');
     const r=d.ranges||[[o.from,o.to]], y=r[r.length-1][1].slice(0,4);
     const one=([a,b])=>a===b?fmtDate(a,{month:'short',day:'numeric'}):fmtDate(a,{month:'short',day:'numeric'})+' – '+fmtDate(b,{month:'short',day:'numeric'});
     if(r.length===1&&r[0][0]===r[0][1]) return fmtDate(r[0][0],{weekday:'short',month:'short',day:'numeric',year:'numeric'});
@@ -1918,7 +1937,7 @@ const WORLD = __WORLD__;
   }
   function caption(t, o){
     const d=shareSlice(t, o.from, o.to, o.city);
-    const done=d.acts.filter(p=>p.status==='done'), top=(done.length?done:d.acts).slice(0,3).map(p=>p.name);
+    const done=d.acts.filter(p=>p.status==='done'), top=[...new Set((done.length?done:d.acts).map(p=>shareName(p,o)))].slice(0,3);
     return (o.title||t.name)+' ✦ '+(d.km?fmtKm(d.km)+' km, ':'')+d.days+' day'+(d.days===1?'':'s')+(d.cities.length?', '+d.cities.length+' cit'+(d.cities.length===1?'y':'ies'):'')
       + (d.cities.length>1?'\n'+d.cities.join(' → '):'')+(top.length?'\n'+(done.length?'Highlights: ':'Plans: ')+top.join(', '):'')+'\n#travel #roadtrip';
   }
@@ -1968,14 +1987,14 @@ const WORLD = __WORLD__;
       if(l.mode==='plane'){ const dx=ub[0]-ua[0], dy=ub[1]-ua[1], m=[(ua[0]+ub[0])/2+dy*.2,(ua[1]+ub[1])/2-dx*.2];
         pts=d3.range(41).map(i=>{ const s=i/40, q=1-s; return [q*q*ua[0]+2*s*q*m[0]+s*s*ub[0], q*q*ua[1]+2*s*q*m[1]+s*s*ub[1]]; }); }
       evs.push({kind:'leg', date:l.date, mode:MODE_HEX[l.mode]?l.mode:'car', pts, km:+l.km||0, label:a.city+' → '+b.city, from:a, to:b, leg:l, far:!!(a.home||b.home), ll:[[a.lon,a.lat],[b.lon,b.lat]]}); };
-    const trackEv=p=>{ if(!o.showActs||!Array.isArray(p.track)||p.track.length<2) return false; const ll=p.track.map(q=>[q[1],q[0]]);
-      evs.push({kind:'track', date:p.date, mode:'walk', pts:ll.map(q=>U(q[0],q[1])), km:0, label:p.name+(p.distanceKm?' · '+(+p.distanceKm).toFixed(1)+' km':''), act:p, ll}); return true; };
+    const trackEv=p=>{ if(!o.showActs||priv(o,'spots')||!Array.isArray(p.track)||p.track.length<2) return false; const ll=p.track.map(q=>[q[1],q[0]]);
+      evs.push({kind:'track', date:p.date, mode:'walk', pts:ll.map(q=>U(q[0],q[1])), km:0, label:shareName(p,o)+(p.distanceKm?' · '+(+p.distanceKm).toFixed(1)+' km':''), act:p, ll}); return true; };
     // a "moment": an activity, or a meal/ticket/shopping expense, shown as a card where it happened
     const momentEv=(x,isExp)=>{ if(!o.showActs||(isExp&&!['Food & drink','Activities','Shopping'].includes(x.category))) return;
       const st=stopOf(x.stopId)||(x.city?d.stops.find(s=>norm(s.city)===norm(x.city)):null);
-      const ll=!isExp&&x.lat!=null?[x.lon,x.lat]:st&&st.lat!=null?[st.lon,st.lat]:null;
-      evs.push({kind:'moment', date:x.date, item:x, isExp, name:isExp?x.label:x.name, cat:isExp?x.category:(CAT_LABEL[x.category]||''), icon:isExp?expIcon(x.category,x.label):catIcon(x.category),
-        time:hhmm(x), rating:isExp?0:+x.rating||0, cost:isExp?+x.amount:+x.cost, cur:x.currency||t.currency||'EUR', ll, label:st?st.city:'', km:0}); };
+      const ll=!isExp&&x.lat!=null&&!priv(o,'spots')?[x.lon,x.lat]:st&&st.lat!=null?[st.lon,st.lat]:null;
+      evs.push({kind:'moment', date:x.date, item:x, isExp, name:shareName(x,o,isExp), cat:isExp?x.category:(CAT_LABEL[x.category]||''), icon:isExp?expIcon(x.category,x.label):catIcon(x.category),
+        time:priv(o,'times')?'':hhmm(x), rating:isExp?0:+x.rating||0, cost:isExp?+x.amount:+x.cost, cur:x.currency||t.currency||'EUR', ll, label:st?st.city:'', km:0}); };
     for(let day=o.from; day<=o.to; day=addDays(day,1))
       dayOrder(day, d.legs.filter(l=>l.date===day), d.acts.filter(p=>p.date===day), []).forEach(({k,x})=>k==='leg'?legEv(x):k==='act'?(trackEv(x)||momentEv(x,false)):momentEv(x,true));
     let where='';
@@ -1994,7 +2013,7 @@ const WORLD = __WORLD__;
       const act=d.acts.find(p=>(p.photoIds||[]).includes(id)), st=act?stopOf(act.stopId):d.stops.find(s=>(s.photoIds||[]).includes(id));
       let ev=act?evs.find(e=>e.act===act||e.item===act):null;
       if(!ev){ const pd=(act&&act.date)||(st&&st.arrive)||o.from; evs.forEach(e=>{ if(e.date<=pd) ev=e; }); }
-      return {id, im, ev:ev||null, label:act?act.name:st?st.city:''}; }))).filter(Boolean);
+      return {id, im, ev:ev||null, label:act?shareName(act,o):st?st.city:''}; }))).filter(Boolean);
     const scenes=[{id:'intro', label:'🎬 Title'}], picScene=p=>({id:'ph:'+p.id, label:'📷 '+(p.label||'Photo'), photo:p.id});
     pics.filter(p=>!p.ev).forEach(p=>scenes.push(picScene(p)));
     evs.forEach(e=>{ scenes.push({id:e.id, label:(e.kind==='leg'?MODE_EMOJI[e.mode]||'🚗':e.kind==='track'?'🏃':e.icon)+' '+(e.kind==='moment'?e.name:e.label)}); pics.filter(p=>p.ev===e).forEach(p=>scenes.push(picScene(p))); });
@@ -2023,7 +2042,7 @@ const WORLD = __WORLD__;
     evs.forEach(e=>{ if(e.kind==='leg'){ cityAt(e.from, e.ts-.2); cityAt(e.to, e.te); } });
     d.stops.forEach(s=>cityAt(s, .5));
     const moves=segs.filter(s=>s.type==='move');
-    const acts=o.showActs?d.acts.filter(p=>p.lat!=null).map(p=>{ const own=evs.find(e=>e.act===p||e.item===p); let at=1.2;
+    const acts=o.showActs&&!priv(o,'spots')?d.acts.filter(p=>p.lat!=null).map(p=>{ const own=evs.find(e=>e.act===p||e.item===p); let at=1.2;
       if(own) at=own.te; else moves.forEach(s=>{ if(s.ev.date<=(p.date||'')) at=s.ev.te; });
       return {p, u:U(p.lon,p.lat), at, card:!!(own&&own.kind==='moment')}; }):[];
     const kmTotal=d3.sum(evs,e=>e.km);
@@ -2066,7 +2085,7 @@ const WORLD = __WORLD__;
         g.save(); g.translate(q[0],q[1]); g.scale(s,s); g.rotate(Math.PI/4); g.fillStyle=done?'#FF7A3D':'#16222D'; g.strokeStyle=done?'#fff':'#FF7A3D'; g.lineWidth=4; g.fillRect(-9,-9,18,18); g.strokeRect(-9,-9,18,18); g.restore(); });
       pins.forEach(({p,s})=>{ g.beginPath(); g.arc(p[0],p[1],11*s,0,7); g.fillStyle='#fff'; g.fill(); g.lineWidth=5; g.strokeStyle='#101820'; g.stroke(); });
       pins.forEach(({c,p,s})=>label(c.city,p,30,clamp01(s)));
-      acts.filter(a=>!a.card&&tau>=a.at&&tau<a.at+2.6).forEach(a=>label(a.p.name,P(a.u),26,clamp01((a.at+2.6-tau)/.5)));
+      acts.filter(a=>!a.card&&tau>=a.at&&tau<a.at+2.6).forEach(a=>label(shareName(a.p,o),P(a.u),26,clamp01((a.at+2.6-tau)/.5)));
       if(head){ const [hx,hy]=head.p; g.beginPath(); g.arc(hx,hy,26,0,7); g.fillStyle=head.col; g.fill(); g.lineWidth=4; g.strokeStyle='#fff'; g.stroke();
         const ic=MODE_PATH[head.mode]; if(ic){ g.save(); g.translate(hx-15,hy-15); g.scale(1.25,1.25); g.fillStyle='#fff'; g.fill(ic,'evenodd'); g.restore(); } }
       // header
@@ -2081,7 +2100,7 @@ const WORLD = __WORLD__;
       if(ba>0){ g.globalAlpha=ba; const by=H-210, bw=W-2*X;
         roundRect(g,X,by,bw,150,26); g.fillStyle='rgba(16,24,32,.9)'; g.fill(); g.lineWidth=2; g.strokeStyle='#2A3743'; g.stroke();
         const date=cur?cur.date:o.from, dn=t.startDate?dayCount(t.startDate,date):0;
-        g.fillStyle='#FF7A3D'; g.font='700 26px Figtree, sans-serif'; g.fillText(((dn>0?'DAY '+dn+' · ':'')+fmtDate(date,{weekday:'short',month:'short',day:'numeric'})).toUpperCase(), X+32, by+56);
+        g.fillStyle='#FF7A3D'; g.font='700 26px Figtree, sans-serif'; g.fillText((priv(o,'dates')?(dn>0?'DAY '+dn:''):(dn>0?'DAY '+dn+' · ':'')+fmtDate(date,{weekday:'short',month:'short',day:'numeric'})).toUpperCase(), X+32, by+56);
         let kw=0; if(kmTotal){ const ks=fmtKm(outro?kmTotal:km); g.font='700 76px "Barlow Condensed", sans-serif'; const w1=g.measureText(ks).width; g.font='700 28px "Barlow Condensed", sans-serif'; const w2=g.measureText(' KM').width; kw=w1+w2+24;
           g.fillStyle='#fff'; g.font='700 76px "Barlow Condensed", sans-serif'; g.fillText(ks, X+bw-32-w1-w2, by+104); g.fillStyle='#8FA0AF'; g.font='700 28px "Barlow Condensed", sans-serif'; g.fillText(' KM', X+bw-32-w2, by+104); }
         const where=cur?cur.label:(d.cities[0]||t.name);
@@ -2181,7 +2200,7 @@ const WORLD = __WORLD__;
     init=init||{};
     const days=[]; if(t.startDate&&t.endDate&&t.endDate>=t.startDate) for(let i=0;i<Math.min(dayCount(t.startDate,t.endDate),90);i++) days.push(addDays(t.startDate,i));
     if(!days.length){ toast('Give the trip start and end dates first.'); return; }
-    const o={from:init.from||days[0], to:init.to||days[days.length-1], city:'', format:'post', showMap:true, showStats:true, showActs:true, showCosts:false, photoIds:[], title:'', edit:{off:{}, mult:{}, pace:1}, photoFx:{}};
+    const o={from:init.from||days[0], to:init.to||days[days.length-1], city:'', priv:{spots:false, names:false, times:false, dates:false}, format:'post', showMap:true, showStats:true, showActs:true, showCosts:false, photoIds:[], title:'', edit:{off:{}, mult:{}, pace:1}, photoFx:{}};
     const music={kind:'none', buf:null, name:'', start:0, vol:.8, fade:true};
     let titleTouched=false, capTouched=false, picksTouched=false, drawTok=0, canvas=null, presetTitle='';
     const today=todayStr(), cityChips=[];
@@ -2199,6 +2218,9 @@ const WORLD = __WORLD__;
       + '<div class="field"><label>2 · Size</label><div class="row" id="shFmt">'+Object.entries(SHARE_FORMATS).map(([k,f])=>'<button type="button" class="chip'+(k===o.format?' on':'')+'" data-fmt="'+k+'">'+f.label+'</button>').join('')+'</div></div>'
       + '<div class="field"><label for="shTitle">3 · Title</label><input id="shTitle"></div>'
       + '<div class="field"><label>4 · Show on it <span style="text-transform:none;letter-spacing:0;font-weight:500">(tap to turn on or off)</span></label><div class="row" id="shShow"><button type="button" class="chip on" data-show="showMap">Map</button><button type="button" class="chip on" data-show="showStats">Stats</button><button type="button" class="chip on" data-show="showActs">Activity list</button><button type="button" class="chip" data-show="showCosts">Prices</button></div></div>'
+      + '<div class="field"><label>Keep private <span style="text-transform:none;letter-spacing:0;font-weight:500">(on the image, video and caption)</span></label><div class="chips" id="shPriv">'
+        + [['spots','📍 Hide exact spots'],['names','🏷️ Hide names'],['times','🕘 Hide times'],['dates','📅 Hide dates']].map(([k,l])=>'<button type="button" class="chip" data-priv="'+k+'">'+l+'</button>').join('')
+        + '</div><div class="hint" id="shPrivHint">Prices are off unless you turn them on above. Contacts and notes never go on a share.</div></div>'
       + '<div class="field" id="shPicsF"><label>5 · Photos <span style="text-transform:none;letter-spacing:0;font-weight:500" id="shPicN">(tap to pick up to 4)</span></label><div class="photos" id="shPics"></div></div>'
       + (videoType()!==null?'<details class="edit" id="shEd"><summary>✂️ Edit video · photos · music <span class="faint" id="edLen" style="margin-left:auto;margin-right:8px;font-weight:500"></span></summary><div class="ed-body">'
         + '<div class="field"><label>Music</label><div class="chips" id="edMusic"><button type="button" class="chip on" data-mu="none">No music</button>'
@@ -2255,6 +2277,10 @@ const WORLD = __WORLD__;
       $('#shFrom').onchange=()=>{ o.from=val('shFrom'); o.city=''; presetTitle=''; picksTouched=false; sync(); };
       $('#shTo').onchange=()=>{ o.to=val('shTo'); o.city=''; presetTitle=''; picksTouched=false; sync(); };
       $('#shFmt').querySelectorAll('[data-fmt]').forEach(b=>b.onclick=()=>{ o.format=b.dataset.fmt; $('#shFmt').querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b)); later(); });
+      $('#shPriv').querySelectorAll('[data-priv]').forEach(b=>b.onclick=()=>{ const k=b.dataset.priv; o.priv[k]=!o.priv[k]; b.classList.toggle('on',o.priv[k]);
+        const on=Object.entries(o.priv).filter(([,v])=>v).map(([k])=>({spots:'only cities show on the map',names:'activities show as their type (e.g. "Lunch")',times:'no times',dates:'"4 days" instead of dates'}[k]));
+        $('#shPrivHint').textContent=on.length?'Hiding: '+on.join(', ')+'.':'Prices are off unless you turn them on above. Contacts and notes never go on a share.';
+        if(!capTouched) $('#cap').value=caption(t,o); later(); });
       $('#shShow').querySelectorAll('[data-show]').forEach(b=>b.onclick=()=>{ const k=b.dataset.show; o[k]=!o[k]; b.classList.toggle('on',o[k]); later(); });
       $('#shTitle').oninput=()=>{ titleTouched=true; o.title=val('shTitle'); if(!capTouched) $('#cap').value=caption(t,o); later(); };
       $('#cap').oninput=()=>{ capTouched=true; };
