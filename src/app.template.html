@@ -106,6 +106,7 @@
   .night-add{align-self:flex-start;border:1px dashed var(--line);background:transparent;color:var(--ink-faint);border-radius:8px;padding:4px 10px;font-size:13px;margin-top:4px;cursor:pointer;}
   .day-i.night{border-top:1px dashed var(--line);margin-top:2px;padding-top:6px;}
   .mini{width:22px;height:22px;border-radius:6px;display:inline-flex;align-items:center;justify-content:center;color:#fff;flex-shrink:0;}
+  .mini.emo{background:var(--surface-2);font-size:13px;line-height:1;}
   .mini svg{width:13px;height:13px;}
   .legend{display:flex;gap:10px;flex-wrap:wrap;font-size:12.5px;color:var(--ink-soft);}
   .legend span{display:inline-flex;align-items:center;gap:5px;}
@@ -203,6 +204,21 @@
   .ph-cover{position:absolute;left:4px;bottom:4px;background:var(--accent);color:var(--accent-ink);font-size:10.5px;font-weight:700;padding:1px 6px;border-radius:5px;}
   .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(84px + env(safe-area-inset-bottom,0px));z-index:70;background:var(--ink);color:var(--bg);padding:9px 14px;border-radius:10px;font-size:14px;font-weight:600;box-shadow:var(--shadow);}
   .share-preview{width:100%;border-radius:12px;border:1px solid var(--line);}
+  details.edit{border:1px solid var(--line);border-radius:12px;background:var(--surface);}
+  details.edit>summary{padding:12px 14px;font-weight:700;cursor:pointer;list-style:none;display:flex;justify-content:space-between;align-items:center;}
+  details.edit>summary::-webkit-details-marker{display:none;}
+  details.edit>summary::after{content:'▾';color:var(--ink-faint);}
+  details.edit[open]>summary::after{content:'▴';}
+  .ed-body{padding:0 14px 14px;display:flex;flex-direction:column;gap:14px;}
+  .ed-row{display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--line);font-size:14px;}
+  .ed-row:last-child{border-bottom:none;}
+  .ed-row input[type=checkbox]{width:20px;height:20px;flex-shrink:0;}
+  .ed-row select{width:auto;flex-shrink:0;border:1px solid var(--line);background:var(--surface-2);border-radius:8px;padding:5px 6px;font-size:13px;}
+  .ed-range[hidden],#edMuOpts[hidden]{display:none!important;}
+  .ed-row.off>span{opacity:.45;text-decoration:line-through;}
+  .ed-ph{width:56px;height:56px;border-radius:8px;object-fit:cover;flex-shrink:0;transition:transform .2s;}
+  .ed-range{display:flex;align-items:center;gap:10px;font-size:13px;color:var(--ink-soft);}
+  .ed-range input{flex:1;}
   .empty{padding:28px 16px;text-align:center;color:var(--ink-soft);display:flex;flex-direction:column;gap:10px;align-items:center;}
 </style>
 
@@ -234,10 +250,22 @@ const WORLD = __WORLD__;
     ferry:{label:'Boat', color:'var(--ferry)', icon:'<path d="M11 3h2v3h4l2 6-7-2-7 2 2-6h4zM3 17c2 0 3-1.5 4.5-1.5S10 17 12 17s3-1.5 4.5-1.5S19 17 21 17v2c-2 0-3-1.5-4.5-1.5S14 19 12 19s-3-1.5-4.5-1.5S5 19 3 19z" fill="currentColor"/>'},
     walk:{label:'Walk/Bike', color:'var(--walk)', icon:'<path d="M13 4a2 2 0 1 1-.01 0zM10 8l3-1 3 4 3 1-1 2-4-1-1 3 3 3v4h-2v-3l-3-2-1 5H8l2-9-2 1v3H6V9z" fill="currentColor"/>'}
   };
-  const CATS = [
+  // Meals are their own activity types (time of day picks the default), then things to do.
+  const MEALS = [['breakfast','Breakfast'],['lunch','Lunch'],['dinner','Dinner'],['coffee','Coffee & snacks'],['drinks','Drinks']];
+  const MEAL_KEYS = new Set(MEALS.map(m=>m[0]).concat(['food','restaurant']));
+  const mealFor = (tm, name) => /breakfast|brunch|petit[- ]d[ée]j|d[ée]jeuner du matin/i.test(name||'')?'breakfast':/dinner|d[îi]ner|supper/i.test(name||'')?'dinner'
+    :/lunch|d[ée]jeuner/i.test(name||'')?'lunch':/caf[ée]|coffee|snack|go[ûu]ter|ice cream|glace/i.test(name||'')?'coffee':/drinks?|bar\b|wine|beer|cocktail|ap[ée]ro/i.test(name||'')?'drinks'
+    :!tm?'lunch':tm<'10:45'?'breakfast':tm<'15:00'?'lunch':tm<'17:45'?'coffee':'dinner';
+  const CATS = MEALS.concat([
     ['food','Food & drink'],['restaurant','Restaurant'],['museum','Museum'],['attraction','Attraction'],['hike','Hike'],['run','Run'],['walk','Walk'],['ride','Bike ride'],
     ['hotel','Hotel'],['nightlife','Nightlife'],['shopping','Shopping'],['other','Other']
-  ];
+  ]);
+  const CAT_ICON = {breakfast:'🥐',lunch:'🥗',dinner:'🍽️',coffee:'☕',drinks:'🍷',food:'🍴',restaurant:'🍴',museum:'🏛️',attraction:'📍',hike:'🥾',run:'🏃',walk:'🚶',ride:'🚴',hotel:'🏨',nightlife:'🌙',shopping:'🛍️',other:'✦'};
+  const EXP_ICON = {'Transport':'🚗','Lodging':'🛏️','Food & drink':'🍴','Meals':'🍽️','Activities':'🎟️','Shopping':'🛍️','Fees & insurance':'🛡️','Other':'💳'};
+  const catIcon = c => CAT_ICON[c]||'✦', expIcon = c => EXP_ICON[c]||'💳';
+  const emo = e => '<span class="mini emo" aria-hidden="true">'+e+'</span>';
+  const catOptions = sel => '<optgroup label="Meals">'+MEALS.map(([k,l])=>'<option value="'+k+'"'+(sel===k?' selected':'')+'>'+CAT_ICON[k]+' '+l+'</option>').join('')+'</optgroup>'
+    + '<optgroup label="Things to do">'+CATS.slice(MEALS.length).map(([k,l])=>'<option value="'+k+'"'+(sel===k?' selected':'')+'>'+CAT_ICON[k]+' '+l+'</option>').join('')+'</optgroup>';
   const CAT_LABEL = Object.fromEntries(CATS);
   const CURRENCIES = ['EUR','CAD','USD','GBP','CHF','JPY','MXN'];
   const INTERESTS = ['Museums','Restaurants','Local food','Cafés','Running routes','Hikes','Hotels','Nightlife & clubs','Attractions','Day trips',
@@ -283,7 +311,7 @@ const WORLD = __WORLD__;
     const out=[];
     tripLegs(tid).forEach(l=>{ if(l.cost) out.push({cat:'Transport', label:(MODES[l.mode]||{}).label+': '+(stopOf(l.fromId)||{}).city+' → '+(stopOf(l.toId)||{}).city, amount:+l.cost, cur:l.currency||'EUR'}); });
     S.places.filter(p=>p.tripId===tid && p.cost).forEach(p=>{
-      const cat = p.category==='hotel'?'Lodging':(p.category==='food'||p.category==='restaurant')?'Food & drink':(p.category==='shopping')?'Shopping':'Activities';
+      const cat = p.category==='hotel'?'Lodging':MEAL_KEYS.has(p.category)?'Meals':(p.category==='shopping')?'Shopping':'Activities';
       out.push({cat, label:p.name, amount:+p.cost, cur:p.currency||'EUR'}); });
     S.expenses.filter(e=>e.tripId===tid).forEach(e=>out.push({cat:e.category||'Other', label:e.label, amount:+e.amount, cur:e.currency||'EUR', id:e.id}));
     S.stays.filter(x=>x.tripId===tid&&x.cost).forEach(x=>out.push({cat:'Lodging', label:x.name+' · '+stayNights(x)+' night'+(stayNights(x)===1?'':'s'), amount:+x.cost, cur:x.currency||'EUR'}));
@@ -617,6 +645,7 @@ const WORLD = __WORLD__;
     main.querySelectorAll('[data-stay]').forEach(el=>el.onclick=e=>{ if(e.target.dataset.photo) return; const x=S.stays.find(y=>y.id===el.dataset.stay); if(x) staySheet(x, {trip:t}); });
     main.querySelectorAll('[data-shareday]').forEach(b=>b.onclick=()=>shareSheet(t, {from:b.dataset.shareday, to:b.dataset.shareday}));
     main.querySelectorAll('[data-addact]').forEach(b=>b.onclick=()=>placeSheet(null, null, {trip:t, date:b.dataset.addact}));
+    main.querySelectorAll('[data-addmeal]').forEach(b=>b.onclick=()=>{ const d=b.dataset.addmeal, tm=d===todayStr()?nowHM():''; placeSheet(null, null, {trip:t, date:d, meal:true, prefill:{category:mealFor(tm), date:d, time:tm}}); });
     main.querySelectorAll('[data-pl]').forEach(el=>el.onclick=e=>{ if(e.target.dataset.photo) return; const p=S.places.find(x=>x.id===el.dataset.pl); if(p) placeSheet(stopOf(p.stopId), p, {trip:t}); });
     $('#addLeg').onclick=()=>legSheet(t, null);
     $('#addExp').onclick=()=>expenseSheet(t, null);
@@ -641,9 +670,9 @@ const WORLD = __WORLD__;
     const max=Math.max(...Object.values(byCat));
     const other=S.expenses.filter(e=>e.tripId===tid);
     return '<div class="card">'+Object.entries(byCat).sort((a,b)=>b[1]-a[1]).map(([k,a])=>{ const [cat,cur]=k.split('|');
-        return '<div class="budget-row" style="display:block"><div class="between"><span>'+esc(cat)+'</span><span class="amt">'+fmtMoney(a,cur)+'</span></div><div class="bar"><i style="width:'+Math.round(a/max*100)+'%"></i></div></div>'; }).join('')
+        return '<div class="budget-row" style="display:block"><div class="between"><span>'+expIcon(cat)+' '+esc(cat)+'</span><span class="amt">'+fmtMoney(a,cur)+'</span></div><div class="bar"><i style="width:'+Math.round(a/max*100)+'%"></i></div></div>'; }).join('')
       + '<div class="budget-row" style="font-weight:700"><span>Total</span><span class="amt">'+Object.entries(tot).map(([c,a])=>fmtMoney(a,c)).join(' + ')+'</span></div></div>'
-      + (other.length?'<div class="card">'+other.sort((a,b)=>(b.date||'').localeCompare(a.date||'')).map(e=>'<div class="budget-row" data-exp="'+e.id+'" style="cursor:pointer;gap:10px"><span style="min-width:0">'+esc(e.label)+' <span class="faint">· '+esc(e.category||'Other')+(e.date?' · '+fmtDate(e.date):'')+(e.city?' · '+esc(e.city):'')+(e.paidBy?' · paid by '+esc(e.paidBy):'')+'</span>'
+      + (other.length?'<div class="card">'+other.sort((a,b)=>(b.date||'').localeCompare(a.date||'')).map(e=>'<div class="budget-row" data-exp="'+e.id+'" style="cursor:pointer;gap:10px"><span style="min-width:0">'+expIcon(e.category)+' '+esc(e.label)+' <span class="faint">· '+esc(e.category||'Other')+(e.date?' · '+fmtDate(e.date):'')+(e.city?' · '+esc(e.city):'')+(e.paidBy?' · paid by '+esc(e.paidBy):'')+'</span>'
           + (e.notes?'<span class="faint" style="display:block;white-space:pre-wrap">'+esc(e.notes)+'</span>':'')+'</span><span class="amt" style="display:flex;gap:8px;align-items:center;flex-shrink:0">'+((e.photoIds||[]).length?'<img alt="Receipt" src="/_blob/'+e.photoIds[0]+'" data-photo="'+e.photoIds[0]+'" style="width:32px;height:32px;object-fit:cover;border-radius:6px;cursor:zoom-in">':'')+fmtMoney(e.amount,e.currency)+'</span></div>').join('')+'</div>':'')
       + whoPaidHtml(other)
       + '<div class="faint">Totals are kept per currency; no exchange rates are applied.</div>';
@@ -672,8 +701,8 @@ const WORLD = __WORLD__;
       + (cityPhotos.length?'<div class="photos">'+cityPhotos.map(id=>'<img alt="Photo in '+esc(s.city)+'" src="/_blob/'+id+'" data-photo="'+id+'" data-list="'+cityPhotos.join(',')+'">').join('')+'</div>':'')
       + (cityStays.length?'<div class="card">'+cityStays.map(x=>'<div class="day-i night" style="padding:10px 14px;border-top:none" data-stay="'+x.id+'"><span class="mini" style="background:var(--night)">'+stayIcon(x)+'</span><span style="flex:1">Staying at <b>'+esc(x.name)+'</b> <span class="faint">'+fmtDate(x.checkIn)+' – '+fmtDate(x.checkOut)+' · '+stayNights(x)+' night'+(stayNights(x)===1?'':'s')+(perNight(x)?' · '+perNight(x):'')+'</span></span></div>').join('')+'</div>':'')
       + (Object.keys(spent).length?'<div class="faint">Spent here: '+Object.entries(spent).map(([c,a])=>fmtMoney(a,c)).join(' + ')+'</div>':'')
-      + (cats.length>1?'<div class="chips"><button class="chip '+(R.placeCat==='all'?'on':'')+'" data-cat="all">All</button>'+cats.map(c=>'<button class="chip '+(R.placeCat===c?'on':'')+'" data-cat="'+c+'">'+esc(CAT_LABEL[c]||c)+'</button>').join('')+'</div>':'')
-      + (places.length?places.map(p=>'<div class="card place" data-place="'+p.id+'"><div class="head"><div><h3>'+esc(p.name)+'</h3><div class="faint">'+esc(CAT_LABEL[p.category]||p.category)+(p.date?' · '+fmtDate(p.date):'')+(p.cost?' · '+fmtMoney(p.cost,p.currency):'')+(statsLine(p)?' · '+statsLine(p):'')+'</div></div>'
+      + (cats.length>1?'<div class="chips"><button class="chip '+(R.placeCat==='all'?'on':'')+'" data-cat="all">All</button>'+cats.map(c=>'<button class="chip '+(R.placeCat===c?'on':'')+'" data-cat="'+c+'">'+catIcon(c)+' '+esc(CAT_LABEL[c]||c)+'</button>').join('')+'</div>':'')
+      + (places.length?places.map(p=>'<div class="card place" data-place="'+p.id+'"><div class="head"><div><h3>'+esc(p.name)+'</h3><div class="faint">'+catIcon(p.category)+' '+esc(CAT_LABEL[p.category]||p.category)+(p.date?' · '+fmtDate(p.date):'')+(p.cost?' · '+fmtMoney(p.cost,p.currency):'')+(statsLine(p)?' · '+statsLine(p):'')+'</div></div>'
           + '<span class="status-tag '+(p.status==='done'?'done':'want')+'">'+(p.status==='done'?'Been':'Want')+'</span></div>'
           + (p.rating?'<div class="stars" aria-label="'+p.rating+' of 5">'+'★'.repeat(p.rating)+'<span style="color:var(--line)">'+'★'.repeat(5-p.rating)+'</span></div>':'')
           + (p.notes?'<div class="notes">'+esc(p.notes)+'</div>':'')
@@ -931,15 +960,17 @@ const WORLD = __WORLD__;
     let rating=p?p.rating||0:0, status=p?p.status||'done':(date0&&date0>todayStr()?'want':'done'), photoIds=p?(p.photoIds||[]).slice():[];
     let picked=[], uploading=false, reading=false, cityTouched=!!stop||!!p, statusTouched=!!p;
     let pos=p&&p.lat!=null?{lat:p.lat, lon:p.lon, name:p.name}:(pre&&pre.lat!=null?{lat:pre.lat, lon:pre.lon}:null);
-    openSheet('<h2>'+(p?'Edit activity':'Add an activity')+'</h2>'
+    if(!p&&pre&&pre.photoIds) photoIds=pre.photoIds.slice();
+    const isMeal=c=>MEAL_KEYS.has(c);
+    openSheet('<h2 id="pTitle">'+(p?(isMeal(p.category)?'Edit meal':'Edit activity'):(pre&&isMeal(pre.category)?'Add a meal':'Add an activity'))+'</h2>'
       + (assets||canRead?'<div class="field"><label>Photos</label><div class="photos" id="pPhotos"></div><div class="row"><label class="btn small" for="pPhotoIn">'+ICON.camera+' Add photos</label><input id="pPhotoIn" type="file" accept="image/*" multiple hidden>'
         + (canRead?'<button type="button" class="btn small" id="pRead" hidden>'+ICON.spark+' Fill in from photo</button>':'')+'</div>'
         + '<div class="hint" id="pUp">'+(canRead&&!p?'Start with a photo: Claude reads where and when it was taken and what it shows.':'')+'</div></div>':'')
-      + '<div class="field"><label for="pName">What</label><input id="pName" value="'+esc(p?p.name:'')+'" placeholder="e.g. Dune du Pilat, surf lesson, Guggenheim"></div>'
+      + '<div class="field"><label for="pName">What</label><input id="pName" value="'+esc(p?p.name:'')+'" placeholder="'+(pre&&isMeal(pre.category)?'e.g. Chez Pierre, oysters at the market':'e.g. Dune du Pilat, surf lesson, Guggenheim')+'"></div>'
       + '<div class="grid2"><div class="field"><label for="pDate">Date</label><input id="pDate" type="date" value="'+esc(date0)+'"></div>'
       + '<div class="field"><label for="pTime">Time (optional)</label><input id="pTime" type="time" value="'+esc(p?hhmm(p):((pre&&pre.time)||(date0===todayStr()?nowHM():'')))+'"></div></div>'
       + '<div class="grid2"><div class="field"><label for="pCity">City</label><select id="pCity">'+cityNames.map(c=>'<option'+(c===cur.city?' selected':'')+'>'+esc(c)+'</option>').join('')+'</select></div>'
-      + '<div class="field"><label for="pCat">Type</label><select id="pCat">'+CATS.map(([k,l])=>'<option value="'+k+'"'+((p?p.category:'attraction')===k?' selected':'')+'>'+l+'</option>').join('')+'</select></div></div>'
+      + '<div class="field"><label for="pCat">Type</label><select id="pCat">'+catOptions(p?p.category:(pre&&pre.category)||'attraction')+'</select></div></div>'
       + '<div class="field"><label>Status</label><div class="row"><button type="button" class="chip '+(status==='done'?'on':'')+'" data-st="done">Been</button><button type="button" class="chip '+(status==='want'?'on':'')+'" data-st="want">Want to go</button></div></div>'
       + '<div class="field"><label>Rating</label><div class="rating" id="rating">'+[1,2,3,4,5].map(i=>'<button type="button" data-r="'+i+'" aria-label="'+i+' stars" class="'+(i<=rating?'on':'')+'">★</button>').join('')+'</div></div>'
       + '<div class="grid3"><div class="field"><label for="pCost">Price (optional)</label><input id="pCost" inputmode="decimal" value="'+esc(p&&p.cost?p.cost:'')+'"></div><div class="field"><label for="pCur">Currency</label>'+curSelect('pCur', p?p.currency:trip.currency)+'</div></div>'
@@ -982,10 +1013,13 @@ const WORLD = __WORLD__;
         try{
           const r=await readPhoto(trip, imgs, opts.any&&!p?'any':'activity');
           if(!form.isConnected) return;
-          if(r.kind==='receipt'&&opts.any&&!p){ closeSheet(); expenseSheet(trip, null, null, {photoIds, picked, result:r}); return; }
+          if(r.kind==='receipt'&&r.expCat!=='Food & drink'&&opts.any&&!p){ closeSheet(); expenseSheet(trip, null, null, {photoIds, picked, result:r}); return; }
           if(r.kind==='stay'&&opts.any&&!p){ closeSheet(); staySheet(null, {trip, pre:{photoIds, picked}}); return; }
           const set=(id,v)=>{ if(v!=null&&v!=='') $('#'+id).value=v; };
-          set('pName', r.name); set('pCat', r.actCat);
+          set('pName', r.name);
+          const meal=r.kind==='receipt'&&r.expCat==='Food & drink'||MEAL_KEYS.has(r.actCat);
+          if(meal&&!catTouched) $('#pCat').value=MEALS.some(m=>m[0]===r.actCat)?r.actCat:mealFor(r.time,r.name); else set('pCat', r.actCat);
+          if(meal) $('#pTitle').textContent=p?'Edit meal':'Add a meal';
           if(r.date){ $('#pDate').value=r.date; }
           if(r.time) $('#pTime').value=r.time; else if(r.date&&r.date!==todayStr()&&!p) $('#pTime').value='';
           if(r.city&&cityNames.includes(r.city)){ $('#pCity').value=r.city; cityTouched=true; }
@@ -1000,8 +1034,15 @@ const WORLD = __WORLD__;
       const pin=$('#pPhotoIn'); if(pin) pin.onchange=()=>{ const fs=Array.from(pin.files||[]); pin.value=''; if(fs.length) addFiles(fs, !p&&!val('pName').trim()); };
       const rb=$('#pRead'); if(rb) rb.onclick=fill;
       if(opts.files&&opts.files.length) addFiles(opts.files, true);
-      if(pre){ if(pre.name) $('#pName').value=pre.name; if(pre.category) $('#pCat').value=pre.category; setStatus('done'); statusTouched=true;
-        const ln=statsLine(Object.assign({category:pre.category}, pre.extra||{})); $('#pPos').textContent='📍 Route on the map'+(ln?' · '+ln:''); }
+      if(pre){ if(pre.name) $('#pName').value=pre.name; if(pre.category) $('#pCat').value=pre.category;
+        if(pre.cost){ $('#pCost').value=pre.cost; if(pre.currency){ const sel=$('#pCur'); if(![...sel.options].some(o=>o.value===pre.currency)) sel.add(new Option(pre.currency)); sel.value=pre.currency; } }
+        if(pre.notes) $('#pNotes').value=pre.notes;
+        if(pre.extra){ setStatus('done'); statusTouched=true; const ln=statsLine(Object.assign({category:pre.category}, pre.extra)); $('#pPos').textContent='📍 Route on the map'+(ln?' · '+ln:''); } }
+      // a meal: time of day picks breakfast/lunch/dinner until the type is chosen by hand
+      let catTouched=!!p;
+      $('#pCat').onchange=()=>{ catTouched=true; $('#pTitle').textContent=(p?'Edit ':'Add ')+(isMeal(val('pCat'))?'a meal':'an activity').replace(/^a(n)? /, p?'':'$&'); };
+      $('#pTime').addEventListener('change',()=>{ if(!catTouched&&isMeal(val('pCat'))&&val('pTime')) $('#pCat').value=mealFor(val('pTime'),val('pName')); });
+      $('#pName').addEventListener('change',()=>{ if(!catTouched&&isMeal(val('pCat'))) $('#pCat').value=mealFor(val('pTime'),val('pName')); });
       if(p) $('#xDel').onclick=()=>confirmDelete(form,'"'+p.name+'"', ()=>del('places', p.id));
       form.onsubmit=async e=>{ e.preventDefault();
         const name=val('pName').trim(); if(!name){ const er=$('#fErr'); er.hidden=false; er.textContent='Say what it was (a name is enough).'; return; }
@@ -1016,6 +1057,7 @@ const WORLD = __WORLD__;
         let id=p&&p.id;
         if(p){ if(!keep&&p.lat!=null){ data.lat=null; data.lon=null; } if(p.date!==date) data.dayPos=null; await patch('places', p.id, data); }
         else id=(await put('places', null, Object.assign({createdAt:now()}, data))).id;
+        if(opts.replaces&&id) await del('expenses', opts.replaces.id); // the expense became this meal; its photos moved with it
         closeSheet();
         for(const x of orig.concat(added)) if(!photoIds.includes(x)) forgetAsset(x, p);
         if(!keep&&id) locatePlaces([Object.assign({id}, data)]).catch(()=>{});
@@ -1044,9 +1086,17 @@ const WORLD = __WORLD__;
       + '<div class="field"><label for="ePaid">Paid by</label><input id="ePaid" list="payers" autocomplete="off" value="'+esc(x?x.paidBy||'':lastPayer(trip.id))+'" placeholder="e.g. Me, Sam, split"><datalist id="payers">'+payers(trip.id).map(n=>'<option value="'+esc(n)+'">').join('')+'</datalist></div></div>'
       + '<div class="field"><label for="eNote">Note (optional)</label><textarea id="eNote" placeholder="Receipt details, what it covered, who owes what…">'+esc(x?x.notes||'':'')+'</textarea></div>'
       + '<div class="err" id="fErr" hidden></div>'
+      + '<div class="confirm" id="eMeal" hidden><span>🍽️ A breakfast, lunch or dinner? Log it as a meal: it shows in the day like an activity (with stars and photos) and still counts in the budget.</span><div class="row"><button type="button" class="btn small primary" id="eToMeal">Make it a meal</button></div></div>'
       + '<div class="row"><button class="btn primary" type="submit" id="eSave">Save</button><button class="btn" type="button" id="xCancel">Cancel</button>'+(x?'<button class="btn danger" type="button" id="xDel" style="margin-left:auto">Delete</button>':'')+'</div>',
     form=>{ $('#xCancel').onclick=closeSheet;
       if(x) $('#xDel').onclick=()=>confirmDelete(form,'this expense', ()=>del('expenses', x.id));
+      const mealHint=()=>{ $('#eMeal').hidden=val('eCat')!=='Food & drink'; };
+      $('#eCat').addEventListener('change', mealHint);
+      $('#eToMeal').onclick=()=>{ const a=parseFloat(val('eAmt').replace(',','.')), tm=val('eTime'), d=val('eDate')||todayStr(), city=val('eCity').trim();
+        const n=val('eLabel').trim(), late=(tm&&tm>='17:00')||(!tm&&/dinner|d[îi]ner|drinks?|bar\b|ap[ée]ro/i.test(n));
+        const st=(city&&tripStops(trip.id).find(s=>norm(s.city)===norm(city)))||(late?eveningStop(trip.id,d):stopOnDate(trip.id,d));
+        closeSheet();
+        placeSheet(st||null, null, {trip, replaces:x||null, prefill:{name:n, category:mealFor(tm,n), date:d, time:tm, cost:isFinite(a)?a:'', currency:val('eCur'), notes:val('eNote').trim(), photoIds}}); };
       const hint=t=>{ const el=$('#eUp'); if(el) el.textContent=t; };
       const sync=()=>{ if(!form.isConnected) return; $('#eSave').disabled=uploading||reading;
         const rb=$('#eRead'); if(rb){ rb.hidden=!(picked.length||photoIds.length); rb.disabled=uploading||reading; } };
@@ -1065,6 +1115,7 @@ const WORLD = __WORLD__;
           if(r.time) set('eTime', r.time); else if(r.date&&r.date!==todayStr()) $('#eTime').value=''; set('eLabel', r.name); set('eAmt', r.amount!=null?String(r.amount):null); set('eDate', r.date); set('eCity', r.city); set('eCat', r.expCat);
           if(r.currency){ const sel=$('#eCur'); if(![...sel.options].some(o=>o.value===r.currency)) sel.add(new Option(r.currency)); sel.value=r.currency; }
           if(r.notes&&!val('eNote').trim()) $('#eNote').value=r.notes;
+          mealHint();
           hint(r.amount==null?'Couldn\'t read a total. Add the amount, then save.':'Filled in from the photo. Check it, then save.');
       }
       async function fill(){
@@ -1085,6 +1136,7 @@ const WORLD = __WORLD__;
       const rb=$('#eRead'); if(rb) rb.onclick=fill;
       if(files&&files.length) addFiles(files, true);
       if(pre){ applyResult(pre.result); sync(); }
+      mealHint();
       form.onsubmit=async e=>{ e.preventDefault(); const a=parseFloat(val('eAmt').replace(',','.')); const label=val('eLabel').trim();
         if(!label||!isFinite(a)){ const er=$('#fErr'); er.hidden=false; er.textContent='Add what it was and an amount.'; return; }
         const city=val('eCity').trim(), st=city&&tripStops(trip.id).find(s=>norm(s.city)===norm(city));
@@ -1117,7 +1169,7 @@ const WORLD = __WORLD__;
       + 'Reply with only a JSON object: {"kind": "receipt", "stay" or "activity", '
       + '"name": string (receipt: merchant and item, e.g. "Dinner at Bar Nestor"; activity: the specific place or activity, e.g. "Dune du Pilat", "Guggenheim Bilbao", "Surf lesson, Côte des Basques"; max 50 characters), '
       + '"amount": number or null (receipt: final total paid incl. tax and tip; activity: only if a price is visible), "currency": ISO 4217 code or null, '
-      + '"expenseCategory": one of '+JSON.stringify(EXP_CATS)+', "activityCategory": one of '+JSON.stringify(CATS.map(c=>c[0]))+', '
+      + '"expenseCategory": one of '+JSON.stringify(EXP_CATS)+', "activityCategory": one of '+JSON.stringify(CATS.map(c=>c[0]).filter(c=>c!=='food'&&c!=='restaurant'))+' (a meal is breakfast, lunch, dinner, coffee or drinks by the time it was eaten), '
       + '"date": "YYYY-MM-DD" or null (date printed on it, else the photo date), "time": "HH:MM" or null (24h time printed on it, else the photo time), '
       + '"city": string or null (the trip city it belongs to when within about 40 km of one, else the real nearest town), '
       + '"lat": number or null, "lon": number or null (where the place is: the GPS if given, else your best estimate for the place you named; null if you cannot tell), '
@@ -1449,6 +1501,8 @@ const WORLD = __WORLD__;
 
   // ---------- days ----------
   function addDays(s, n){ const [y,m,d]=s.split('-').map(Number); const t=new Date(y,m-1,d+n); return t.getFullYear()+'-'+pad2(t.getMonth()+1)+'-'+pad2(t.getDate()); }
+  // where the day ended: the last leg's destination that day, else the city you were in
+  function eveningStop(tid, d){ const l=tripLegs(tid).filter(x=>x.date===d).pop(), s=l&&stopOf(l.toId); return s&&!s.home?s:stopOnDate(tid,d); }
   function stopOnDate(tid, d){ const xs=tripStops(tid).filter(s=>!s.home&&s.arrive&&s.arrive<=d&&d<=(s.depart||s.arrive)); return xs.find(s=>s.arrive!==d)||xs[xs.length-1]||null; }
   // One day's items in the order they happened. Times win when known. Otherwise an item goes with
   // its city: after the leg that brings you there, before the leg that takes you on. Items with no
@@ -1482,13 +1536,13 @@ const WORLD = __WORLD__;
       const cities=[...new Set(stops.filter(s=>s.arrive&&s.arrive<=d&&d<=(s.depart||s.arrive)).map(s=>s.city))];
       const legs=tripLegs(t.id).filter(l=>l.date===d), acts=S.places.filter(p=>p.tripId===t.id&&p.date===d), exps=S.expenses.filter(e=>e.tripId===t.id&&e.date===d);
       html+='<div class="day'+(d===today?' today':'')+'"><div class="day-h"><div><b>'+fmtDate(d,{weekday:'short',month:'short',day:'numeric'})+'</b>'+(d===today?' <span class="pill accent">Today</span>':'')
-        +' <span class="faint">'+esc(cities.join(' → '))+'</span></div><div class="row" style="flex-wrap:nowrap;gap:4px"><button type="button" class="btn small ghost" data-shareday="'+d+'" aria-label="Share '+fmtDate(d)+'">'+ICON.share+'</button><button type="button" class="btn small ghost" data-addact="'+d+'" aria-label="Add an activity on '+fmtDate(d)+'">'+ICON.plus+'</button></div></div>'
+        +' <span class="faint">'+esc(cities.join(' → '))+'</span></div><div class="row" style="flex-wrap:nowrap;gap:4px"><button type="button" class="btn small ghost" data-shareday="'+d+'" aria-label="Share '+fmtDate(d)+'">'+ICON.share+'</button><button type="button" class="btn small ghost" data-addmeal="'+d+'" aria-label="Add a meal on '+fmtDate(d)+'" style="font-size:15px">🍽️</button><button type="button" class="btn small ghost" data-addact="'+d+'" aria-label="Add an activity on '+fmtDate(d)+'">'+ICON.plus+'</button></div></div>'
         + '<div class="day-list" data-day="'+d+'">'+dayOrder(d, legs, acts, exps).map(({k,x})=>{ const tm=hhmm(x)?'<span class="faint mono" style="flex-shrink:0">'+hhmm(x)+'</span>':'';
             if(k==='leg'){ const l=x; const a=stopOf(l.fromId)||{}, b=stopOf(l.toId)||{};
             return '<div class="day-i" data-leg="'+l.id+'">'+tm+'<span class="mini" style="background:'+(MODES[l.mode]||MODES.car).color+'">'+modeIcon(l.mode)+'</span><span style="flex:1">'+esc(a.city||'?')+' → '+esc(b.city||'?')+'</span><span class="faint mono">'+(l.kmEstimated?'≈':'')+fmtKm(l.km||0)+' km</span></div>'; }
-            if(k==='act'){ const p=x; return '<div class="day-i" data-pl="'+p.id+'">'+tm+'<span class="status-tag '+(p.status==='done'?'done':'want')+'">'+(p.status==='done'?'Been':'Want')+'</span><span style="flex:1;min-width:0">'+esc(p.name)
+            if(k==='act'){ const p=x; return '<div class="day-i" data-pl="'+p.id+'">'+tm+emo(catIcon(p.category))+'<span class="status-tag '+(p.status==='done'?'done':'want')+'">'+(p.status==='done'?'Been':'Want')+'</span><span style="flex:1;min-width:0">'+esc(p.name)
             +(p.rating?' <span class="stars">'+'★'.repeat(p.rating)+'</span>':'')+(statsLine(p)?' <span class="faint">'+statsLine(p)+'</span>':'')+'</span>'+(p.photoIds||[]).slice(0,3).map(id=>'<img alt="" src="/_blob/'+id+'" data-photo="'+id+'">').join('')+'</div>'; }
-            const e=x; return '<div class="day-i" data-exp="'+e.id+'">'+tm+'<span class="mini" style="background:var(--ink-faint)">'+ICON.coin+'</span><span style="flex:1;min-width:0">'+esc(e.label)+'</span><span class="faint mono">'+fmtMoney(e.amount,e.currency)+'</span></div>'; }).join('')+'</div>'
+            const e=x; return '<div class="day-i" data-exp="'+e.id+'">'+tm+emo(expIcon(e.category))+'<span style="flex:1;min-width:0">'+esc(e.label)+'</span><span class="faint mono">'+fmtMoney(e.amount,e.currency)+'</span></div>'; }).join('')+'</div>'
         + (legs.length||acts.length||exps.length?'':'<div class="faint">Nothing logged yet</div>')
         + nightHtml(t, d)
         + '</div>';
@@ -1643,10 +1697,35 @@ const WORLD = __WORLD__;
     if(!imgCache.has(id)) imgCache.set(id, new Promise(res=>{ const im=new Image(); im.onload=()=>res(im); im.onerror=()=>res(null); im.src='/_blob/'+id; }));
     return imgCache.get(id);
   }
+  // Share-only photo edits: o.photoFx[id] = {rot: 0|90|180|270, fx: none|warm|vivid|bw|fade, focus: center|top|bottom}.
+  const PHOTO_FX={none:'Original', warm:'Warm', vivid:'Vivid', bw:'B&W', fade:'Faded'};
+  const PHOTO_CSS={none:'', warm:'sepia(.25) saturate(1.25)', vivid:'saturate(1.5) contrast(1.1)', bw:'grayscale(1) contrast(1.1)', fade:'contrast(.85) brightness(1.08) saturate(.75)'};
+  const fxCache=new Map();
+  function fxImage(im, key, f){
+    const k=key+'|'+(f.rot||0)+'|'+(f.fx||'none'); if(fxCache.has(k)) return fxCache.get(k);
+    const sc=Math.min(1,1600/Math.max(im.width,im.height)), w=Math.round(im.width*sc), h=Math.round(im.height*sc), r=((f.rot||0)%360+360)%360, sw=r%180?h:w, sh=r%180?w:h;
+    const c=document.createElement('canvas'); c.width=sw; c.height=sh; const g=c.getContext('2d');
+    g.translate(sw/2,sh/2); g.rotate(r*Math.PI/180); g.drawImage(im,-w/2,-h/2,w,h);
+    if(f.fx&&f.fx!=='none'){ try{ const d=g.getImageData(0,0,sw,sh), a=d.data;
+      for(let i=0;i<a.length;i+=4){ let R=a[i], G=a[i+1], B=a[i+2]; const L=.299*R+.587*G+.114*B;
+        if(f.fx==='warm'){ R=R*1.08+10; G=G*1.03+3; B=B*.88; }
+        else if(f.fx==='vivid'){ R=L+(R-L)*1.4; G=L+(G-L)*1.4; B=L+(B-L)*1.4; R=(R-128)*1.1+128; G=(G-128)*1.1+128; B=(B-128)*1.1+128; }
+        else if(f.fx==='bw'){ R=G=B=(L-128)*1.12+128; }
+        else if(f.fx==='fade'){ R=(L+(R-L)*.75)*.85+30; G=(L+(G-L)*.75)*.85+30; B=(L+(B-L)*.75)*.85+34; }
+        a[i]=R; a[i+1]=G; a[i+2]=B; }
+      g.putImageData(d,0,0); }catch(e){} }
+    fxCache.set(k,c); return c;
+  }
+  async function sharePic(id, o){
+    const im=await loadImg(id); if(!im) return null;
+    const f=(o.photoFx||{})[id]||{};
+    return {img:(f.rot||(f.fx&&f.fx!=='none'))?fxImage(im,id,f):im, focus:f.focus||'center'};
+  }
   function roundRect(g,x,y,w,h,r){ g.beginPath(); if(g.roundRect) g.roundRect(x,y,w,h,r); else g.rect(x,y,w,h); }
   function drawCover(g,im,x,y,w,h,r){
+    let focus='center'; if(im&&im.img){ focus=im.focus; im=im.img; }
     g.save(); roundRect(g,x,y,w,h,r); g.clip(); g.fillStyle='#24313D'; g.fillRect(x,y,w,h);
-    if(im){ const k=Math.max(w/im.width,h/im.height), iw=im.width*k, ih=im.height*k; g.drawImage(im,x+(w-iw)/2,y+(h-ih)/2,iw,ih); }
+    if(im){ const k=Math.max(w/im.width,h/im.height), iw=im.width*k, ih=im.height*k; g.drawImage(im,x+(w-iw)/2,focus==='top'?y:focus==='bottom'?y+h-ih:y+(h-ih)/2,iw,ih); }
     g.restore();
   }
   function fitText(g,s,max){ if(g.measureText(s).width<=max) return s; while(s.length>1&&g.measureText(s+'…').width>max) s=s.slice(0,-1); return s+'…'; }
@@ -1668,7 +1747,7 @@ const WORLD = __WORLD__;
     // footer: stats
     const footH=o.showStats?(H<=1100?150:190):0, bottom=H-footH-(o.showStats?30:60);
     // middle: photos, map, activities share what is left
-    const pics=(await Promise.all(o.photoIds.slice(0,4).map(loadImg)));
+    const pics=(await Promise.all(o.photoIds.slice(0,4).map(id=>sharePic(id,o))));
     const nA=o.showActs?Math.min(d.acts.length, H>=1900?6:H>=1300?4:3):0;
     const actH=nA?nA*56+16:0;
     const M=bottom-y-(actH?actH+24:0);
@@ -1716,7 +1795,7 @@ const WORLD = __WORLD__;
     }
     if(nA){ // activities list
       d.acts.slice(0,nA).forEach((p,i)=>{ const ry=y+i*56+30;
-        g.save(); g.translate(X+10,ry-10); g.rotate(Math.PI/4); g.fillStyle=p.status==='done'?'#FF7A3D':'#101820'; g.strokeStyle='#FF7A3D'; g.lineWidth=3; g.fillRect(-8,-8,16,16); g.strokeRect(-8,-8,16,16); g.restore();
+        g.font='30px sans-serif'; g.fillStyle='#fff'; g.fillText(catIcon(p.category),X-4,ry);
         const stars=p.rating?'★'.repeat(p.rating):'', price=o.showCosts&&+p.cost?fmtMoney(+p.cost,p.currency||t.currency):'';
         g.font='600 34px Figtree, sans-serif'; const sw=stars?g.measureText(stars).width+20:0, pw=price?g.measureText(price).width+20:0;
         g.fillStyle='#fff'; g.fillText(fitText(g,p.name,W-2*X-50-sw-pw),X+40,ry);
@@ -1750,11 +1829,13 @@ const WORLD = __WORLD__;
   // Same slice and choices as the share card, drawn frame by frame (line traced leg by leg, camera following)
   // and recorded with MediaRecorder. MP4 when the browser can (iPhone can), WebM otherwise.
   const VIDEO_TYPES=['video/mp4;codecs=avc1','video/mp4','video/webm;codecs=vp9','video/webm;codecs=vp8','video/webm'];
-  function videoType(){
+  const AV_TYPES=['video/mp4;codecs=avc1,mp4a.40.2','video/mp4','video/webm;codecs=vp9,opus','video/webm;codecs=vp8,opus','video/webm'];
+  function videoType(withAudio){
     if(typeof MediaRecorder==='undefined'||!HTMLCanvasElement.prototype.captureStream) return null;
     if(!MediaRecorder.isTypeSupported) return '';
-    return VIDEO_TYPES.find(x=>{ try{ return MediaRecorder.isTypeSupported(x); }catch(e){ return false; } })||'';
+    return (withAudio?AV_TYPES:VIDEO_TYPES).find(x=>{ try{ return MediaRecorder.isTypeSupported(x); }catch(e){ return false; } })||'';
   }
+  const MODE_EMOJI={plane:'✈️',car:'🚗',train:'🚆',bus:'🚌',ferry:'⛴️',walk:'🚶'};
   const MODE_HEX={plane:'#6F9BFF',car:'#FF7A3D',train:'#4CC795',bus:'#B98BEB',ferry:'#3CC6D6',walk:'#B5AA9B'};
   const MODE_PATH={}; try{ Object.entries(MODES).forEach(([k,m])=>{ const d=(m.icon.match(/ d="([^"]+)"/)||[])[1]; if(d) MODE_PATH[k]=new Path2D(d); }); }catch(e){}
   const unitMerc=d3.geoMercator().scale(1).translate([0,0]);
@@ -1785,14 +1866,14 @@ const WORLD = __WORLD__;
       const ua=U(a.lon,a.lat), ub=U(b.lon,b.lat); let pts=[ua,ub];
       if(l.mode==='plane'){ const dx=ub[0]-ua[0], dy=ub[1]-ua[1], m=[(ua[0]+ub[0])/2+dy*.2,(ua[1]+ub[1])/2-dx*.2];
         pts=d3.range(41).map(i=>{ const s=i/40, q=1-s; return [q*q*ua[0]+2*s*q*m[0]+s*s*ub[0], q*q*ua[1]+2*s*q*m[1]+s*s*ub[1]]; }); }
-      evs.push({kind:'leg', date:l.date, mode:MODE_HEX[l.mode]?l.mode:'car', pts, km:+l.km||0, label:a.city+' → '+b.city, from:a, to:b, far:!!(a.home||b.home), ll:[[a.lon,a.lat],[b.lon,b.lat]]}); };
+      evs.push({kind:'leg', date:l.date, mode:MODE_HEX[l.mode]?l.mode:'car', pts, km:+l.km||0, label:a.city+' → '+b.city, from:a, to:b, leg:l, far:!!(a.home||b.home), ll:[[a.lon,a.lat],[b.lon,b.lat]]}); };
     const trackEv=p=>{ if(!o.showActs||!Array.isArray(p.track)||p.track.length<2) return false; const ll=p.track.map(q=>[q[1],q[0]]);
       evs.push({kind:'track', date:p.date, mode:'walk', pts:ll.map(q=>U(q[0],q[1])), km:0, label:p.name+(p.distanceKm?' · '+(+p.distanceKm).toFixed(1)+' km':''), act:p, ll}); return true; };
     // a "moment": an activity, or a meal/ticket/shopping expense, shown as a card where it happened
     const momentEv=(x,isExp)=>{ if(!o.showActs||(isExp&&!['Food & drink','Activities','Shopping'].includes(x.category))) return;
       const st=stopOf(x.stopId)||(x.city?d.stops.find(s=>norm(s.city)===norm(x.city)):null);
       const ll=!isExp&&x.lat!=null?[x.lon,x.lat]:st&&st.lat!=null?[st.lon,st.lat]:null;
-      evs.push({kind:'moment', date:x.date, item:x, isExp, name:isExp?x.label:x.name, cat:isExp?x.category:((CATS.find(c=>c[0]===x.category)||[])[1]||''),
+      evs.push({kind:'moment', date:x.date, item:x, isExp, name:isExp?x.label:x.name, cat:isExp?x.category:(CAT_LABEL[x.category]||''), icon:isExp?expIcon(x.category):catIcon(x.category),
         time:hhmm(x), rating:isExp?0:+x.rating||0, cost:isExp?+x.amount:+x.cost, cur:x.currency||t.currency||'EUR', ll, label:st?st.city:'', km:0}); };
     for(let day=o.from; day<=o.to; day=addDays(day,1))
       dayOrder(day, d.legs.filter(l=>l.date===day), d.acts.filter(p=>p.date===day), []).forEach(({k,x})=>k==='leg'?legEv(x):k==='act'?(trackEv(x)||momentEv(x,false)):momentEv(x,true));
@@ -1804,28 +1885,38 @@ const WORLD = __WORLD__;
     if(!all.length) all=[].concat(...evs.filter(e=>!e.far).map(e=>e.ll));
     if(!all.length) all=[].concat(...evs.map(e=>e.ll));
     const overall=all.length?fit(all, all.length<2?14000:60000):[0,-.35,W/200];
+    // every leg, track, moment and photo is a scene the editor can drop or lengthen
+    evs.forEach(e=>{ e.id=e.kind==='leg'?'leg:'+e.leg.id:e.kind==='track'?'trk:'+e.act.id:'mo:'+e.item.id; });
+    const ED=o.edit||{}, OFF=id=>!!(ED.off&&ED.off[id]), M=id=>((ED.mult&&+ED.mult[id])||1)*(+ED.pace||1);
     // photos go after the moment they belong to
-    const pics=(await Promise.all(o.photoIds.slice(0,4).map(async id=>{ const im=await loadImg(id); if(!im) return null;
+    const pics=(await Promise.all(o.photoIds.slice(0,4).map(async id=>{ const im=await sharePic(id,o); if(!im) return null;
       const act=d.acts.find(p=>(p.photoIds||[]).includes(id)), st=act?stopOf(act.stopId):d.stops.find(s=>(s.photoIds||[]).includes(id));
-      const own=act?evs.findIndex(e=>e.act===act||e.item===act):-1;
-      let after=own; if(own<0){ const pd=(act&&act.date)||(st&&st.arrive)||o.from; evs.forEach((e,i)=>{ if(e.date<=pd) after=i; }); }
-      return {im, after, label:act?act.name:st?st.city:''}; }))).filter(Boolean);
-    pics.forEach(p=>{ const e=evs[p.after]; if(e&&e.kind==='moment'&&!e.pic){ e.pic=p; p.after=-2; } });
+      let ev=act?evs.find(e=>e.act===act||e.item===act):null;
+      if(!ev){ const pd=(act&&act.date)||(st&&st.arrive)||o.from; evs.forEach(e=>{ if(e.date<=pd) ev=e; }); }
+      return {id, im, ev:ev||null, label:act?act.name:st?st.city:''}; }))).filter(Boolean);
+    const scenes=[{id:'intro', label:'🎬 Title'}], picScene=p=>({id:'ph:'+p.id, label:'📷 '+(p.label||'Photo'), photo:p.id});
+    pics.filter(p=>!p.ev).forEach(p=>scenes.push(picScene(p)));
+    evs.forEach(e=>{ scenes.push({id:e.id, label:(e.kind==='leg'?MODE_EMOJI[e.mode]||'🚗':e.kind==='track'?'🏃':e.icon)+' '+(e.kind==='moment'?e.name:e.label)}); pics.filter(p=>p.ev===e).forEach(p=>scenes.push(picScene(p))); });
+    scenes.push({id:'outro', label:'🏁 Whole route & stats'});
+    const shown=pics.filter(p=>!OFF('ph:'+p.id));
+    shown.forEach(p=>{ const e=p.ev; if(e&&e.kind==='moment'&&!OFF(e.id)&&!e.pic){ e.pic=p; p.inMoment=true; } });
+    const allEvs=evs.slice(); evs.splice(0, evs.length, ...allEvs.filter(e=>!OFF(e.id)));
     await Promise.all(evs.filter(e=>e.kind==='moment'&&!e.pic&&!e.isExp&&(e.item.photoIds||[]).length).map(async e=>{ e.thumb=await loadImg(e.item.photoIds[0]); }));
     // timeline
     const segs=[]; let T=0, cam=overall;
-    const add=s=>{ s.t0=T; T+=s.dur; s.t1=T; segs.push(s); };
-    const photosAfter=i=>pics.filter(p=>p.after===i).forEach(p=>add({type:'photo', dur:1.7, pic:p, c0:cam, tilt:(segs.length%2?1:-1)*.04}));
-    add({type:'intro', dur:1.6, c0:overall});
-    photosAfter(-1);
+    const add=(s,id)=>{ s.id=id; s.dur*=M(id); s.t0=T; T+=s.dur; s.t1=T; segs.push(s); return s; };
+    const photosAfter=e=>shown.filter(p=>p.ev===e&&!p.inMoment).forEach(p=>add({type:'photo', dur:1.7, pic:p, c0:cam, tilt:(segs.length%2?1:-1)*.04}, 'ph:'+p.id));
+    add({type:'intro', dur:1.6, c0:overall}, 'intro');
+    photosAfter(null);
     const moveDur=evs.length?Math.max(1.1,Math.min(2.1,16/evs.length)):0;
-    evs.forEach((e,i)=>{
+    allEvs.forEach(e=>{
+      if(OFF(e.id)){ photosAfter(e); return; }
       if(e.kind==='moment'){ let c1=cam; if(e.ll){ const q=U(e.ll[0],e.ll[1]); c1=[q[0],q[1],Math.min(cam[2],W/120000)]; }
-        const s={type:'moment', dur:e.pic?2.8:2.1, ev:e, c0:cam, zi:c1===cam?null:d3.interpolateZoom(cam,c1)}; add(s); e.ts=e.te=s.t0+s.dur*.25; cam=c1; photosAfter(i); return; }
-      const c1=fit(e.ll, e.kind==='track'?120000:60000), dur=moveDur+(e.far?.9:0)+(e.kind==='track'?.6:0);
-      const s={type:'move', dur, ev:e, c0:cam, zi:d3.interpolateZoom(cam,c1)}; add(s); e.ts=s.t0+dur*.3; e.te=s.t0+dur*.92; cam=c1; photosAfter(i); });
-    if(!evs.length&&!pics.length) add({type:'hold', dur:1.2, c0:cam});
-    add({type:'outro', dur:3.4, c0:cam, zi:d3.interpolateZoom(cam,overall)});
+        const s=add({type:'moment', dur:e.pic?2.8:2.1, ev:e, c0:cam, zi:c1===cam?null:d3.interpolateZoom(cam,c1)}, e.id); e.ts=e.te=s.t0+s.dur*.25; cam=c1; photosAfter(e); return; }
+      const c1=fit(e.ll, e.kind==='track'?120000:60000);
+      const s=add({type:'move', dur:moveDur+(e.far?.9:0)+(e.kind==='track'?.6:0), ev:e, c0:cam, zi:d3.interpolateZoom(cam,c1)}, e.id); e.ts=s.t0+s.dur*.3; e.te=s.t0+s.dur*.92; cam=c1; photosAfter(e); });
+    if(!evs.length&&!shown.length) add({type:'hold', dur:1.2, c0:cam}, 'hold');
+    add({type:'outro', dur:3.4, c0:cam, zi:d3.interpolateZoom(cam,overall)}, 'outro');
     // when each city and activity appears
     const cities=new Map(), cityAt=(s,at)=>{ if(!s||s.lat==null) return; const k=norm(s.city), c=cities.get(k); if(!c) cities.set(k,{city:s.city, u:U(s.lon,s.lat), at}); else c.at=Math.min(c.at,at); };
     evs.forEach(e=>{ if(e.kind==='leg'){ cityAt(e.from, e.ts-.2); cityAt(e.to, e.te); } });
@@ -1902,7 +1993,7 @@ const WORLD = __WORLD__;
         if(al>0){ const cw=W-2*X, y0=cy+(1-backOut(a))*40; g.globalAlpha=al;
           g.shadowColor='rgba(0,0,0,.45)'; g.shadowBlur=30; roundRect(g,X,y0,cw,ch,26); g.fillStyle='#fff'; g.fill(); g.shadowColor='transparent';
           let tx=X+32; if(e.thumb){ drawCover(g,e.thumb,X+18,y0+18,ch-36,ch-36,16); tx=X+ch+4; } const tw=X+cw-tx-28;
-          g.fillStyle='#E2551B'; g.font='700 24px Figtree, sans-serif'; g.fillText(fitText(g,([e.time,e.cat].filter(Boolean).join(' · ')||(e.isExp?'Spent':'Activity')).toUpperCase(),tw),tx,y0+50);
+          g.fillStyle='#E2551B'; g.font='700 24px Figtree, sans-serif'; g.fillText(fitText(g,(e.icon?e.icon+'  ':'')+([e.time,e.cat].filter(Boolean).join(' · ')||(e.isExp?'Spent':'Activity')).toUpperCase(),tw),tx,y0+50);
           g.fillStyle='#15202B'; g.font='700 52px "Barlow Condensed", sans-serif'; g.fillText(fitText(g,e.name||'',tw),tx,y0+106);
           g.font='600 28px Figtree, sans-serif'; let bx=tx;
           if(e.rating){ const st='★'.repeat(Math.min(5,e.rating)); g.fillStyle='#E2551B'; g.fillText(st,bx,y0+144); bx+=g.measureText(st).width+18; }
@@ -1920,21 +2011,68 @@ const WORLD = __WORLD__;
         if(modes&&H>1100){ g.fillStyle='#C9D3DC'; g.font='500 26px Figtree, sans-serif'; g.fillText(fitText(g,modes,W-2*X), X, sy+170); }
         g.globalAlpha=1; } }
     }
-    return {W, H, T, draw, events:evs.length, photos:pics.length};
+    return {W, H, T, draw, scenes, events:evs.length, photos:shown.length};
+  }
+  // Built-in soundtracks, synthesised with WebAudio: pad chords, bass, an arpeggio and (for some) drums.
+  const TUNES={
+    sunny:{label:'🌅 Sunny', bpm:112, key:60, prog:[[0,4,7],[7,11,14],[9,12,16],[5,9,12]], step:2, drums:'pop'},
+    chill:{label:'🌊 Chill', bpm:80, key:57, prog:[[0,3,7],[-4,0,3],[3,7,10],[-2,2,5]], step:1, drums:''},
+    epic:{label:'🎬 Epic', bpm:96, key:50, prog:[[0,3,7],[-4,0,3],[3,7,10],[-2,2,5]], step:4, drums:'big'},
+  };
+  const tuneCache=new Map();
+  async function makeTune(kind, secs){
+    const T=TUNES[kind]; if(!T) return null; secs=Math.max(8,Math.ceil(secs));
+    const key=kind+'|'+secs; if(tuneCache.has(key)) return tuneCache.get(key);
+    const sr=44100, ac=new OfflineAudioContext(2, secs*sr, sr), hz=n=>440*Math.pow(2,(n-69)/12), beat=60/T.bpm, bar=beat*4;
+    const master=ac.createGain(); master.gain.setValueAtTime(0,0); master.gain.linearRampToValueAtTime(.55,1); master.connect(ac.destination);
+    const lp=ac.createBiquadFilter(); lp.type='lowpass'; lp.frequency.value=kind==='chill'?1800:3800; lp.connect(master);
+    const dl=ac.createDelay(1); dl.delayTime.value=beat*.75; const fb=ac.createGain(); fb.gain.value=.3; dl.connect(fb); fb.connect(dl); dl.connect(lp);
+    const tone=(type,f,t,dur,vol,att,echo)=>{ const o=ac.createOscillator(), g=ac.createGain(); o.type=type; o.frequency.value=f;
+      g.gain.setValueAtTime(0,t); g.gain.linearRampToValueAtTime(vol,t+att); g.gain.exponentialRampToValueAtTime(.0004,t+dur);
+      o.connect(g); g.connect(lp); if(echo) g.connect(dl); o.start(t); o.stop(t+dur+.05); };
+    let noise=null; if(T.drums){ noise=ac.createBuffer(1, sr*.3, sr); const ch=noise.getChannelData(0); for(let i=0;i<ch.length;i++) ch[i]=Math.random()*2-1; }
+    const kick=(t,v)=>{ const o=ac.createOscillator(), g=ac.createGain(); o.frequency.setValueAtTime(150,t); o.frequency.exponentialRampToValueAtTime(42,t+.14);
+      g.gain.setValueAtTime(v,t); g.gain.exponentialRampToValueAtTime(.001,t+.35); o.connect(g); g.connect(master); o.start(t); o.stop(t+.4); };
+    const hit=(t,v,f,dur)=>{ const n=ac.createBufferSource(), hp=ac.createBiquadFilter(), g=ac.createGain(); n.buffer=noise; hp.type=f>3000?'highpass':'bandpass'; hp.frequency.value=f;
+      g.gain.setValueAtTime(v,t); g.gain.exponentialRampToValueAtTime(.001,t+dur); n.connect(hp); hp.connect(g); g.connect(master); n.start(t); n.stop(t+dur+.02); };
+    for(let b=0;b*bar<secs;b++){ const t0=b*bar, ch=T.prog[b%4];
+      ch.forEach(iv=>[-6,6].forEach(cents=>{ const o=ac.createOscillator(), g=ac.createGain(); o.type=kind==='epic'?'sawtooth':'triangle';
+        o.frequency.value=hz(T.key+iv+12); o.detune.value=cents; g.gain.setValueAtTime(0,t0); g.gain.linearRampToValueAtTime(kind==='epic'?.035:.05,t0+bar*.35); g.gain.linearRampToValueAtTime(0,t0+bar+.25);
+        o.connect(g); g.connect(lp); o.start(t0); o.stop(t0+bar+.3); }));
+      tone('sine', hz(T.key+ch[0]-12), t0, bar*.9, .3, .02);
+      if(T.drums) tone('sine', hz(T.key+ch[0]-12), t0+beat*2, bar*.45, .22, .02);
+      const seq=[ch[0],ch[1],ch[2],ch[1]+12,ch[2]+12,ch[1]+12,ch[2],ch[1]], step=beat/T.step;
+      for(let i=0;i<4*T.step;i++) if(kind!=='chill'||i%2===0||b%2) tone(kind==='chill'?'sine':'triangle', hz(T.key+12+seq[i%seq.length]), t0+i*step, step*2.2, kind==='epic'?.06:.1, .006, i%2===0);
+      if(T.drums==='pop') for(let q=0;q<4;q++){ kick(t0+q*beat,.8); hit(t0+q*beat+beat/2,.07,8000,.05); if(q%2) hit(t0+q*beat,.18,1800,.12); }
+      if(T.drums==='big'){ kick(t0,1); kick(t0+beat*2,.9); hit(t0+beat,.25,1200,.25); hit(t0+beat*3,.25,1200,.25); if(b%4===3) for(let r=0;r<4;r++) hit(t0+beat*3+r*beat/4,.12+r*.05,900,.15); }
+    }
+    const buf=await ac.startRendering(); tuneCache.set(key, buf); return buf;
   }
   // Plays the plan on `cv` in real time while recording it; resolves to the video Blob (null if stopped).
-  async function recordRouteVideo(plan, cv, onTick, alive){
+  // audio (optional): {ctx: AudioContext, buf: AudioBuffer, start: s, vol: 0–1, fade: bool}; it plays out loud too.
+  async function recordRouteVideo(plan, cv, onTick, alive, audio){
     const R=720/plan.W; cv.width=720; cv.height=Math.round(plan.H*R); const g=cv.getContext('2d');
-    const type=videoType(), stream=cv.captureStream(30);
-    const rec=new MediaRecorder(stream, type?{mimeType:type, videoBitsPerSecond:5000000}:undefined);
+    const vstream=cv.captureStream(30); let stream=vstream, src=null, gn=null;
+    if(audio&&audio.buf&&audio.ctx){ const ac=audio.ctx, dest=ac.createMediaStreamDestination(); gn=ac.createGain(); gn.gain.value=0;
+      src=ac.createBufferSource(); src.buffer=audio.buf;
+      const from=Math.min(audio.start||0, Math.max(0,audio.buf.duration-1));
+      if(audio.buf.duration-from<plan.T+.5){ src.loop=true; src.loopStart=from; src.loopEnd=audio.buf.duration; }
+      src.connect(gn); gn.connect(dest); gn.connect(ac.destination);
+      stream=new MediaStream([...vstream.getVideoTracks(), ...dest.stream.getAudioTracks()]); audio.from=from; }
+    const type=videoType(!!src);
+    const rec=new MediaRecorder(stream, type?Object.assign({mimeType:type, videoBitsPerSecond:5000000}, src?{audioBitsPerSecond:128000}:{}):undefined);
     const chunks=[]; rec.ondataavailable=e=>{ if(e.data&&e.data.size) chunks.push(e.data); };
     const stopped=new Promise(r=>{ rec.onstop=r; });
     const paint=tau=>{ g.setTransform(R,0,0,R,0,0); plan.draw(g,tau); };
     paint(0); rec.start(250);
+    if(src){ const ac=audio.ctx, t0=ac.currentTime, v=Math.max(.001,audio.vol==null?.8:audio.vol), end=t0+plan.T+.5;
+      gn.gain.setValueAtTime(0,t0); gn.gain.linearRampToValueAtTime(v,t0+.4);
+      if(audio.fade){ gn.gain.setValueAtTime(v,Math.max(t0+.5,end-2.2)); gn.gain.linearRampToValueAtTime(0,end); }
+      src.start(t0, audio.from); }
     await new Promise(res=>{ let t0=null; const step=now=>{ if(!alive()) return res(); if(t0==null) t0=now;
       const tau=Math.max(0,(now-t0)/1000); paint(Math.min(tau,plan.T)); onTick(tau);
       if(tau<plan.T+.5) requestAnimationFrame(step); else res(); }; requestAnimationFrame(step); });
-    rec.stop(); await stopped; stream.getTracks().forEach(x=>x.stop());
+    rec.stop(); await stopped; stream.getTracks().forEach(x=>x.stop()); if(src) try{ src.stop(); }catch(e){}
     if(!alive()||!chunks.length) return null;
     return new Blob(chunks,{type:(rec.mimeType||type||'video/webm').split(';')[0]});
   }
@@ -1942,7 +2080,8 @@ const WORLD = __WORLD__;
     init=init||{};
     const days=[]; if(t.startDate&&t.endDate&&t.endDate>=t.startDate) for(let i=0;i<Math.min(dayCount(t.startDate,t.endDate),90);i++) days.push(addDays(t.startDate,i));
     if(!days.length){ toast('Give the trip start and end dates first.'); return; }
-    const o={from:init.from||days[0], to:init.to||days[days.length-1], format:'post', showMap:true, showStats:true, showActs:true, showCosts:false, photoIds:[], title:''};
+    const o={from:init.from||days[0], to:init.to||days[days.length-1], format:'post', showMap:true, showStats:true, showActs:true, showCosts:false, photoIds:[], title:'', edit:{off:{}, mult:{}, pace:1}, photoFx:{}};
+    const music={kind:'none', buf:null, name:'', start:0, vol:.8, fade:true};
     let titleTouched=false, capTouched=false, picksTouched=false, drawTok=0, canvas=null, presetTitle='';
     const today=todayStr(), cityChips=[];
     tripStops(t.id).filter(s=>!s.home&&s.arrive).forEach(s=>{ const k=norm(s.city); const ex=cityChips.find(x=>x.k===k);
@@ -1959,6 +2098,20 @@ const WORLD = __WORLD__;
       + '<div class="field"><label for="shTitle">Title</label><input id="shTitle"></div>'
       + '<div class="field"><label>On the image</label><div class="row" id="shShow"><button type="button" class="chip on" data-show="showMap">Map</button><button type="button" class="chip on" data-show="showStats">Stats</button><button type="button" class="chip on" data-show="showActs">Activities</button><button type="button" class="chip" data-show="showCosts">Prices</button></div></div>'
       + '<div class="field" id="shPicsF"><label>Photos <span style="text-transform:none;letter-spacing:0;font-weight:500">(tap to pick up to 4)</span></label><div class="photos" id="shPics"></div></div>'
+      + (videoType()!==null?'<details class="edit" id="shEd"><summary>✂️ Edit video · photos · music <span class="faint" id="edLen" style="margin-left:auto;margin-right:8px;font-weight:500"></span></summary><div class="ed-body">'
+        + '<div class="field"><label>Music</label><div class="chips" id="edMusic"><button type="button" class="chip on" data-mu="none">No music</button>'
+          + Object.entries(TUNES).map(([k,x])=>'<button type="button" class="chip" data-mu="'+k+'">'+x.label+'</button>').join('')
+          + '<button type="button" class="chip" data-mu="file">🎵 My song…</button></div><input type="file" id="edSong" accept="audio/*" hidden>'
+          + '<div id="edMuOpts" hidden style="display:flex;flex-direction:column;gap:8px;margin-top:6px">'
+          + '<div class="faint" id="edSongName"></div>'
+          + '<div class="ed-range" id="edStartRow" hidden>Start at <input type="range" id="edStart" min="0" max="60" step="1" value="0"><span class="mono" id="edStartV">0:00</span></div>'
+          + '<div class="ed-range">Volume <input type="range" id="edVol" min="0" max="100" step="5" value="80"><span class="mono" id="edVolV">80%</span></div>'
+          + '<div class="row"><button type="button" class="chip on" id="edFade">Fade out at the end</button><button type="button" class="btn small" id="edListen">▶ Listen</button></div>'
+          + '<div class="hint">Plays while it records, so turn your sound on. Instagram and TikTok can also add their own music after you post.</div></div></div>'
+        + '<div class="field"><label>Pace</label><div class="chips" id="edPace"><button type="button" class="chip" data-pace="0.75">Quick</button><button type="button" class="chip on" data-pace="1">Normal</button><button type="button" class="chip" data-pace="1.35">Relaxed</button></div></div>'
+        + '<div class="field"><label>Scenes <span style="text-transform:none;letter-spacing:0;font-weight:500">(untick to cut, or make one longer)</span></label><div id="edScenes" class="faint">…</div></div>'
+        + '<div class="field" id="edPhF"><label>Photo edits <span style="text-transform:none;letter-spacing:0;font-weight:500">(only on what you share; your photos stay as they are)</span></label><div id="edPhotos"></div></div>'
+        + '</div></details>':'')
       + '<div class="field"><label for="cap">Caption</label><textarea id="cap"></textarea></div>'
       + '<div class="row">'+(canShare?'<button class="btn primary" type="button" id="shareNow" disabled>'+ICON.share+' Share…</button>':'')
       + '<button class="btn primary" type="button" id="saveVid" hidden>Save video</button>'
@@ -1974,7 +2127,7 @@ const WORLD = __WORLD__;
       const redraw=async()=>{ const tok=++drawTok; dropVideo(); const cv=await makeCard(t, o); if(tok!==drawTok||!sheet.isConnected) return; canvas=cv;
         $('#cardBox').innerHTML='<img class="share-preview" style="max-height:46vh;width:auto;max-width:100%" alt="Share image preview" src="'+cv.toDataURL('image/jpeg',.85)+'">';
         const s=$('#shareNow'); if(s) s.disabled=false; const b=$('#saveImg'); if(b) b.disabled=!downloads; };
-      let timer=null; const later=()=>{ clearTimeout(timer); timer=setTimeout(redraw,200); };
+      let timer=null; const later=()=>{ clearTimeout(timer); timer=setTimeout(redraw,200); const e=$('#shEd'); if(e&&e.open) setTimeout(drawScenes,400); };
       const sync=()=>{ // range changed: refresh title, photos, caption
         if(o.to<o.from){ const x=o.to; o.to=o.from; o.from=x; }
         $('#shFrom').value=o.from; $('#shTo').value=o.to;
@@ -2018,20 +2171,83 @@ const WORLD = __WORLD__;
         catch(e){ if(e&&e.code!=='declined') $('#shareHint').textContent='Couldn\'t save the image. Long‑press the preview to save it instead.'; }
         finally{ btn.disabled=false; } };
       const mk=$('#mkVid');
-      if(mk) mk.onclick=async()=>{ dropVideo(); const tok=vidTok; mk.disabled=true; $('#shareHint').textContent='';
+      if(mk) mk.onclick=async()=>{ dropVideo(); stopListen(); const tok=vidTok; mk.disabled=true; $('#shareHint').textContent='';
         const alive=()=>tok===vidTok&&sheet.isConnected;
+        // the audio context has to start inside the tap
+        let actx=null; if(music.kind!=='none'){ try{ actx=new (window.AudioContext||window.webkitAudioContext)(); actx.resume(); }catch(e){ actx=null; } }
         try{
           const plan=await routeVideoPlan(t, JSON.parse(JSON.stringify(o))); if(!alive()) return;
+          let audio=null;
+          if(actx){ mk.textContent='Making music…'; const buf=music.kind==='file'?music.buf:await makeTune(music.kind, plan.T+2); if(!alive()) return;
+            if(buf) audio={ctx:actx, buf, start:music.kind==='file'?music.start:0, vol:music.vol, fade:music.fade}; }
           const cv=document.createElement('canvas'); cv.className='share-preview'; cv.style.cssText='max-height:46vh;width:auto;max-width:100%';
           $('#cardBox').innerHTML=''; $('#cardBox').appendChild(cv);
-          const vb=await recordRouteVideo(plan, cv, tau=>{ if(alive()) mk.textContent='Recording '+Math.min(100,Math.round(tau/plan.T*100))+'%'; }, alive);
+          const vb=await recordRouteVideo(plan, cv, tau=>{ if(alive()) mk.textContent='Recording '+Math.min(100,Math.round(tau/plan.T*100))+'%'; }, alive, audio);
           if(!vb||!alive()) return;
           vidBlob=vb; vidUrl=URL.createObjectURL(vb);
           $('#cardBox').innerHTML='<video class="share-preview" style="max-height:46vh;width:auto;max-width:100%" src="'+vidUrl+'" controls playsinline muted loop autoplay></video>';
           $('#saveVid').hidden=!downloads; mk.textContent='🎬 Again';
-          $('#shareHint').textContent=Math.round(plan.T)+' s video'+(/mp4/.test(vb.type)?'':' (WebM)')+'. Change any option to go back to the image.';
+          $('#shareHint').textContent=Math.round(plan.T)+' s video'+(audio?' with music (unmute the player to hear it)':'')+(/mp4/.test(vb.type)?'':' (WebM)')+'. Change any option to go back to the image.';
         }catch(e){ if(alive()) $('#shareHint').textContent='Couldn\'t record a video here: '+((e&&e.message)||e); }
-        finally{ if(tok===vidTok) mk.disabled=false; } };
+        finally{ if(tok===vidTok) mk.disabled=false; if(actx) actx.close().catch(()=>{}); } };
+      // ----- editor: music, pace, scenes, photo edits
+      const ed=$('#shEd');
+      let listen=null; function stopListen(){ if(listen){ try{ listen.src.stop(); }catch(e){} listen.ctx.close().catch(()=>{}); listen=null; } const b=$('#edListen'); if(b) b.textContent='▶ Listen'; }
+      const mm=sec=>Math.floor(sec/60)+':'+pad2(Math.floor(sec%60));
+      const drawMusic=()=>{ if(!ed) return; ed.querySelectorAll('[data-mu]').forEach(b=>b.classList.toggle('on',b.dataset.mu===music.kind));
+        $('#edMuOpts').hidden=music.kind==='none'; $('#edMuOpts').style.display=music.kind==='none'?'none':'flex';
+        $('#edStartRow').hidden=music.kind!=='file'; $('#edSongName').textContent=music.kind==='file'?'🎵 '+music.name+' · '+mm(music.buf.duration):'';
+        $('#edFade').classList.toggle('on',music.fade); };
+      const edLater=()=>{ clearTimeout(edTimer); edTimer=setTimeout(drawScenes,350); };
+      let edTimer=null, sceneTok=0;
+      async function drawScenes(){ if(!ed||!ed.open) return; const tok=++sceneTok; let plan;
+        try{ plan=await routeVideoPlan(t, JSON.parse(JSON.stringify(o))); }catch(e){ return; } if(tok!==sceneTok||!sheet.isConnected) return;
+        $('#edLen').textContent='≈ '+Math.round(plan.T)+' s';
+        const E=o.edit;
+        $('#edScenes').className=''; $('#edScenes').innerHTML=plan.scenes.map(sc=>{ const off=!!E.off[sc.id], m=String(E.mult[sc.id]||1);
+          return '<div class="ed-row'+(off?' off':'')+'"><input type="checkbox" data-son="'+esc(sc.id)+'"'+(off?'':' checked')+(sc.id==='outro'?' disabled':'')+' aria-label="Keep this scene"><span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(sc.label)+'</span>'
+            + '<select data-smul="'+esc(sc.id)+'" aria-label="Length"'+(off?' disabled':'')+'>'+[['0.6','Short'],['1','Normal'],['1.6','Long'],['2.4','Longer']].map(([v,l])=>'<option value="'+v+'"'+(v===m?' selected':'')+'>'+l+'</option>').join('')+'</select></div>'; }).join('');
+        $('#edScenes').querySelectorAll('[data-son]').forEach(c=>c.onchange=()=>{ if(c.checked) delete E.off[c.dataset.son]; else E.off[c.dataset.son]=true; changed(); });
+        $('#edScenes').querySelectorAll('[data-smul]').forEach(c=>c.onchange=()=>{ if(c.value==='1') delete E.mult[c.dataset.smul]; else E.mult[c.dataset.smul]=+c.value; changed(); });
+        drawPhotoEd(); }
+      function drawPhotoEd(){ const ids=o.photoIds.slice(0,4); $('#edPhF').hidden=!ids.length;
+        $('#edPhotos').innerHTML=ids.map(id=>{ const f=o.photoFx[id]||{};
+          return '<div class="ed-row"><img class="ed-ph" alt="" src="/_blob/'+id+'" style="transform:rotate('+(f.rot||0)+'deg);filter:'+(PHOTO_CSS[f.fx||'none']||'none')+';object-position:'+(f.focus==='top'?'center top':f.focus==='bottom'?'center bottom':'center')+'">'
+            + '<button type="button" class="btn small" data-rot="'+id+'" aria-label="Rotate">⟳</button>'
+            + '<select data-fx="'+id+'" aria-label="Look">'+Object.entries(PHOTO_FX).map(([k,l])=>'<option value="'+k+'"'+((f.fx||'none')===k?' selected':'')+'>'+l+'</option>').join('')+'</select>'
+            + '<select data-focus="'+id+'" aria-label="Framing">'+[['center','Middle'],['top','Top'],['bottom','Bottom']].map(([k,l])=>'<option value="'+k+'"'+((f.focus||'center')===k?' selected':'')+'>'+l+'</option>').join('')+'</select></div>'; }).join('');
+        const fx=id=>o.photoFx[id]=o.photoFx[id]||{};
+        $('#edPhotos').querySelectorAll('[data-rot]').forEach(b=>b.onclick=()=>{ const f=fx(b.dataset.rot); f.rot=((f.rot||0)+90)%360; drawPhotoEd(); later(); });
+        $('#edPhotos').querySelectorAll('[data-fx]').forEach(c=>c.onchange=()=>{ fx(c.dataset.fx).fx=c.value; drawPhotoEd(); later(); });
+        $('#edPhotos').querySelectorAll('[data-focus]').forEach(c=>c.onchange=()=>{ fx(c.dataset.focus).focus=c.value; drawPhotoEd(); later(); }); }
+      function changed(){ dropVideo(); restoreImage(); edLater(); }
+      function restoreImage(){ if(canvas&&!$('#cardBox img')) $('#cardBox').innerHTML='<img class="share-preview" style="max-height:46vh;width:auto;max-width:100%" alt="Share image preview" src="'+canvas.toDataURL('image/jpeg',.85)+'">'; }
+      if(ed){
+        ed.addEventListener('toggle',()=>{ if(ed.open) drawScenes(); });
+        ed.querySelectorAll('[data-mu]').forEach(b=>b.onclick=()=>{ stopListen(); const k=b.dataset.mu;
+          if(k==='file'){ $('#edSong').click(); return; } music.kind=k; drawMusic(); changed(); });
+        $('#edSong').onchange=async()=>{ const f=($('#edSong').files||[])[0]; $('#edSong').value=''; if(!f) return;
+          $('#edSongName').textContent='Opening '+f.name+'…'; $('#edMuOpts').hidden=false; $('#edMuOpts').style.display='flex';
+          try{ const ab=await f.arrayBuffer(), oc=new OfflineAudioContext(2,44100,44100);
+            const buf=await new Promise((res,rej)=>{ const pr=oc.decodeAudioData(ab,res,rej); if(pr&&pr.then) pr.then(res,rej); });
+            music.kind='file'; music.buf=buf; music.name=f.name.replace(/\.[^.]+$/,''); music.start=0;
+            const st=$('#edStart'); st.max=String(Math.max(0,Math.floor(buf.duration-5))); st.value='0'; $('#edStartV').textContent='0:00';
+            drawMusic(); changed(); }
+          catch(e){ $('#edSongName').textContent='Couldn\'t open that file. Try an MP3 or M4A saved on your phone.'; } };
+        $('#edStart').oninput=()=>{ music.start=+$('#edStart').value; $('#edStartV').textContent=mm(music.start); };
+        $('#edStart').onchange=()=>{ changed(); if(listen){ stopListen(); $('#edListen').click(); } };
+        $('#edVol').oninput=()=>{ music.vol=+$('#edVol').value/100; $('#edVolV').textContent=$('#edVol').value+'%'; if(listen) listen.gain.gain.value=music.vol; };
+        $('#edVol').onchange=changed;
+        $('#edFade').onclick=()=>{ music.fade=!music.fade; drawMusic(); changed(); };
+        $('#edListen').onclick=async()=>{ if(listen){ stopListen(); return; } const b=$('#edListen');
+          const ctx=new (window.AudioContext||window.webkitAudioContext)(); ctx.resume(); listen={ctx, src:{stop(){}}, gain:ctx.createGain()};
+          b.textContent='…'; const mine=listen;
+          const buf=music.kind==='file'?music.buf:await makeTune(music.kind, 20); if(listen!==mine||!buf) return;
+          const src=ctx.createBufferSource(); src.buffer=buf; mine.gain.gain.value=music.vol; src.connect(mine.gain); mine.gain.connect(ctx.destination);
+          src.start(0, music.kind==='file'?music.start:0, 20); src.onended=()=>{ if(listen===mine) stopListen(); }; mine.src=src; b.textContent='■ Stop'; };
+        ed.querySelectorAll('[data-pace]').forEach(b=>b.onclick=()=>{ o.edit.pace=+b.dataset.pace; ed.querySelectorAll('[data-pace]').forEach(x=>x.classList.toggle('on',x===b)); changed(); });
+        new MutationObserver(()=>{ if(!sheet.isConnected) stopListen(); }).observe(document.getElementById('layer'),{childList:true});
+      }
       const sv=$('#saveVid');
       sv.onclick=async()=>{ if(!vidBlob||!downloads) return; sv.disabled=true;
         try{ await downloads.save({filename:vidName(), data:vidBlob}); toast('Saved'); }
