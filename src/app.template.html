@@ -2317,6 +2317,14 @@ const WORLD = __WORLD__;
         time:priv(o,'times')?'':hhmm(x), rating:isExp?0:+x.rating||0, cost:isExp?+x.amount:+x.cost, cur:x.currency||t.currency||'EUR', ll, label:st?st.city:'', km:0}); };
     for(let day=o.from; day<=o.to; day=addDays(day,1))
       dayOrder(day, d.legs.filter(l=>l.date===day), d.acts.filter(p=>p.date===day), []).forEach(({k,x})=>k==='leg'?legEv(x):k==='act'?(trackEv(x)||momentEv(x,false)):momentEv(x,true));
+    // no leg logged between two cities (towns added from photos)? draw the drive anyway, so the line still moves
+    if(!o.city){ let last=null; for(let i=0;i<evs.length;i++){ const e=evs[i];
+      if(e.kind==='leg'){ last=e.to; continue; }
+      const st=e.kind==='moment'?(stopOf(e.item.stopId)||(e.item.city?d.stops.find(s=>norm(s.city)===norm(e.item.city)):null)):stopOf(e.act.stopId);
+      if(!st||st.home||st.lat==null) continue;
+      if(last&&norm(last.city)!==norm(st.city)&&haversine(last,st)>=2){ const a=last, b=st, km=Math.round(haversine(a,b)*ROAD_FACTOR.car);
+        evs.splice(i,0,{kind:'leg', date:e.date, mode:'car', pts:[U(a.lon,a.lat),U(b.lon,b.lat)], km, label:a.city+' → '+b.city, from:a, to:b, leg:{id:'hop:'+a.id+'>'+b.id+':'+i}, ll:[[a.lon,a.lat],[b.lon,b.lat]]}); i++; }
+      last=st; } }
     let where='';
     evs.forEach(e=>{ if(e.kind==='moment') e.label=where=e.label||where; else where=e.kind==='leg'?e.to.city:(stopOf(e.act.stopId)||{}).city||where; });
     evs.forEach(e=>{ if(!e.pts) return; e.cum=[0]; for(let i=1;i<e.pts.length;i++) e.cum.push(e.cum[i-1]+Math.hypot(e.pts[i][0]-e.pts[i-1][0],e.pts[i][1]-e.pts[i-1][1])); e.len=e.cum[e.cum.length-1]; });
