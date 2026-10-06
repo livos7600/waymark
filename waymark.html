@@ -1085,6 +1085,7 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
           if(r.date){ $('#pDate').value=r.date; }
           if(r.time) $('#pTime').value=r.time; else if(r.date&&r.date!==todayStr()&&!p) $('#pTime').value='';
           if(r.city&&cityNames.includes(r.city)){ $('#pCity').value=r.city; cityTouched=true; }
+          else if(r.city&&!r.gps){ newCity(r.city); cityTouched=true; }
           $('#pDate').onchange();
           if(r.amount!=null&&!val('pCost').trim()){ set('pCost', String(r.amount)); if(r.currency){ const sel=$('#pCur'); if(![...sel.options].some(o=>o.value===r.currency)) sel.add(new Option(r.currency)); sel.value=r.currency; } }
           if(r.notes&&!val('pNotes').trim()) $('#pNotes').value=r.notes;
@@ -1103,13 +1104,17 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
         if(pre.extra){ setStatus('done'); statusTouched=true; const ln=statsLine(Object.assign({category:pre.category}, pre.extra)); $('#pPos').textContent='📍 Route on the map'+(ln?' · '+ln:''); } }
       // location: a photo's GPS fills it (and Claude names the spot); typing + Find, or just typing, changes it
       let locDirty=false;
+      function newCity(name, country){ const sel=$('#pCity'), hit=cityNames.find(c=>norm(c)===norm(name)); if(hit){ sel.value=hit; return; }
+        const v='+'+name+(country?', '+country:''); let o=[...sel.options].find(x=>x.value===v);
+        if(!o){ o=new Option(name+' (new city)', v); sel.add(o); } sel.value=v; }
       const nearTxt=()=>val('pCity')+', '+((tStops.find(s=>s.city===val('pCity'))||{}).country||'');
       async function fromGps(lat, lon, guess){
         pos={lat, lon}; locDirty=false; $('#pFound').innerHTML='';
         $('#pPos').textContent='📍 From the photo\'s GPS'+(sample?' · looking up the place…':'');
         let near=null; tStops.filter(s=>!s.home&&s.lat!=null).forEach(s=>{ const d=haversine({lat,lon},s); if(d<40&&(!near||d<near.d)) near={s,d}; });
         if(near&&!cityTouched){ $('#pCity').value=near.s.city; }
-        try{ const w=await whereIs(lat, lon, nearTxt()); if(!form.isConnected||!pos||pos.lat!==lat) return;
+        try{ const w=await whereIs(lat, lon); if(!form.isConnected||!pos||pos.lat!==lat) return;
+          if(!near&&w&&w.city&&!cityTouched) newCity(w.city, w.country);
           const txt=w?[w.place,w.address].filter(Boolean).join(', '):'';
           if(txt&&!locDirty) $('#pLoc').value=txt;
           if(w&&w.place&&!val('pName').trim()) $('#pName').value=guess||w.place;
@@ -1122,6 +1127,7 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
         if(!val('pName').trim()) $('#pName').value=r.name;
         pos={lat:r.lat, lon:r.lon}; locDirty=false; $('#pLoc').value=[r.name,r.address].filter(Boolean).join(', ');
         if(r.city&&cityNames.includes(r.city)){ $('#pCity').value=r.city; cityTouched=true; }
+        else if(!r.city&&r.address){ const town=r.address.split(',').pop().replace(/\d+/g,'').trim(); if(town){ newCity(town); cityTouched=true; } }
         $('#pPos').textContent='📍 Pinned on the map'; });
       // a meal: time of day picks breakfast/lunch/dinner until the type is chosen by hand
       let catTouched=!!p;
@@ -1131,9 +1137,11 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
       if(p) $('#xDel').onclick=()=>confirmDelete(form,'"'+p.name+'"', ()=>del('places', p.id));
       form.onsubmit=async e=>{ e.preventDefault();
         const name=val('pName').trim(); if(!name){ const er=$('#fErr'); er.hidden=false; er.textContent='Say what it was (a name is enough).'; return; }
-        const date=val('pDate'), city=val('pCity');
-        const same=tStops.filter(s=>s.city===city);
-        const st=same.find(s=>date&&s.arrive<=date&&date<=(s.depart||s.arrive))||same[0]||cur;
+        const date=val('pDate'); let city=val('pCity'), st;
+        if(city.startsWith('+')){ // a new city for the trip, from the photo or a search
+          try{ st=await ensureStop(trip, city.slice(1), date, date); city=st.city; }
+          catch(err){ const er=$('#fErr'); er.hidden=false; er.textContent=String(err.message||err); return; } }
+        else { const same=tStops.filter(s=>s.city===city); st=same.find(s=>date&&s.arrive<=date&&date<=(s.depart||s.arrive))||same[0]||cur; }
         const c=parseFloat(val('pCost').replace(',','.'));
         // a position Claude guessed for another name is stale; a photo's GPS stays
         const keep=pos&&(pos.name==null||pos.name===name);
@@ -1259,7 +1267,7 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
       + 'Trip: "'+String(trip.name||'').slice(0,80)+'", '+(trip.startDate||'?')+' to '+(trip.endDate||'?')+', main currency '+(trip.currency||'EUR')+'.\n'
       + 'Cities on the trip: '+(stops.slice(0,40).map(s=>s.city+', '+(s.country||'')+' ('+(s.arrive||'?')+' to '+(s.depart||'?')+')').join('; ')||'none yet')+'.\n'
       + 'Photo metadata: '+(meta&&meta.date?'taken '+meta.date+(meta.time?' '+meta.time:''):'no date')
-      + (meta&&meta.lat!=null?', GPS '+meta.lat.toFixed(5)+','+meta.lon.toFixed(5)+(near?' (≈'+Math.round(near.d)+' km from '+near.s.city+')':''):', no GPS')+'.\n'
+      + (meta&&meta.lat!=null?', GPS '+meta.lat.toFixed(5)+','+meta.lon.toFixed(5)+(near?' (≈'+Math.round(near.d)+' km from '+near.s.city+')':'')+'. The GPS is where it was taken: trust it over the list of trip cities, the trip may have moved on to a new place':', no GPS')+'.\n'
       + 'Today is '+todayStr()+'.\n'
       + (want==='expense'?'It is a receipt, bill, ticket or price tag (kind "receipt").\n'
         : want==='activity'?'It shows something the traveller did or visited: a place, view, activity, meal or event (kind "activity").\n'
@@ -1285,7 +1293,7 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
     if(near&&near.d<40) out.city=near.s.city;
     if(!out.city&&o.city){ const m=stops.find(s=>norm(s.city)===norm(o.city)); out.city=m?m.city:String(o.city).slice(0,80); }
     if(!out.city&&out.lat!=null){ let b=null; stops.forEach(s=>{ if(s.lat==null) return; const d=haversine(out,s); if(d<40&&(!b||d<b.d)) b={s,d}; }); if(b) out.city=b.s.city; }
-    if(!out.city&&out.date){ const s=stopOnDate(trip.id,out.date); if(s) out.city=s.city; }
+    if(!out.city&&out.date&&!out.gps){ const s=stopOnDate(trip.id,out.date); if(s) out.city=s.city; }
     return out;
   }
   function photoError(e){ const c=e&&e.code;
@@ -1305,10 +1313,11 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
       .filter(x=>x.name&&isFinite(x.lat)&&isFinite(x.lon)&&Math.abs(x.lat)<=90&&Math.abs(x.lon)<=180).slice(0,5);
   }
   // What's at a photo's GPS point (Claude, from what it knows): a place name if clear, and an address.
-  async function whereIs(lat, lon, near){
+  async function whereIs(lat, lon){
     if(!sample) return null;
-    const r=await sample.json('What is at latitude '+lat.toFixed(5)+', longitude '+lon.toFixed(5)+(near?' (near '+near+')':'')+'? Reply with only JSON {"place": the venue, landmark, beach or park there if you are fairly sure, else "", "address": street or neighbourhood, postcode and town}.', {modelTier:'quick', cache:{gcTime:86400000}});
-    return r&&typeof r==='object'?{place:String(r.place||'').slice(0,80), address:String(r.address||'').slice(0,140)}:null;
+    const r=await sample.json('A photo was taken at latitude '+lat.toFixed(5)+', longitude '+lon.toFixed(5)+'. Work out where that is from the coordinates alone (they can be anywhere in the world). '
+      +'Reply with only JSON {"place": the landmark, venue, beach or park at that spot if you are fairly sure, else "", "address": street or neighbourhood, postcode and town, "city": the town or city it belongs to, "country": the country}.', {cache:{gcTime:86400000}});
+    return r&&typeof r==='object'?{place:String(r.place||'').slice(0,80), address:String(r.address||'').slice(0,140), city:String(r.city||'').slice(0,60), country:String(r.country||'').slice(0,40)}:null;
   }
   // A Location field: a photo's GPS pins it (Claude names the spot), or type / 🔎 Find / ✕ by hand.
   const locFieldHtml=(id, init, ph)=>'<div class="field"><label for="'+id+'Loc">Location</label><div style="display:flex;gap:6px"><input id="'+id+'Loc" autocomplete="off" value="'+esc(init||'')+'" placeholder="'+esc(ph||'Filled from the photo, or type a place or address')+'" style="flex:1;min-width:0">'
@@ -1324,7 +1333,8 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
     L.fromGps=async(lat, lon)=>{ L.pos={lat, lon}; L.dirty=false; hint('📍 From the photo\'s GPS'+(sample?' · looking up the place…':''));
       let near=null; tripStops(trip.id).filter(s=>!s.home&&s.lat!=null).forEach(s=>{ const d=haversine({lat,lon},s); if(d<40&&(!near||d<near.d)) near={s,d}; });
       if(near&&onCity) onCity(near.s.city);
-      try{ const w=await whereIs(lat, lon, getNear()); if(!form.isConnected||!L.pos||L.pos.lat!==lat) return;
+      try{ const w=await whereIs(lat, lon); if(!form.isConnected||!L.pos||L.pos.lat!==lat) return;
+        if(!near&&w&&w.city&&onCity) onCity(w.city);
         const txt=w?[w.place,w.address].filter(Boolean).join(', '):''; if(txt&&!L.dirty) inp.value=txt;
         hint('📍 From the photo\'s GPS. Type over it or tap Find to change.'); }catch(e){ if(form.isConnected) hint('📍 From the photo\'s GPS (pinned).'); } };
     // after saving: what was typed by hand gets placed
@@ -1625,7 +1635,7 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
         if(assets){ uploading=true; sync(); hint('Uploading…'); const up=await uploadPhotos(fs); added.push(...up); photoIds=photoIds.concat(up); uploading=false; if(!form.isConnected) return; drawPhotos(); hint(''); }
         sync();
         if(!pos&&!val('sAddr').trim()){ const m=await readExif(fs[0]); if(m&&m.lat!=null&&form.isConnected){ pos={lat:m.lat, lon:m.lon};
-          whereIs(m.lat, m.lon, val('sCity')).then(w=>{ if(w&&form.isConnected&&!val('sAddr').trim()) $('#sAddr').value=[w.place,w.address].filter(Boolean).join(', '); }).catch(()=>{}); } }
+          whereIs(m.lat, m.lon).then(w=>{ if(w&&form.isConnected&&!val('sAddr').trim()) $('#sAddr').value=[w.place,w.address].filter(Boolean).join(', '); }).catch(()=>{}); } }
         if(autoRead&&canRead) await fill();
       }
       const pin=$('#sPhotoIn'); if(pin) pin.onchange=()=>{ const fs=Array.from(pin.files||[]); pin.value=''; if(fs.length) addFiles(fs, !st&&!val('sName').trim()); };
@@ -1633,7 +1643,7 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
       if(opts.files&&opts.files.length) addFiles(opts.files, true);
       else if(opts.pre&&canRead) fill();
       if(opts.pre&&opts.pre.picked&&opts.pre.picked[0]&&!pos) readExif(opts.pre.picked[0]).then(m=>{ if(!m||m.lat==null||!form.isConnected||pos) return; pos={lat:m.lat, lon:m.lon};
-        whereIs(m.lat, m.lon, val('sCity')).then(w=>{ if(w&&form.isConnected&&!val('sAddr').trim()) $('#sAddr').value=[w.place,w.address].filter(Boolean).join(', '); }).catch(()=>{}); }).catch(()=>{});
+        whereIs(m.lat, m.lon).then(w=>{ if(w&&form.isConnected&&!val('sAddr').trim()) $('#sAddr').value=[w.place,w.address].filter(Boolean).join(', '); }).catch(()=>{}); }).catch(()=>{});
       if(st) $('#xDel').onclick=()=>confirmDelete(form,'"'+st.name+'"', ()=>del('stays', st.id));
       placeFinder(trip, $('#sFind'), $('#sFound'), ()=>val('sName')||val('sAddr'), ()=>val('sCity'), r=>{
         if(!val('sName').trim()) $('#sName').value=r.name; if(r.address) $('#sAddr').value=r.address;
