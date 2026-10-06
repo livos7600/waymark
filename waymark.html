@@ -1177,7 +1177,7 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
         if(same.length) st=same.find(s=>date&&s.arrive<=date&&date<=(s.depart||s.arrive))||same[0];
         else if(city){ // a city the trip hasn't had yet (from the photo or typed): add it
           try{ $('#pSave').disabled=true; st=await ensureStop(trip, city, date, date); }
-          catch(err){ $('#pSave').disabled=false; const er=$('#fErr'); er.hidden=false; er.textContent=String(err.message||err); return; } }
+          catch(err){ st=(date&&stopOnDate(trip.id,date))||cur; } } // couldn't place the town: file it under that day's city
         else st=(date&&stopOnDate(trip.id,date))||cur;
         city=st.city;
         const c=parseFloat(val('pCost').replace(',','.'));
@@ -1628,7 +1628,7 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
       + '<div class="field"><label>Type</label><div class="row" id="sKind">'+STAY_KINDS.map(k=>'<button type="button" class="chip'+(k[0]===kind?' on':'')+'" data-k="'+k[0]+'">'+k[2]+' '+k[1]+'</button>').join('')+'</div></div>'
       + '<div class="grid2"><div class="field"><label for="sIn">Check-in</label><input id="sIn" type="date" value="'+esc(ci)+'"></div><div class="field"><label for="sOut">Check-out</label><input id="sOut" type="date" value="'+esc(co)+'"></div></div>'
       + '<div class="hint" id="sNights"></div>'
-      + '<div class="field"><label for="sCity">City</label><select id="sCity">'+cityNames.map(c=>'<option'+(c===city0?' selected':'')+'>'+esc(c)+'</option>').join('')+'</select></div>'
+      + '<div class="field"><label for="sCity">City</label><input id="sCity" list="sCities" autocomplete="off" placeholder="From the photo or booking, or type" value="'+esc(st?city0||'':'')+'"><datalist id="sCities">'+cityNames.map(c=>'<option value="'+esc(c)+'">').join('')+'</datalist></div>'
       + '<div class="grid3"><div class="field"><label for="sCost">Total price (optional)</label><input id="sCost" inputmode="decimal" value="'+esc(st&&st.cost?st.cost:'')+'"></div><div class="field"><label for="sCur">Currency</label>'+curSelect('sCur', st?st.currency:trip.currency)+'</div></div>'
       + '<div class="grid2"><div class="field"><label for="sPlat">Booked via</label><select id="sPlat">'+PLATFORMS.map(x=>'<option value="'+esc(x)+'"'+((st?st.platform||'':'')===x?' selected':'')+'>'+(x||'—')+'</option>').join('')+'</select></div>'
       + '<div class="field"><label for="sRef">Booking ref</label><input id="sRef" value="'+esc(st?st.bookingRef||'':'')+'" autocomplete="off"></div></div>'
@@ -1638,6 +1638,9 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
       + '<div class="err" id="fErr" hidden></div>'
       + '<div class="row"><button class="btn primary" type="submit" id="sSave">Save</button><button class="btn" type="button" id="xCancel">Cancel</button>'+(st?'<button class="btn danger" type="button" id="xDel" style="margin-left:auto">Delete</button>':'')+'</div>',
     form=>{
+      // City: empty for a new stay, filled from the photo's / booking's own town (never the trip's guess)
+      let sCityTouched=!!st; $('#sCity').addEventListener('input',()=>{ sCityTouched=true; });
+      const setSCity=c=>{ if(!c||sCityTouched) return; const hit=cityNames.find(x=>norm(x)===norm(c)); $('#sCity').value=hit||c; };
       $('#xCancel').onclick=closeSheet;
       const hint=t=>{ const el=$('#sUp'); if(el) el.textContent=t; };
       const showNights=()=>{ const n=stayNights({checkIn:val('sIn'),checkOut:val('sOut')}), c=parseFloat(val('sCost').replace(',','.'));
@@ -1661,7 +1664,7 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
           if(r.cost!=null) set('sCost',String(r.cost));
           if(r.currency){ const sel=$('#sCur'); if(![...sel.options].some(o=>o.value===r.currency)) sel.add(new Option(r.currency)); sel.value=r.currency; }
           if(r.kind){ kind=r.kind; $('#sKind').querySelectorAll('button').forEach(x=>x.classList.toggle('on',x.dataset.k===kind)); }
-          const m=cityNames.find(c=>norm(c)===norm(r.city)); if(m) $('#sCity').value=m;
+          if(r.city) setSCity(r.city);
           if(r.notes&&!val('sNotes').trim()) $('#sNotes').value=r.notes;
           if(r.lat!=null) pos={lat:r.lat, lon:r.lon, name:r.name};
           showNights(); hint('Filled in from the booking. Check it, then save.');
@@ -1673,7 +1676,7 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
         if(assets){ uploading=true; sync(); hint('Uploading…'); const up=await uploadPhotos(fs); added.push(...up); photoIds=photoIds.concat(up); uploading=false; if(!form.isConnected) return; drawPhotos(); hint(''); }
         sync();
         if(!pos&&!val('sAddr').trim()){ const m=await readExif(fs[0]); if(m&&m.lat!=null&&form.isConnected){ pos={lat:m.lat, lon:m.lon};
-          whereIs(m.lat, m.lon).then(w=>{ if(w&&form.isConnected&&!val('sAddr').trim()) $('#sAddr').value=[w.place,w.address].filter(Boolean).join(', '); }).catch(()=>{}); } }
+          whereIs(m.lat, m.lon).then(w=>{ if(!w||!form.isConnected) return; if(!val('sAddr').trim()) $('#sAddr').value=[w.place,w.address].filter(Boolean).join(', '); setSCity(w.city); }).catch(()=>{}); } }
         if(autoRead&&canRead) await fill();
       }
       const pin=$('#sPhotoIn'); if(pin) pin.onchange=()=>{ const fs=Array.from(pin.files||[]); pin.value=''; if(fs.length) addFiles(fs, !st&&!val('sName').trim()); };
@@ -1681,17 +1684,21 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
       if(opts.files&&opts.files.length) addFiles(opts.files, true);
       else if(opts.pre&&canRead) fill();
       if(opts.pre&&opts.pre.picked&&opts.pre.picked[0]&&!pos) readExif(opts.pre.picked[0]).then(m=>{ if(!m||m.lat==null||!form.isConnected||pos) return; pos={lat:m.lat, lon:m.lon};
-        whereIs(m.lat, m.lon).then(w=>{ if(w&&form.isConnected&&!val('sAddr').trim()) $('#sAddr').value=[w.place,w.address].filter(Boolean).join(', '); }).catch(()=>{}); }).catch(()=>{});
+        whereIs(m.lat, m.lon).then(w=>{ if(!w||!form.isConnected) return; if(!val('sAddr').trim()) $('#sAddr').value=[w.place,w.address].filter(Boolean).join(', '); setSCity(w.city); }).catch(()=>{}); }).catch(()=>{});
       if(st) $('#xDel').onclick=()=>confirmDelete(form,'"'+st.name+'"', ()=>del('stays', st.id));
       placeFinder(trip, $('#sFind'), $('#sFound'), ()=>val('sName')||val('sAddr'), ()=>val('sCity'), r=>{
         if(!val('sName').trim()) $('#sName').value=r.name; if(r.address) $('#sAddr').value=r.address;
-        if(r.city){ const c=$('#sCity'); if(c.tagName==='SELECT'){ if([...c.options].some(o=>o.value===r.city)) c.value=r.city; } else c.value=r.city; }
+        sCityTouched=false; setSCity(r.city||String(r.address||'').split(',').map(x=>x.replace(/\b\d{4,6}\b/g,'').trim()).filter(Boolean).pop());
         pos={lat:r.lat, lon:r.lon, name:val('sName').trim()}; });
       form.onsubmit=async e=>{ e.preventDefault(); const er=$('#fErr');
         const name=val('sName').trim()||(kind==='friends'?'With friends':kind==='camping'?'Camping':''), checkIn=val('sIn'), checkOut=val('sOut');
         if(!name){ er.hidden=false; er.textContent='Give it a name (the hotel, or "Airbnb in…").'; return; }
         if(!checkIn||!checkOut||checkOut<=checkIn){ er.hidden=false; er.textContent='Check-out must be after check-in.'; return; }
-        const city=val('sCity'), same=tStops.filter(s=>s.city===city), stop=same.find(s=>s.arrive<=checkIn&&checkIn<=(s.depart||s.arrive))||same[0];
+        let city=val('sCity').trim(); const same=city?tStops.filter(s=>norm(s.city)===norm(city)):[]; let stop=same.find(s=>s.arrive<=checkIn&&checkIn<=(s.depart||s.arrive))||same[0];
+        let typed=city;
+        if(!stop&&city){ try{ stop=await ensureStop(trip, city, checkIn, checkIn); typed=''; }catch(err){ stop=null; } } // couldn't place the town: keep its name, file it under that night's city
+        if(!stop) stop=stopOnDate(trip.id, checkIn)||atNight||null;
+        city=typed&&!same.length?typed:(stop?stop.city:city);
         const c=parseFloat(val('sCost').replace(',','.')), nights=stayNights({checkIn,checkOut});
         const keep=pos&&(pos.name==null||pos.name===name);
         const data={tripId:trip.id, stopId:stop?stop.id:'', city, name, kind, checkIn, checkOut, nights, cost:isFinite(c)?c:0, currency:val('sCur'),
