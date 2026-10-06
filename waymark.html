@@ -182,7 +182,9 @@
   .field label{font-size:11.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-faint);}
   .field input,.field select,.field textarea{width:100%;border:1px solid var(--line);background:var(--surface-2);border-radius:10px;padding:10px 12px;font-size:16px;}
   .field textarea{min-height:84px;resize:vertical;}
-  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+  .grid2{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:10px;}
+  .grid2>*,.grid3>*{min-width:0;}
+  input[type=date],input[type=time]{-webkit-appearance:none;appearance:none;min-width:0;max-width:100%;display:block;min-height:44px;text-align:left;}
   .grid3{display:grid;grid-template-columns:2fr 1fr;gap:10px;}
   .modes{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;}
   .modes button{border:1px solid var(--line);background:var(--surface-2);border-radius:10px;padding:9px 6px;font-weight:600;font-size:13px;cursor:pointer;display:flex;gap:6px;align-items:center;justify-content:center;}
@@ -1135,7 +1137,9 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
         $('#pPos').textContent='📍 From the photo\'s GPS'+(sample?' · looking up the place…':'');
         try{ const w=await whereIs(lat, lon); if(!form.isConnected||!pos||pos.lat!==lat) return;
           if(w) setCity(w.city||townOf(w.address)); // the photo's own town, even if a trip city is close by
-          const txt=w?[w.place,w.address].filter(Boolean).join(', '):'';
+          // a meal is at the restaurant in the photo, not the landmark next door
+          const venue=isMeal(val('pCat'))?((val('pName').match(/\bat (.+)$/i)||[])[1]||''):'';
+          const txt=w?[venue||w.place,w.address].filter(Boolean).join(', '):'';
           if(txt&&!locDirty) $('#pLoc').value=txt;
           if(w&&w.place&&!val('pName').trim()) $('#pName').value=guess||w.place;
           $('#pPos').textContent='📍 From the photo\'s GPS'+(txt?'':' (pinned)')+'. Type over it or tap Find to change.';
@@ -1307,7 +1311,7 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
         : want==='activity'?'It shows something the traveller did or visited: a place, view, activity, meal or event (kind "activity").\n'
         : 'Decide whether it is a receipt, bill, ticket or price tag (kind "receipt"), an accommodation booking or confirmation (kind "stay"), or a photo of a place, view, activity, meal or event (kind "activity").\n')
       + 'Reply with only a JSON object: {"kind": "receipt", "stay" or "activity", '
-      + '"name": string (receipt: merchant and item, e.g. "Dinner at Bar Nestor"; activity: the specific place or activity, e.g. "Dune du Pilat", "Guggenheim Bilbao", "Surf lesson, Côte des Basques"; max 50 characters), '
+      + '"name": string (receipt: merchant and item, e.g. "Dinner at Bar Nestor"; a meal or a restaurant front: "<Breakfast|Lunch|Dinner|Coffee|Drinks> at <the name on the sign, menu or receipt>", e.g. "Dinner at Zoe"; activity: the specific place or activity, e.g. "Dune du Pilat", "Guggenheim Bilbao", "Surf lesson, Côte des Basques"; max 50 characters), '
       + '"amount": number or null (receipt: final total paid incl. tax and tip; activity: only if a price is visible), "currency": ISO 4217 code or null, '
       + '"expenseCategory": one of '+JSON.stringify(EXP_CATS)+', "activityCategory": one of '+JSON.stringify(CATS.map(c=>c[0]).filter(c=>c!=='food'&&c!=='restaurant'))+' (a meal is breakfast, lunch, dinner, coffee or drinks by the time it was eaten), '
       + '"date": "YYYY-MM-DD" or null (date printed on it, else the photo date), "time": "HH:MM" or null (24h time printed on it, else the photo time), '
