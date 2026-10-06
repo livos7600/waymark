@@ -274,10 +274,10 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
     :/lunch|d[ée]jeuner/i.test(name||'')?'lunch':/caf[ée]|coffee|snack|go[ûu]ter|ice cream|glace/i.test(name||'')?'coffee':/drinks?|bar\b|wine|beer|cocktail|ap[ée]ro/i.test(name||'')?'drinks'
     :!tm?'lunch':tm<'10:45'?'breakfast':tm<'15:00'?'lunch':tm<'17:45'?'coffee':'dinner';
   const CATS = MEALS.concat([
-    ['food','Food & drink'],['restaurant','Restaurant'],['museum','Museum'],['attraction','Attraction'],['hike','Hike'],['run','Run'],['walk','Walk'],['ride','Bike ride'],
+    ['food','Food & drink'],['restaurant','Restaurant'],['citytour','City visit'],['museum','Museum'],['attraction','Attraction'],['hike','Hike'],['run','Run'],['walk','Walk'],['ride','Bike ride'],
     ['hotel','Hotel'],['nightlife','Nightlife'],['shopping','Shopping'],['other','Other']
   ]);
-  const CAT_ICON = {breakfast:'🥐',lunch:'🥗',dinner:'🍽️',coffee:'☕',drinks:'🍷',food:'🍴',restaurant:'🍴',museum:'🏛️',attraction:'📍',hike:'🥾',run:'🏃',walk:'🚶',ride:'🚴',hotel:'🏨',nightlife:'🌙',shopping:'🛍️',other:'✦'};
+  const CAT_ICON = {breakfast:'🥐',lunch:'🥗',dinner:'🍽️',coffee:'☕',drinks:'🍷',food:'🍴',restaurant:'🍴',citytour:'🏙️',museum:'🏛️',attraction:'📍',hike:'🥾',run:'🏃',walk:'🚶',ride:'🚴',hotel:'🏨',nightlife:'🌙',shopping:'🛍️',other:'✦'};
   const EXP_ICON = {'Transport':'🚗','Lodging':'🛏️','Food & drink':'🍴','Meals':'🍽️','Activities':'🎟️','Shopping':'🛍️','Fees & insurance':'🛡️','Other':'💳'};
   const MODE_EMOJI={plane:'✈️',car:'🚗',train:'🚆',bus:'🚌',ferry:'⛴️',walk:'🚶'};
   // what kind of transport/other cost it is, from its label ("Flight to Bordeaux", "Péage A63", "Uber")
