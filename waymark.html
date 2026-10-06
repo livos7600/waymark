@@ -237,6 +237,14 @@
   .ed-ph{width:56px;height:56px;border-radius:8px;object-fit:cover;flex-shrink:0;transition:transform .2s;}
   .ed-range{display:flex;align-items:center;gap:10px;font-size:13px;color:var(--ink-soft);}
   .ed-range input{flex:1;}
+  .sec-tabs{position:sticky;top:calc(env(safe-area-inset-top,0px) + var(--topH,62px) - 1px);z-index:15;display:flex;gap:4px;margin:0 -16px;padding:8px 16px;background:color-mix(in srgb,var(--bg) 92%,transparent);backdrop-filter:blur(10px);border-bottom:1px solid var(--line);overflow-x:auto;scrollbar-width:none;}
+  .sec-tabs button{flex:1 1 0;min-width:0;border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:8px 4px;font-size:14px;font-weight:700;cursor:pointer;position:relative;white-space:nowrap;}
+  .sec-tabs button small{font-weight:600;color:var(--ink-faint);font-size:12px;}
+  .sec-tabs button.on{background:var(--ink);color:var(--bg);border-color:var(--ink);}
+  .sec-tabs button.on small{color:inherit;opacity:.7;}
+  .sec-dot{position:absolute;top:4px;right:6px;width:8px;height:8px;border-radius:50%;background:var(--accent);}
+  section[data-sec]{display:flex;flex-direction:column;gap:18px;}
+  section[data-sec][hidden]{display:none;}
   .empty{padding:28px 16px;text-align:center;color:var(--ink-soft);display:flex;flex-direction:column;gap:10px;align-items:center;}
 </style>
 
@@ -442,7 +450,21 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
     try{ await Promise.all(writes); }catch(e){ toast('Couldn\'t save the new order. Try again.'); }
   }
   function schedule(){ if(pending) return; pending=true; requestAnimationFrame(()=>{ pending=false; render(); }); }
-  function go(next){ Object.assign(R, next); window.scrollTo(0,0); render(); }
+  // where you were on each screen, so Back lands there again instead of at the top
+  const scrollMem={}, viewKey=()=>R.tab+'|'+(R.tripId||'')+'|'+(R.stopId||'')+(R.tripId&&!R.stopId?'|'+tripSec():''), depth=()=>R.stopId?2:R.tripId?1:0;
+  function go(next){ const from=depth(); scrollMem[viewKey()]=window.scrollY; Object.assign(R, next);
+    render(); const y=depth()<from?scrollMem[viewKey()]:0; window.scrollTo(0, y||0); if(y) requestAnimationFrame(()=>window.scrollTo(0,y)); }
+  // trip page sections: one at a time under a sticky bar (the last one you opened is remembered)
+  const TRIP_SECS=[['days','Days'],['map','Map'],['route','Route'],['cities','Cities'],['budget','Budget']];
+  function tripSec(){ if(!R.sec){ try{ R.sec=localStorage.getItem('wm.sec')||''; }catch(e){} } return TRIP_SECS.some(x=>x[0]===R.sec)?R.sec:'days'; }
+  function showSec(k){ if(k===tripSec()){ const bar=$('#secTabs'); if(bar) window.scrollTo({top:Math.max(0,bar.offsetTop-topH()), behavior:'smooth'}); return; }
+    scrollMem[viewKey()]=window.scrollY; R.sec=k; try{ localStorage.setItem('wm.sec',k); }catch(e){}
+    main.querySelectorAll('section[data-sec]').forEach(x=>x.hidden=x.dataset.sec!==k);
+    main.querySelectorAll('#secTabs [data-sec]').forEach(b=>b.classList.toggle('on',b.dataset.sec===k));
+    // keep the bar where it is: if you'd scrolled past it, show the new section from its top; else stay put
+    const bar=$('#secTabs'), stuck=bar&&window.scrollY>bar.offsetTop-topH()-2, back=scrollMem[viewKey()];
+    if(stuck) window.scrollTo(0, back&&back>bar.offsetTop-topH()?back:bar.offsetTop-topH()); }
+  const topH=()=>(top.offsetHeight||0);
 
   function renderTabs(){
     const tabs=[['trips','Trips',ICON.trips],['world','My world',ICON.world],['discover','Top 10',ICON.spark]];
@@ -455,6 +477,7 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
       + (title?'<h1>'+esc(title)+'</h1>':'<div class="brand" style="flex:1">Way<b>mark</b></div>')
       + (opts.actions||'');
     if(opts.back) $('#tBack').onclick=opts.back;
+    document.documentElement.style.setProperty('--topH', (top.offsetHeight||62)+'px');
   }
   function render(){
     if(dragActive){ renderWanted=true; return; }
@@ -655,14 +678,17 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
       + '<div class="cell"><div class="k">Days</div><div class="v">'+st.days+'</div></div>'
       + '<div class="cell"><div class="k">Cities</div><div class="v">'+st.cities+'</div></div>'
       + '<div class="cell"><div class="k">Spent</div><div class="v" style="font-size:'+(money.length>1?'18px':'26px')+'">'+(money.length?money.map(([c,a])=>fmtMoney(a,c)).join('<br>'):'—')+'</div></div></div>'
-      + '<div><div class="map-wrap" id="tripMap"></div><div style="margin-top:8px" class="between">'+legendHtml(modesUsed.length?modesUsed:['plane','car'], tripPlaces.length, tripPlaces.some(p=>p.track&&p.track.length))
-      + '<span class="faint mono">'+modesUsed.map(m=>MODES[m].label+' '+fmtKm(st.byMode[m])+' km').join(' · ')+'</span></div></div>'
-      + '<div class="sec-title"><h2>Days</h2><div class="row" style="flex-wrap:nowrap"><button class="btn small" id="addAct">'+ICON.plus+' Activity</button></div></div>'
+      + (()=>{ const nMiss=missingLegs(t.id).length;
+          return '<div class="sec-tabs" id="secTabs">'+TRIP_SECS.map(([k,l])=>'<button type="button" data-sec="'+k+'" class="'+(tripSec()===k?'on':'')+'">'+l
+            +(k==='route'&&nMiss?'<i class="sec-dot" aria-label="'+nMiss+' drives missing"></i>':'')+'</button>').join('')+'</div>'; })()
+      + '<section data-sec="map"'+(tripSec()==='map'?'':' hidden')+'><div class="map-wrap" id="tripMap"></div><div style="margin-top:8px" class="between">'+legendHtml(modesUsed.length?modesUsed:['plane','car'], tripPlaces.length, tripPlaces.some(p=>p.track&&p.track.length))
+      + '<span class="faint mono">'+modesUsed.map(m=>MODES[m].label+' '+fmtKm(st.byMode[m])+' km').join(' · ')+'</span></div></section>'
+      + '<section data-sec="days"'+(tripSec()==='days'?'':' hidden')+'><div class="sec-title"><h2>Days</h2><div class="row" style="flex-wrap:nowrap"><button class="btn small" id="addAct">'+ICON.plus+' Activity</button></div></div>'
       + '<details class="more-add"><summary>More ways to add</summary><div class="row" style="padding-top:8px">'+(mcp?'<button class="btn small ghost" type="button" id="fromStrava">⇣ From Strava</button>':'')+'<label class="btn small ghost" for="gpxIn">⇣ GPX file</label><input id="gpxIn" type="file" hidden><button class="btn small ghost" type="button" id="addStay">🛏 Stay</button><button class="btn small ghost" type="button" id="addExp2">💳 Expense</button></div></details>'
       + '<div class="faint">Wrong order in a day? Hold ⠿ and slide the row.</div>'
       + (sample&&unplaced.length?'<button class="btn small ghost" id="locateAll" style="align-self:flex-start">📍 Put '+unplaced.length+' activit'+(unplaced.length===1?'y':'ies')+' on the map</button>':'')
-      + daysHtml(t)
-      + '<div class="sec-title"><h2>Route</h2><button class="btn small" id="addLeg">'+ICON.plus+' Leg</button></div>'
+      + daysHtml(t)+'</section>'
+      + '<section data-sec="route"'+(tripSec()==='route'?'':' hidden')+'><div class="sec-title"><h2>Route</h2><button class="btn small" id="addLeg">'+ICON.plus+' Leg</button></div>'
       + (()=>{ const ms=missingLegs(t.id); if(!ms.length) return '';
           return '<div class="confirm" id="missLegs"><span>🧭 '+ms.length+' drive'+(ms.length===1?'':'s')+' between your cities '+(ms.length===1?'isn\'t':'aren\'t')+' on the route yet, so '+(ms.length===1?'its':'their')+' distance is missing:</span>'
             + ms.map((m,i)=>'<label class="row" style="gap:8px;flex-wrap:nowrap"><input type="checkbox" data-ml="'+i+'" checked style="width:20px;height:20px;flex-shrink:0"><span style="flex:1">🚗 '+esc(m.a.city)+' → '+esc(m.b.city)+' <span class="faint">· '+fmtDate(m.date,{month:'short',day:'numeric'})+' · ≈'+fmtKm(m.km)+' km</span></span></label>').join('')
@@ -672,20 +698,21 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
           return '<div class="leg" data-leg="'+l.id+'"><div class="mode-badge" style="background:'+(MODES[l.mode]||MODES.car).color+'">'+modeIcon(l.mode)+'</div>'
             + '<div><div class="route">'+esc(a.city||'?')+' → '+esc(b.city||'?')+'</div><div class="meta">'+fmtDate(l.date,{weekday:'short',month:'short',day:'numeric'})+(l.cost?' · '+fmtMoney(l.cost,l.currency):'')+(l.notes?' · '+esc(l.notes):'')+'</div></div>'
             + '<div class="km">'+(l.kmEstimated?'≈':'')+fmtKm(l.km||0)+' km</div></div>';
-        }).join('')+'</div>':'<div class="card empty"><p>Add your first flight, drive or train.</p></div>')
-      + '<div class="sec-title"><h2>Cities</h2><span class="faint">Tap a city to log places & photos</span></div>'
+        }).join('')+'</div>':'<div class="card empty"><p>Add your first flight, drive or train.</p></div>')+'</section>'
+      + '<section data-sec="cities"'+(tripSec()==='cities'?'':' hidden')+'><div class="sec-title"><h2>Cities</h2><span class="faint">Tap a city to log places & photos</span></div>'
       + (cityMap.size?'<div class="cities">'+[...cityMap.values()].map(list=>{
           const s=list[0]; const ids=list.map(x=>x.id);
           const places=S.places.filter(p=>ids.includes(p.stopId));
           const photos=[].concat(...list.map(x=>x.photoIds||[]), ...places.map(p=>p.photoIds||[])).slice(0,4);
-          const dates=list.map(x=>fmtDate(x.arrive)).join(' & ');
+          const dates=[...new Set(list.map(x=>fmtDate(x.arrive)))].join(' & ');
           return '<div class="card city" data-stop="'+s.id+'"><h3>'+flag(s.countryA2)+' '+esc(s.city)+'</h3><div class="faint">'+dates+'</div>'
             + '<div class="faint">'+places.length+' place'+(places.length===1?'':'s')+'</div>'
             + (photos.length?'<div class="thumbs">'+photos.map(id=>'<img alt="" src="/_blob/'+id+'">').join('')+'</div>':'')+'</div>';
         }).join('')+'</div>':'<div class="faint">Cities appear as you add legs.</div>')
-      + '<div class="sec-title"><h2>Budget</h2><div class="row" style="flex-wrap:nowrap">'+(downloads?'<button class="btn small ghost" id="xlsxBtn">⬇ Excel</button>':'')+(sample&&sampleImages?'<label class="btn small" for="scanIn">'+ICON.camera+' Scan</label><input id="scanIn" type="file" accept="image/*" hidden>':'')+'<button class="btn small" id="addExp">'+ICON.plus+' Expense</button></div></div>'
-      + budgetHtml(t.id)
-      + '<div class="row"><button class="btn ghost small" id="discoverHere">'+ICON.spark+' Top 10 for a city on this trip</button></div>';
+      + '<div class="row"><button class="btn ghost small" id="discoverHere">'+ICON.spark+' Top 10 for a city on this trip</button></div></section>'
+      + '<section data-sec="budget"'+(tripSec()==='budget'?'':' hidden')+'><div class="sec-title"><h2>Budget</h2><div class="row" style="flex-wrap:nowrap">'+(downloads?'<button class="btn small ghost" id="xlsxBtn">⬇ Excel</button>':'')+(sample&&sampleImages?'<label class="btn small" for="scanIn">'+ICON.camera+' Scan</label><input id="scanIn" type="file" accept="image/*" hidden>':'')+'<button class="btn small" id="addExp">'+ICON.plus+' Expense</button></div></div>'
+      + budgetHtml(t.id)+'</section>';
+    main.querySelectorAll('#secTabs [data-sec]').forEach(b=>b.onclick=()=>showSec(b.dataset.sec));
     drawMap($('#tripMap'), {key:'trip:'+t.id, stops, legs, places:tripPlaces, stays:tripStays(t.id), onStay:x=>staySheet(x, {trip:t}), visitedN3, height:520, label:'Route map for '+t.name,
       onStop:s=>go({stopId:s.id, placeCat:'all'}), onPlace:p=>placeSheet(stopOf(p.stopId), p, {trip:t})});
     $('#addAct').onclick=()=>placeSheet(null, null, {trip:t, date:(todayStr()>=t.startDate&&todayStr()<=t.endDate)?todayStr():t.startDate});
