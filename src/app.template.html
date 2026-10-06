@@ -1053,17 +1053,20 @@ const WORLD = __WORLD__;
       $('#rating').querySelectorAll('[data-r]').forEach(b=>b.onclick=()=>{ const r=+b.dataset.r; rating = rating===r?0:r; $('#rating').querySelectorAll('button').forEach(x=>x.classList.toggle('on', +x.dataset.r<=rating)); });
       $('#pCity').addEventListener('input',()=>{ cityTouched=true; });
       $('#pDate').onchange=()=>{ const d=val('pDate'); if(!statusTouched&&d) setStatus(d>todayStr()?'want':'done'); };
+      let timeTouched=!!p; $('#pTime').addEventListener('input',()=>{ timeTouched=true; }); $('#pDate').addEventListener('input',()=>{ timeTouched=true; });
       async function addFiles(fs, autoRead){
         picked=picked.concat(fs);
         if(assets){ uploading=true; sync(); hint('Uploading…'); const up=await uploadPhotos(fs); added.push(...up); photoIds=photoIds.concat(up); uploading=false; if(!form.isConnected) return; drawPhotos(); hint(''); }
         sync();
-        if(autoRead&&canRead) await fill();
-        else { // no Claude here: still take date, time and place from the photo itself
-          const m=await readExif(fs[0]); if(!form.isConnected||!m) return;
-          if(!p&&m.date&&!val('pName').trim()){ $('#pDate').value=m.date; $('#pDate').onchange(); }
-          if(m.time&&!val('pTime')&&(!m.date||m.date===val('pDate'))) $('#pTime').value=m.time;
-          if(!p&&m.lat!=null) fromGps(m.lat, m.lon);
+        // the photo's own date and time (when it was taken) win over "now", unless typed by hand
+        let m=null; for(const f of fs){ m=await readExif(f); if(m&&(m.date||m.time)) break; }
+        if(!form.isConnected) return;
+        if(m&&!timeTouched){
+          if(m.date&&!p){ $('#pDate').value=m.date; $('#pDate').onchange(); }
+          if(m.time&&(!m.date||m.date===val('pDate'))) $('#pTime').value=m.time;
         }
+        if(autoRead&&canRead) await fill();
+        else if(m&&!p&&m.lat!=null) fromGps(m.lat, m.lon);
       }
       async function fill(){
         let imgs=picked.slice(-sampleImages);
@@ -1081,8 +1084,8 @@ const WORLD = __WORLD__;
           const meal=r.kind==='receipt'&&r.expCat==='Food & drink'||MEAL_KEYS.has(r.actCat);
           if(meal&&!catTouched) $('#pCat').value=MEALS.some(m=>m[0]===r.actCat)?r.actCat:mealFor(r.time,r.name); else set('pCat', r.actCat);
           if(meal) $('#pTitle').textContent=p?'Edit meal':'Add a meal';
-          if(r.date){ $('#pDate').value=r.date; }
-          if(r.time) $('#pTime').value=r.time; else if(r.date&&r.date!==todayStr()&&!p) $('#pTime').value='';
+          if(!timeTouched){ if(r.date){ $('#pDate').value=r.date; }
+            if(r.time) $('#pTime').value=r.time; else if(r.date&&r.date!==todayStr()&&!p) $('#pTime').value=''; }
           if(r.city&&!r.gps&&!cityTouched&&!val('pCity').trim()) $('#pCity').value=r.city; // with GPS the photo's own town is used (below)
           $('#pDate').onchange();
           if(r.amount!=null&&!val('pCost').trim()){ set('pCost', String(r.amount)); if(r.currency){ const sel=$('#pCur'); if(![...sel.options].some(o=>o.value===r.currency)) sel.add(new Option(r.currency)); sel.value=r.currency; } }
