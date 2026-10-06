@@ -662,6 +662,10 @@ const WORLD = __WORLD__;
       + (sample&&unplaced.length?'<button class="btn small ghost" id="locateAll" style="align-self:flex-start">📍 Put '+unplaced.length+' activit'+(unplaced.length===1?'y':'ies')+' on the map</button>':'')
       + daysHtml(t)
       + '<div class="sec-title"><h2>Route</h2><button class="btn small" id="addLeg">'+ICON.plus+' Leg</button></div>'
+      + (()=>{ const ms=missingLegs(t.id); if(!ms.length) return '';
+          return '<div class="confirm" id="missLegs"><span>🧭 '+ms.length+' drive'+(ms.length===1?'':'s')+' between your cities '+(ms.length===1?'isn\'t':'aren\'t')+' on the route yet, so '+(ms.length===1?'its':'their')+' distance is missing:</span>'
+            + ms.map((m,i)=>'<label class="row" style="gap:8px;flex-wrap:nowrap"><input type="checkbox" data-ml="'+i+'" checked style="width:20px;height:20px;flex-shrink:0"><span style="flex:1">🚗 '+esc(m.a.city)+' → '+esc(m.b.city)+' <span class="faint">· '+fmtDate(m.date,{month:'short',day:'numeric'})+' · ≈'+fmtKm(m.km)+' km</span></span></label>').join('')
+            + '<div class="row"><button type="button" class="btn small primary" id="addMissing">Add to the route</button><span class="faint">Change the mode or km after by tapping the leg.</span></div></div>'; })()
       + (legs.length?'<div class="card legs">'+legs.map(l=>{
           const a=stopOf(l.fromId)||{}, b=stopOf(l.toId)||{};
           return '<div class="leg" data-leg="'+l.id+'"><div class="mode-badge" style="background:'+(MODES[l.mode]||MODES.car).color+'">'+modeIcon(l.mode)+'</div>'
@@ -712,6 +716,11 @@ const WORLD = __WORLD__;
     main.querySelectorAll('[data-addmeal]').forEach(b=>b.onclick=()=>{ const d=b.dataset.addmeal, tm=d===todayStr()?nowHM():''; placeSheet(null, null, {trip:t, date:d, meal:true, prefill:{category:mealFor(tm), date:d, time:tm}}); });
     main.querySelectorAll('[data-pl]').forEach(el=>el.onclick=e=>{ if(e.target.dataset.photo) return; const p=S.places.find(x=>x.id===el.dataset.pl); if(p) placeSheet(stopOf(p.stopId), p, {trip:t}); });
     $('#addLeg').onclick=()=>legSheet(t, null);
+    const am=$('#addMissing'); if(am) am.onclick=async()=>{ const ms=missingLegs(t.id), pick=[...main.querySelectorAll('[data-ml]')].filter(c=>c.checked).map(c=>ms[+c.dataset.ml]).filter(Boolean);
+      if(!pick.length) return; am.disabled=true;
+      try{ for(const m of pick) await put('legs', null, {tripId:t.id, mode:'car', fromId:m.a.id, toId:m.b.id, date:m.date, time:'', km:m.km, kmEstimated:true, cost:0, currency:t.currency||'EUR', notes:'', order:Date.now(), createdAt:now(), updatedAt:now()});
+        toast('Added '+pick.length+' drive'+(pick.length===1?'':'s')); }
+      catch(e){ am.disabled=false; toast('Couldn\'t add them. Try again.'); } };
     $('#addExp').onclick=()=>expenseSheet(t, null);
     const scan=$('#scanIn'); if(scan) scan.onchange=()=>{ const fs=Array.from(scan.files||[]); scan.value=''; if(fs.length) expenseSheet(t, null, fs); };
     $('#discoverHere').onclick=()=>{ const s=stops.find(x=>!x.home); discover.city=s?s.city:''; discover.forStopId=s?s.id:null; go({tab:'discover', tripId:null}); };
@@ -919,6 +928,33 @@ const WORLD = __WORLD__;
     });
   }
 
+  // Towns added from photos/entries have no leg yet: list the drives between consecutive cities that the route lacks.
+  function missingLegs(tid){
+    // the route you actually took: every timed activity/meal/expense, in time order, by its city
+    const ok=s=>s&&!s.home&&s.lat!=null, today=todayStr();
+    const ev=S.places.concat(S.expenses).filter(x=>x.tripId===tid&&x.date&&x.date<=today&&hhmm(x)&&ok(stopOf(x.stopId)))
+      .map(x=>({t:x.date+'T'+hhmm(x), d:x.date, s:stopOf(x.stopId), p:x.lat!=null?x:null})).sort((a,b)=>a.t.localeCompare(b.t));
+    let seq=[]; ev.forEach(e=>{ if(!seq.length||norm(seq[seq.length-1].s.city)!==norm(e.s.city)) seq.push(e); });
+    // a lone entry filed far off the route (e.g. a dinner pinned 180 km away, between two Bayonne entries) isn't a drive
+    for(let i=1;i<seq.length-1;i++){ const a=seq[i-1].s, b=seq[i].s, c=seq[i+1].s;
+      if(haversine(a,b)+haversine(b,c) > 2.5*haversine(a,c)+60){ seq.splice(i,1); i=Math.max(0,i-2); } }
+    seq=seq.filter((e,i)=>!i||norm(seq[i-1].s.city)!==norm(e.s.city));
+    const legs=tripLegs(tid), cityOf=id=>norm((stopOf(id)||{}).city), out=[], seen=new Set();
+    for(let i=1;i<seq.length;i++){ const A=seq[i-1], B=seq[i], bc=norm(B.s.city);
+      // follow legs already logged from A (e.g. Pilat → Messanges) before deciding what's missing
+      let cur=A.s, covered=false;
+      for(let g=0; g<6; g++){ const l=legs.find(l=>cityOf(l.fromId)===norm(cur.city)&&l.date>=A.d&&l.date<=B.d);
+        if(!l) break; if(cityOf(l.toId)===bc){ covered=true; break; } cur=stopOf(l.toId)||cur; if(!cur.lat) break; }
+      // or the route already reaches B that day from anywhere (Pilat → Messanges covers Arcachon → Messanges)
+      if(!covered) covered=legs.some(l=>cityOf(l.toId)===bc&&l.date>=A.d&&l.date<=B.d);
+      if(covered||norm(cur.city)===bc) continue;
+      // the actual pins say you barely moved (laundry in a Bayonne suburb, run in Bayonne next morning)
+      if(cur===A.s&&A.p&&B.p&&haversine(A.p,B.p)<3) continue;
+      const k=norm(cur.city)+'>'+bc; if(seen.has(k)) continue; seen.add(k);
+      const d=haversine(cur,B.s); if(d<2) continue;
+      out.push({a:cur, b:B.s, date:B.d, km:Math.round(d*ROAD_FACTOR.car)}); }
+    return out;
+  }
   async function ensureStop(trip, name, dateArrive, dateDepart){
     const n=norm(name);
     // reuse a stop in this trip if the dates touch it
