@@ -275,6 +275,10 @@ const WORLD = __WORLD__;
     [/taxi|uber|bolt|lyft|cab\b|vtc/i,'🚕'],[/fuel|gas|petrol|essence|diesel|gasoil|carburant|station/i,'⛽'],[/toll|p[ée]age|autoroute/i,'🛣️'],[/parking|stationnement/i,'🅿️'],
     [/bus|coach|flixbus|blablabus|tram|metro|métro|subway/i,'🚌'],[/ferry|boat|bateau|navette|bac\b/i,'⛴️'],[/bike|v[ée]lo|scooter|trottinette/i,'🚲'],[/car|rental|location|hertz|avis|europcar|enterprise|sixt|budget|voiture/i,'🚗']];
   const catIcon = c => CAT_ICON[c]||'✦';
+  // budget lines for transport, so a flight reads as a flight
+  const LEG_CAT={plane:'Flights', train:'Trains', bus:'Buses', ferry:'Boats', car:'Car', walk:'Bikes & walks'};
+  const RIDE_CAT={'✈️':'Flights','🚆':'Trains','🚕':'Taxis','⛽':'Fuel','🛣️':'Tolls','🅿️':'Parking','🚌':'Buses','⛴️':'Boats','🚲':'Bikes & walks','🚗':'Car'};
+  Object.assign(EXP_ICON, {'Flights':'✈️','Trains':'🚆','Taxis':'🚕','Fuel':'⛽','Tolls':'🛣️','Parking':'🅿️','Buses':'🚌','Boats':'⛴️','Bikes & walks':'🚲','Car':'🚗'});
   const expIcon = (c, label) => { if((c==='Transport'||c==='Other'||!c)&&label){ const m=RIDE_ICONS.find(([re])=>re.test(label)); if(m) return m[1]; } return EXP_ICON[c]||'💳'; };
   const emo = e => '<span class="mini emo" aria-hidden="true">'+e+'</span>';
   const catOptions = sel => '<optgroup label="Meals">'+MEALS.map(([k,l])=>'<option value="'+k+'"'+(sel===k?' selected':'')+'>'+CAT_ICON[k]+' '+l+'</option>').join('')+'</optgroup>'
@@ -322,11 +326,11 @@ const WORLD = __WORLD__;
 
   function costLines(tid){
     const out=[];
-    tripLegs(tid).forEach(l=>{ if(l.cost) out.push({cat:'Transport', label:(MODES[l.mode]||{}).label+': '+(stopOf(l.fromId)||{}).city+' → '+(stopOf(l.toId)||{}).city, amount:+l.cost, cur:l.currency||'EUR'}); });
+    tripLegs(tid).forEach(l=>{ if(l.cost) out.push({cat:LEG_CAT[l.mode]||'Transport', label:(MODES[l.mode]||{}).label+': '+(stopOf(l.fromId)||{}).city+' → '+(stopOf(l.toId)||{}).city, amount:+l.cost, cur:l.currency||'EUR'}); });
     S.places.filter(p=>p.tripId===tid && p.cost).forEach(p=>{
       const cat = p.category==='hotel'?'Lodging':MEAL_KEYS.has(p.category)?'Meals':(p.category==='shopping')?'Shopping':'Activities';
       out.push({cat, label:p.name, amount:+p.cost, cur:p.currency||'EUR'}); });
-    S.expenses.filter(e=>e.tripId===tid).forEach(e=>out.push({cat:e.category||'Other', label:e.label, amount:+e.amount, cur:e.currency||'EUR', id:e.id}));
+    S.expenses.filter(e=>e.tripId===tid).forEach(e=>out.push({cat:e.category==='Transport'?(RIDE_CAT[expIcon('Transport',e.label)]||'Transport'):(e.category||'Other'), label:e.label, amount:+e.amount, cur:e.currency||'EUR', id:e.id}));
     S.stays.filter(x=>x.tripId===tid&&x.cost).forEach(x=>out.push({cat:'Lodging', label:x.name+' · '+stayNights(x)+' night'+(stayNights(x)===1?'':'s'), amount:+x.cost, cur:x.currency||'EUR'}));
     return out;
   }
@@ -498,8 +502,15 @@ const WORLD = __WORLD__;
       lines.push(ln); legEls.push(ln);
       if(world) return;
       // direction arrow halfway along the leg
-      const gi=d3.geoInterpolate([a.lon,a.lat],[b.lon,b.lat]), m=proj(gi(.5)), p0=proj(gi(.45)), p1=proj(gi(.55));
-      if(!m||!p0||!p1||Math.hypot(p1[0]-p0[0],p1[1]-p0[1])<.01) return;
+      // a flight from/to home has its middle off the map: put its badge near the trip end instead
+      const lenKm=haversine(a,b), near=Math.min(.5, 12/Math.max(lenKm,1));
+      const bt=a.home&&!b.home?1-near:b.home&&!a.home?near:.5;
+      const gi=d3.geoInterpolate([a.lon,a.lat],[b.lon,b.lat]), mm=proj(gi(bt)), m=proj(gi(.62)), p0=proj(gi(.57)), p1=proj(gi(.67));
+      if(!m||!mm||!p0||!p1||Math.hypot(p1[0]-p0[0],p1[1]-p0[1])<.01) return;
+      const badge=ga.append('g').node();
+      d3.select(badge).append('circle').attr('r',11).attr('fill','var(--surface)').attr('stroke',color).attr('stroke-width',2);
+      d3.select(badge).append('text').attr('text-anchor','middle').attr('dy','.36em').attr('font-size',12).text(MODE_EMOJI[l.mode]||'🚗');
+      marks.push({node:badge, x:mm[0], y:mm[1]});
       const node=ga.append('g').node();
       d3.select(node).append('path').attr('d','M-5,-5 L5,0 L-5,5 Z').attr('fill',color).attr('stroke','var(--sea)').attr('stroke-width',1.5)
         .attr('transform','rotate('+(Math.atan2(p1[1]-p0[1],p1[0]-p0[0])*180/Math.PI)+')');
