@@ -2116,7 +2116,14 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
     if(city){ ranges=[]; stops.map(s=>[s.arrive<from?from:s.arrive, (s.depart||s.arrive)>to?to:(s.depart||s.arrive)]).sort((a,b)=>a[0].localeCompare(b[0])).forEach(r=>{
       const last=ranges[ranges.length-1]; if(last&&r[0]<=addDays(last[1],1)){ if(r[1]>last[1]) last[1]=r[1]; } else ranges.push(r.slice()); }); if(!ranges.length) ranges=[[from,to]]; }
     const days=ranges.reduce((n,r)=>n+dayCount(r[0],r[1]),0), meals=acts.filter(p=>MEAL_KEYS.has(p.category)).length;
-    return {stops, legs, acts, photos, owner, pick, cities, km, byMode, days, ranges, meals, city:city||'', countries:new Set(stops.map(s=>s.countryA2).filter(Boolean)).size};
+    // drives nobody logged: consecutive things done in different cities with no leg between them (drawn like a car leg)
+    const hops=[]; if(!city){ let last=null;
+      for(let d=from; d<=to; d=addDays(d,1)) dayOrder(d, legs.filter(l=>l.date===d), all.filter(p=>p.date===d&&p.status==='done'), []).forEach(({k,x})=>{
+        if(k==='leg'){ last=stopOf(x.toId); return; }
+        const st=stopOf(x.stopId); if(!st||st.home||st.lat==null) return;
+        if(last&&last.lat!=null&&norm(last.city)!==norm(st.city)&&haversine(last,st)>=2) hops.push({a:last, b:st, date:d, km:Math.round(haversine(last,st)*ROAD_FACTOR.car)});
+        last=st; }); }
+    return {stops, legs, hops, acts, photos, owner, pick, cities, km, byMode, days, ranges, meals, city:city||'', countries:new Set(stops.map(s=>s.countryA2).filter(Boolean)).size};
   }
   const imgCache=new Map();
   function loadImg(id){
@@ -2188,7 +2195,7 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
     }
     if(o.showMap&&mapH>120){
       const box=[X,y,W-2*X,mapH];
-      const pts=d.stops.filter(s=>s.lat!=null).map(s=>[s.lon,s.lat]).concat(d.acts.filter(p=>p.lat!=null).map(p=>[p.lon,p.lat]));
+      const pts=d.stops.filter(s=>s.lat!=null).map(s=>[s.lon,s.lat]).concat(d.acts.filter(p=>p.lat!=null).map(p=>[p.lon,p.lat]), ...(d.hops||[]).map(h=>[[h.a.lon,h.a.lat]]));
       const proj=d3.geoMercator();
       if(pts.length>=2) proj.fitExtent([[box[0]+70,box[1]+60],[box[0]+box[2]-150,box[1]+box[3]-50]],{type:'MultiPoint',coordinates:pts});
       else proj.scale(pts.length?14000:200).center(pts[0]||[0,20]).translate([box[0]+box[2]/2,box[1]+box[3]/2]);
@@ -2205,9 +2212,10 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
       d.legs.forEach(l=>{ const a=stopOf(l.fromId), b=stopOf(l.toId); if(!a||!b||a.home||b.home||a.lat==null||b.lat==null) return;
         g.beginPath(); path({type:'LineString',coordinates:[[a.lon,a.lat],[b.lon,b.lat]]}); g.strokeStyle=colors[l.mode]||'#FF7A3D'; g.lineWidth=7; g.setLineDash(l.mode==='plane'?[18,14]:[]); g.stroke(); });
       g.setLineDash([]);
+      (d.hops||[]).forEach(h=>{ g.beginPath(); path({type:'LineString',coordinates:[[h.a.lon,h.a.lat],[h.b.lon,h.b.lat]]}); g.strokeStyle=colors.car; g.lineWidth=7; g.stroke(); });
       if(!priv(o,'spots')) d.acts.forEach(p=>{ if(p.lat==null) return; const q=proj([p.lon,p.lat]); g.save(); g.translate(q[0],q[1]); g.rotate(Math.PI/4); g.fillStyle=p.status==='done'?'#FF7A3D':'#16222D'; g.strokeStyle=p.status==='done'?'#fff':'#FF7A3D'; g.lineWidth=4; g.fillRect(-9,-9,18,18); g.strokeRect(-9,-9,18,18); g.restore(); });
       const seen=new Set(), pins=[];
-      d.stops.forEach(s=>{ if(s.lat==null) return; const k=norm(s.city); if(seen.has(k)) return; seen.add(k); const p=proj([s.lon,s.lat]); pins.push([s,p]);
+      d.stops.concat(...(d.hops||[]).map(h=>[h.a,h.b])).forEach(s=>{ if(s.lat==null) return; const k=norm(s.city); if(seen.has(k)) return; seen.add(k); const p=proj([s.lon,s.lat]); pins.push([s,p]);
         g.beginPath(); g.arc(p[0],p[1],11,0,7); g.fillStyle='#fff'; g.fill(); g.lineWidth=5; g.strokeStyle='#101820'; g.stroke(); });
       g.font='600 30px Figtree, sans-serif'; const boxes=pins.map(([,p])=>[p[0]-12,p[1]-12,p[0]+12,p[1]+12]);
       const hit=b=>boxes.some(o=>b[0]<o[2]&&b[2]>o[0]&&b[1]<o[3]&&b[3]>o[1]);
