@@ -721,7 +721,7 @@ const WORLD = __WORLD__;
   function whoPaidHtml(list){
     const m={}; list.filter(e=>e.paidBy).forEach(e=>{ const k=e.paidBy; m[k]=m[k]||{}; m[k][e.currency||'EUR']=(m[k][e.currency||'EUR']||0)+(+e.amount||0); });
     const names=Object.keys(m); if(!names.length) return '';
-    return '<div class="sec-title"><h2 style="font-size:18px">Who paid</h2><span class="faint">Expenses only</span></div><div class="card">'
+    return '<div class="sec-title"><h2 style="font-size:18px">Who paid</h2><span class="faint">Expenses and meals</span></div><div class="card">'
       + names.sort().map(n=>'<div class="budget-row"><span>'+esc(n)+'</span><span class="amt">'+Object.entries(m[n]).map(([c,a])=>fmtMoney(a,c)).join(' + ')+'</span></div>').join('')+'</div>';
   }
   function budgetHtml(tid){
@@ -736,7 +736,7 @@ const WORLD = __WORLD__;
       + '<div class="budget-row" style="font-weight:700"><span>Total</span><span class="amt">'+Object.entries(tot).map(([c,a])=>fmtMoney(a,c)).join(' + ')+'</span></div></div>'
       + (other.length?'<div class="card">'+other.sort((a,b)=>(b.date||'').localeCompare(a.date||'')).map(e=>'<div class="budget-row" data-exp="'+e.id+'" style="cursor:pointer;gap:10px"><span style="min-width:0">'+expIcon(e.category,e.label)+' '+esc(e.label)+' <span class="faint">· '+esc(e.category||'Other')+(e.date?' · '+fmtDate(e.date):'')+(e.city?' · '+esc(e.city):'')+(e.paidBy?' · paid by '+esc(e.paidBy):'')+'</span>'
           + (e.notes?'<span class="faint" style="display:block;white-space:pre-wrap">'+esc(e.notes)+'</span>':'')+'</span><span class="amt" style="display:flex;gap:8px;align-items:center;flex-shrink:0">'+((e.photoIds||[]).length?'<img alt="Receipt" src="/_blob/'+e.photoIds[0]+'" data-photo="'+e.photoIds[0]+'" style="width:32px;height:32px;object-fit:cover;border-radius:6px;cursor:zoom-in">':'')+fmtMoney(e.amount,e.currency)+'</span></div>').join('')+'</div>':'')
-      + whoPaidHtml(other)
+      + whoPaidHtml(other.concat(S.places.filter(p=>p.tripId===tid&&+p.cost&&p.paidBy).map(p=>({paidBy:p.paidBy, currency:p.currency, amount:p.cost}))))
       + '<div class="faint">Totals are kept per currency; no exchange rates are applied.</div>';
   }
 
@@ -1054,9 +1054,11 @@ const WORLD = __WORLD__;
       + '<div class="field"><label>Status</label><div class="row"><button type="button" class="chip '+(status==='done'?'on':'')+'" data-st="done">Been</button><button type="button" class="chip '+(status==='want'?'on':'')+'" data-st="want">Want to go</button></div></div>'
       + '<div class="field"><label>Rating</label><div class="rating" id="rating">'+[1,2,3,4,5].map(i=>'<button type="button" data-r="'+i+'" aria-label="'+i+' stars" class="'+(i<=rating?'on':'')+'">★</button>').join('')+'</div></div>'
       + '<div class="grid3"><div class="field"><label for="pCost">Price (optional)</label><input id="pCost" inputmode="decimal" value="'+esc(p&&p.cost?p.cost:'')+'"></div><div class="field"><label for="pCur">Currency</label>'+curSelect('pCur', p?p.currency:trip.currency)+'</div></div>'
+      + '<div class="field" id="pPaidF"'+(p&&+p.cost?'':' hidden')+'><label for="pPaid">Paid by</label><input id="pPaid" list="pPayers" autocomplete="off" value="'+esc(p&&p.paidBy||lastPayer(trip.id))+'"><datalist id="pPayers">'+payers(trip.id).map(n=>'<option value="'+esc(n)+'">').join('')+'</datalist></div>'
       + '<label class="row" style="gap:8px;font-size:14px;cursor:pointer"><input type="checkbox" id="pPriv" style="width:20px;height:20px"'+(p&&p.private?' checked':'')+'> 🔒 Keep off shares <span class="faint">(stays in your log, never on images or videos)</span></label>'
       + '<div class="field"><label for="pNotes">Notes</label><textarea id="pNotes" placeholder="What you did, what you ordered, would you go back?">'+esc(p?p.notes||'':'')+'</textarea></div>'
       + '<div class="err" id="fErr" hidden></div>'
+      + '<button type="button" class="btn small ghost" id="pToExp" style="align-self:flex-start">💳 Turn into an expense</button>'
       + '<div class="row"><button class="btn primary" type="submit" id="pSave">Save</button><button class="btn" type="button" id="xCancel">Cancel</button>'+(p?'<button class="btn danger" type="button" id="xDel" style="margin-left:auto">Delete</button>':'')+'</div>',
     form=>{
       $('#xCancel').onclick=closeSheet;
@@ -1151,6 +1153,18 @@ const WORLD = __WORLD__;
       $('#pTime').addEventListener('change',()=>{ if(!catTouched&&isMeal(val('pCat'))&&val('pTime')) $('#pCat').value=mealFor(val('pTime'),val('pName')); });
       $('#pName').addEventListener('change',()=>{ if(!catTouched&&isMeal(val('pCat'))) $('#pCat').value=mealFor(val('pTime'),val('pName')); });
       if(p) $('#xDel').onclick=()=>confirmDelete(form,'"'+p.name+'"', ()=>del('places', p.id));
+      $('#pCost').addEventListener('input',()=>{ $('#pPaidF').hidden=!(parseFloat(val('pCost').replace(',','.'))>0); });
+      // the reverse of "Make it a meal": keep it as a plain expense (photos, place and time move with it)
+      $('#pToExp').onclick=async()=>{ const b=$('#pToExp'); b.disabled=true;
+        try{ const c=parseFloat(val('pCost').replace(',','.')), date=val('pDate')||todayStr(), city=val('pCity').trim();
+          const same=city?tStops.filter(s=>norm(s.city)===norm(city)):[]; let st=same.find(s=>s.arrive<=date&&date<=(s.depart||s.arrive))||same[0];
+          if(!st&&city) st=await ensureStop(trip, city, date, date); if(!st) st=stopOnDate(trip.id,date)||cur;
+          const data={tripId:trip.id, label:val('pName').trim()||CAT_LABEL[val('pCat')]||'Expense', amount:isFinite(c)?c:0, currency:val('pCur'), category:isMeal(val('pCat'))?'Food & drink':val('pCat')==='shopping'?'Shopping':val('pCat')==='hotel'?'Lodging':'Activities',
+            date, time:val('pTime'), city:st.city, stopId:st.id, paidBy:val('pPaid').trim()||lastPayer(trip.id), notes:val('pNotes').trim(), photoIds, address:val('pLoc').trim(), createdAt:now(), updatedAt:now()};
+          if(pos){ data.lat=pos.lat; data.lon=pos.lon; }
+          await put('expenses', null, data); if(p) await del('places', p.id);
+          closeSheet(); toast('Moved to expenses'); }
+        catch(e){ b.disabled=false; const er=$('#fErr'); er.hidden=false; er.textContent=String((e&&e.message)||e); } };
       form.onsubmit=async e=>{ e.preventDefault();
         const name=val('pName').trim(); if(!name){ const er=$('#fErr'); er.hidden=false; er.textContent='Say what it was (a name is enough).'; return; }
         const date=val('pDate'); let city=val('pCity').trim(), st;
@@ -1165,7 +1179,7 @@ const WORLD = __WORLD__;
         // a position Claude guessed for another name is stale; a photo's GPS stays
         const keep=pos&&(pos.name==null||pos.name===name);
         const loc=val('pLoc').trim();
-        const data=Object.assign({}, pre&&pre.extra||{}, {tripId:trip.id, stopId:st.id, name, address:loc, category:val('pCat'), date, time:val('pTime'), private:$('#pPriv').checked, status, rating, cost:isFinite(c)?c:0, currency:val('pCur'), notes:val('pNotes').trim(), photoIds, updatedAt:now()});
+        const data=Object.assign({}, pre&&pre.extra||{}, {tripId:trip.id, stopId:st.id, name, address:loc, category:val('pCat'), date, time:val('pTime'), private:$('#pPriv').checked, status, rating, cost:isFinite(c)?c:0, paidBy:isFinite(c)&&c>0?val('pPaid').trim():'', currency:val('pCur'), notes:val('pNotes').trim(), photoIds, updatedAt:now()});
         if(keep){ data.lat=pos.lat; data.lon=pos.lon; }
         let id=p&&p.id;
         if(p){ if(!keep&&p.lat!=null){ data.lat=null; data.lon=null; } if(p.date!==date) data.dayPos=null; await patch('places', p.id, data); }
