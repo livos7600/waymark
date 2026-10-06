@@ -2104,7 +2104,11 @@ const WORLD = __WORLD__;
     // a starting pick that covers the slice: the cover photo of each activity first, then seconds, …
     const pick=[]; for(let r=0;pick.length<4&&r<6;r++) acts.forEach(p=>{ const id=(p.photoIds||[])[r]; if(id&&pick.length<4&&!pick.includes(id)) pick.push(id); });
     photos.forEach(id=>{ if(pick.length<Math.min(3,photos.length)&&!pick.includes(id)) pick.push(id); });
-    const cities=[...new Map(stops.map(s=>[norm(s.city),s.city])).values()];
+    // cities in the order you went (the Days order of what you did), then any others
+    const seen=new Map(); acts.filter(p=>p.status==='done').map(p=>stopOf(p.stopId)).forEach(s=>{ if(s&&!s.home&&!seen.has(norm(s.city))) seen.set(norm(s.city),s.city); });
+    const cities=[...seen.values()], arr=c=>(stops.find(s=>norm(s.city)===norm(c))||{}).arrive||'';
+    // a city with nothing logged slots in by its arrival date
+    stops.forEach(s=>{ if(cities.some(c=>norm(c)===norm(s.city))) return; const i=cities.findIndex(c=>arr(c)>(s.arrive||'')); cities.splice(i<0?cities.length:i,0,s.city); });
     const byMode={}; let km=0; legs.forEach(l=>{ const k=+l.km||0; km+=k; byMode[l.mode]=(byMode[l.mode]||0)+k; });
     // the days covered, as ranges (a city visited twice gives two)
     let ranges=[[from,to]];
