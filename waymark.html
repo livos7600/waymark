@@ -1014,17 +1014,19 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
       + (assets||canRead?'<div class="field"><label>Photos</label><div class="photos" id="pPhotos"></div><div class="row"><label class="btn small" for="pPhotoIn">'+ICON.camera+' Add photos</label><input id="pPhotoIn" type="file" accept="image/*" multiple hidden>'
         + (canRead?'<button type="button" class="btn small" id="pRead" hidden>'+ICON.spark+' Fill in from photo</button>':'')+'</div>'
         + '<div class="hint" id="pUp">'+(canRead&&!p?'Start with a photo: Claude reads where and when it was taken and what it shows.':'')+'</div></div>':'')
-      + '<div class="field"><label for="pName">What</label><input id="pName" value="'+esc(p?p.name:'')+'" placeholder="'+(pre&&isMeal(pre.category)?'e.g. Chez Pierre, oysters at the market':'e.g. Dune du Pilat, surf lesson, Guggenheim')+'"><div class="row"><button type="button" class="btn small" id="pFind">🔎 Find the place</button></div><div id="pFound"></div></div>'
+      + '<div class="field"><label for="pName">What</label><input id="pName" value="'+esc(p?p.name:'')+'" placeholder="'+(pre&&isMeal(pre.category)?'e.g. Chez Pierre, oysters at the market':'e.g. Dune du Pilat, surf lesson, Guggenheim')+'"></div>'
       + '<div class="grid2"><div class="field"><label for="pDate">Date</label><input id="pDate" type="date" value="'+esc(date0)+'"></div>'
       + '<div class="field"><label for="pTime">Time (optional)</label><input id="pTime" type="time" value="'+esc(p?hhmm(p):((pre&&pre.time)||(date0===todayStr()?nowHM():'')))+'"></div></div>'
       + '<div class="grid2"><div class="field"><label for="pCity">City</label><select id="pCity">'+cityNames.map(c=>'<option'+(c===cur.city?' selected':'')+'>'+esc(c)+'</option>').join('')+'</select></div>'
       + '<div class="field"><label for="pCat">Type</label><select id="pCat">'+catOptions(p?p.category:(pre&&pre.category)||'attraction')+'</select></div></div>'
+      + '<div class="field"><label for="pLoc">Location</label><div style="display:flex;gap:6px"><input id="pLoc" autocomplete="off" value="'+esc(p&&p.address||'')+'" placeholder="Filled from the photo, or type a place or address" style="flex:1;min-width:0">'
+        + '<button type="button" class="btn small" id="pFind" aria-label="Find this place">🔎 Find</button><button type="button" class="btn small ghost" id="pClr" aria-label="Remove the location">✕</button></div>'
+        + '<div id="pFound"></div><div class="hint" id="pPos">'+(p&&p.track&&p.track.length?'📍 Route on the map · '+statsLine(p):pos?'📍 Pinned on the map':'')+'</div></div>'
       + '<div class="field"><label>Status</label><div class="row"><button type="button" class="chip '+(status==='done'?'on':'')+'" data-st="done">Been</button><button type="button" class="chip '+(status==='want'?'on':'')+'" data-st="want">Want to go</button></div></div>'
       + '<div class="field"><label>Rating</label><div class="rating" id="rating">'+[1,2,3,4,5].map(i=>'<button type="button" data-r="'+i+'" aria-label="'+i+' stars" class="'+(i<=rating?'on':'')+'">★</button>').join('')+'</div></div>'
       + '<div class="grid3"><div class="field"><label for="pCost">Price (optional)</label><input id="pCost" inputmode="decimal" value="'+esc(p&&p.cost?p.cost:'')+'"></div><div class="field"><label for="pCur">Currency</label>'+curSelect('pCur', p?p.currency:trip.currency)+'</div></div>'
       + '<label class="row" style="gap:8px;font-size:14px;cursor:pointer"><input type="checkbox" id="pPriv" style="width:20px;height:20px"'+(p&&p.private?' checked':'')+'> 🔒 Keep off shares <span class="faint">(stays in your log, never on images or videos)</span></label>'
       + '<div class="field"><label for="pNotes">Notes</label><textarea id="pNotes" placeholder="What you did, what you ordered, would you go back?">'+esc(p?p.notes||'':'')+'</textarea></div>'
-      + '<div class="hint" id="pPos">'+(p&&p.track&&p.track.length?'📍 Route on the map · '+statsLine(p):pos?'📍 On the map':'')+'</div>'
       + '<div class="err" id="fErr" hidden></div>'
       + '<div class="row"><button class="btn primary" type="submit" id="pSave">Save</button><button class="btn" type="button" id="xCancel">Cancel</button>'+(p?'<button class="btn danger" type="button" id="xDel" style="margin-left:auto">Delete</button>':'')+'</div>',
     form=>{
@@ -1050,7 +1052,7 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
           const m=await readExif(fs[0]); if(!form.isConnected||!m) return;
           if(!p&&m.date&&!val('pName').trim()){ $('#pDate').value=m.date; $('#pDate').onchange(); }
           if(m.time&&!val('pTime')&&(!m.date||m.date===val('pDate'))) $('#pTime').value=m.time;
-          if(!p&&m.lat!=null){ pos={lat:m.lat, lon:m.lon}; $('#pPos').textContent='📍 Location taken from the photo'; }
+          if(!p&&m.lat!=null) fromGps(m.lat, m.lon);
         }
       }
       async function fill(){
@@ -1075,7 +1077,8 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
           $('#pDate').onchange();
           if(r.amount!=null&&!val('pCost').trim()){ set('pCost', String(r.amount)); if(r.currency){ const sel=$('#pCur'); if(![...sel.options].some(o=>o.value===r.currency)) sel.add(new Option(r.currency)); sel.value=r.currency; } }
           if(r.notes&&!val('pNotes').trim()) $('#pNotes').value=r.notes;
-          if(r.lat!=null){ pos={lat:r.lat, lon:r.lon, name:r.name}; $('#pPos').textContent='📍 On the map'+(r.city&&!cityNames.includes(r.city)?' (near '+r.city+')':''); }
+          if(r.gps) fromGps(r.lat, r.lon, r.name);
+          else if(r.lat!=null){ pos={lat:r.lat, lon:r.lon, name:r.name}; if(!val('pLoc').trim()) $('#pLoc').value=r.name; $('#pPos').textContent='📍 Pinned where Claude thinks "'+r.name+'" is'+(r.city&&!cityNames.includes(r.city)?' (near '+r.city+')':'')+'. Change it above if that\'s wrong.'; }
           hint('Filled in from the photo. Add a rating or price if you like, then save.');
         }catch(e){ hint(photoError(e)); }
         finally{ reading=false; sync(); }
@@ -1087,11 +1090,28 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
         if(pre.cost){ $('#pCost').value=pre.cost; if(pre.currency){ const sel=$('#pCur'); if(![...sel.options].some(o=>o.value===pre.currency)) sel.add(new Option(pre.currency)); sel.value=pre.currency; } }
         if(pre.notes) $('#pNotes').value=pre.notes;
         if(pre.extra){ setStatus('done'); statusTouched=true; const ln=statsLine(Object.assign({category:pre.category}, pre.extra)); $('#pPos').textContent='📍 Route on the map'+(ln?' · '+ln:''); } }
-      let address=p&&p.address||'';
-      placeFinder(trip, $('#pFind'), $('#pFound'), ()=>val('pName'), ()=>val('pCity')+', '+((tStops.find(s=>s.city===val('pCity'))||{}).country||''), r=>{
-        $('#pName').value=r.name; pos={lat:r.lat, lon:r.lon, name:r.name}; address=r.address;
+      // location: a photo's GPS fills it (and Claude names the spot); typing + Find, or just typing, changes it
+      let locDirty=false;
+      const nearTxt=()=>val('pCity')+', '+((tStops.find(s=>s.city===val('pCity'))||{}).country||'');
+      async function fromGps(lat, lon, guess){
+        pos={lat, lon}; locDirty=false; $('#pFound').innerHTML='';
+        $('#pPos').textContent='📍 From the photo\'s GPS'+(sample?' · looking up the place…':'');
+        let near=null; tStops.filter(s=>!s.home&&s.lat!=null).forEach(s=>{ const d=haversine({lat,lon},s); if(d<40&&(!near||d<near.d)) near={s,d}; });
+        if(near&&!cityTouched){ $('#pCity').value=near.s.city; }
+        try{ const w=await whereIs(lat, lon, nearTxt()); if(!form.isConnected||!pos||pos.lat!==lat) return;
+          const txt=w?[w.place,w.address].filter(Boolean).join(', '):'';
+          if(txt&&!locDirty) $('#pLoc').value=txt;
+          if(w&&w.place&&!val('pName').trim()) $('#pName').value=guess||w.place;
+          $('#pPos').textContent='📍 From the photo\'s GPS'+(txt?'':' (pinned)')+'. Type over it or tap Find to change.';
+        }catch(e){ if(form.isConnected) $('#pPos').textContent='📍 From the photo\'s GPS (pinned).'; }
+      }
+      $('#pLoc').addEventListener('input',()=>{ locDirty=true; $('#pPos').textContent=val('pLoc').trim()?'Tap Find to pick the exact place, or just save and it gets placed from what you typed.':''; });
+      $('#pClr').onclick=()=>{ pos=null; locDirty=false; $('#pLoc').value=''; $('#pFound').innerHTML=''; $('#pPos').textContent='No location. Saving will place it from the name and city.'; };
+      placeFinder(trip, $('#pFind'), $('#pFound'), ()=>val('pLoc')||val('pName'), nearTxt, r=>{
+        if(!val('pName').trim()) $('#pName').value=r.name;
+        pos={lat:r.lat, lon:r.lon}; locDirty=false; $('#pLoc').value=[r.name,r.address].filter(Boolean).join(', ');
         if(r.city&&cityNames.includes(r.city)){ $('#pCity').value=r.city; cityTouched=true; }
-        $('#pPos').textContent='📍 On the map'+(r.address?' · '+r.address:''); });
+        $('#pPos').textContent='📍 Pinned on the map'; });
       // a meal: time of day picks breakfast/lunch/dinner until the type is chosen by hand
       let catTouched=!!p;
       $('#pCat').onchange=()=>{ catTouched=true; $('#pTitle').textContent=(p?'Edit ':'Add ')+(isMeal(val('pCat'))?'a meal':'an activity').replace(/^a(n)? /, p?'':'$&'); };
@@ -1106,7 +1126,8 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
         const c=parseFloat(val('pCost').replace(',','.'));
         // a position Claude guessed for another name is stale; a photo's GPS stays
         const keep=pos&&(pos.name==null||pos.name===name);
-        const data=Object.assign({}, pre&&pre.extra||{}, {tripId:trip.id, stopId:st.id, name, address:keep?address:'', category:val('pCat'), date, time:val('pTime'), private:$('#pPriv').checked, status, rating, cost:isFinite(c)?c:0, currency:val('pCur'), notes:val('pNotes').trim(), photoIds, updatedAt:now()});
+        const loc=val('pLoc').trim();
+        const data=Object.assign({}, pre&&pre.extra||{}, {tripId:trip.id, stopId:st.id, name, address:loc, category:val('pCat'), date, time:val('pTime'), private:$('#pPriv').checked, status, rating, cost:isFinite(c)?c:0, currency:val('pCur'), notes:val('pNotes').trim(), photoIds, updatedAt:now()});
         if(keep){ data.lat=pos.lat; data.lon=pos.lon; }
         let id=p&&p.id;
         if(p){ if(!keep&&p.lat!=null){ data.lat=null; data.lon=null; } if(p.date!==date) data.dayPos=null; await patch('places', p.id, data); }
@@ -1114,7 +1135,9 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
         if(opts.replaces&&id) await del('expenses', opts.replaces.id); // the expense became this meal; its photos moved with it
         closeSheet();
         for(const x of orig.concat(added)) if(!photoIds.includes(x)) forgetAsset(x, p);
-        if(!keep&&id) locatePlaces([Object.assign({id}, data)]).catch(()=>{});
+        if(id&&loc&&(locDirty||!keep)){ // typed by hand: place it from what was typed
+          findPlaces(loc, city).then(rs=>{ const r=rs[0]; if(r) return patch('places', id, {lat:r.lat, lon:r.lon}); if(!keep) return locatePlaces([Object.assign({id}, data)]); }).catch(()=>{}); }
+        else if(!keep&&id) locatePlaces([Object.assign({id}, data)]).catch(()=>{});
       };
     });
   }
@@ -1241,7 +1264,7 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
       currency:/^[A-Za-z]{3}$/.test(o.currency||'')?o.currency.toUpperCase():'',
       expCat:EXP_CATS.includes(o.expenseCategory)?o.expenseCategory:'', actCat:CAT_LABEL[o.activityCategory]?o.activityCategory:'',
       date:/^\d{4}-\d\d-\d\d$/.test(o.date||'')?o.date:(meta&&meta.date)||'', time:/^\d\d:\d\d/.test(o.time||'')?o.time.slice(0,5):((meta&&meta.time)||''), notes:String(o.notes||'').trim().slice(0,300), city:'', lat:null, lon:null };
-    if(meta&&meta.lat!=null){ out.lat=meta.lat; out.lon=meta.lon; }
+    if(meta&&meta.lat!=null){ out.lat=meta.lat; out.lon=meta.lon; out.gps=true; }
     else if(isFinite(la)&&isFinite(lo)&&Math.abs(la)<=90&&Math.abs(lo)<=180&&(la||lo)){ out.lat=la; out.lon=lo; }
     if(near&&near.d<40) out.city=near.s.city;
     if(!out.city&&o.city){ const m=stops.find(s=>norm(s.city)===norm(o.city)); out.city=m?m.city:String(o.city).slice(0,80); }
@@ -1264,6 +1287,12 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
       + 'Only places you are fairly sure exist; [] if none.', {cache:{gcTime:86400000}});
     return (Array.isArray(r)?r:[]).map(x=>({name:String(x.name||'').slice(0,90), address:String(x.address||'').slice(0,140), what:String(x.what||'').slice(0,40), lat:+x.lat, lon:+x.lon}))
       .filter(x=>x.name&&isFinite(x.lat)&&isFinite(x.lon)&&Math.abs(x.lat)<=90&&Math.abs(x.lon)<=180).slice(0,5);
+  }
+  // What's at a photo's GPS point (Claude, from what it knows): a place name if clear, and an address.
+  async function whereIs(lat, lon, near){
+    if(!sample) return null;
+    const r=await sample.json('What is at latitude '+lat.toFixed(5)+', longitude '+lon.toFixed(5)+(near?' (near '+near+')':'')+'? Reply with only JSON {"place": the venue, landmark, beach or park there if you are fairly sure, else "", "address": street or neighbourhood, postcode and town}.', {modelTier:'quick', cache:{gcTime:86400000}});
+    return r&&typeof r==='object'?{place:String(r.place||'').slice(0,80), address:String(r.address||'').slice(0,140)}:null;
   }
   // A "🔎 Find" button + result list. getQ/getNear read the form; onPick gets {name,address,lat,lon,city}.
   function placeFinder(trip, btn, out, getQ, getNear, onPick){
