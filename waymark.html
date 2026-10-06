@@ -1155,10 +1155,11 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
       + (assets||canRead?'<div class="field"><label>Receipt / photo</label><div class="photos" id="ePhotos"></div><div class="row"><label class="btn small" for="ePhotoIn">'+ICON.camera+' Add photo</label><input id="ePhotoIn" type="file" accept="image/*" multiple hidden>'
         + (canRead?'<button type="button" class="btn small" id="eRead" hidden>'+ICON.spark+' Fill in from photo</button>':'')+'</div>'
         + '<div class="hint" id="eUp">'+(canRead&&!x?'Add a photo of the receipt and Claude fills in the amount, date and place.':'')+'</div></div>':'')
-      + '<div class="field"><label for="eLabel">What</label><input id="eLabel" value="'+esc(x?x.label:'')+'" placeholder="e.g. Car rental, tolls, SIM card"><div class="row"><button type="button" class="btn small" id="eFind">🔎 Find the place</button></div><div id="eFound"></div></div>'
+      + '<div class="field"><label for="eLabel">What</label><input id="eLabel" value="'+esc(x?x.label:'')+'" placeholder="e.g. Car rental, tolls, SIM card"></div>'
       + '<div class="grid3"><div class="field"><label for="eAmt">Amount</label><input id="eAmt" inputmode="decimal" value="'+esc(x?x.amount:'')+'"></div><div class="field"><label for="eCur">Currency</label>'+curSelect('eCur', x?x.currency:trip.currency)+'</div></div>'
       + '<div class="grid2"><div class="field"><label for="eDate">Date</label><input id="eDate" type="date" value="'+esc(x?x.date||'':todayStr())+'"></div><div class="field"><label for="eTime">Time (optional)</label><input id="eTime" type="time" value="'+esc(x?hhmm(x):nowHM())+'"></div></div>'
       + '<div class="field"><label for="eCat">Category</label><select id="eCat">'+cats.map(c=>'<option'+((x?x.category:'Other')===c?' selected':'')+'>'+c+'</option>').join('')+'</select></div>'
+      + locFieldHtml('e', x&&x.address||'', 'Filled from the receipt photo, or type a place')
       + '<div class="grid2"><div class="field"><label for="eCity">Where</label><input id="eCity" list="eCities" autocomplete="off" value="'+esc(x?x.city||'':'')+'" placeholder="City"><datalist id="eCities">'+cities.map(c=>'<option value="'+esc(c)+'">').join('')+'</datalist></div>'
       + '<div class="field"><label for="ePaid">Paid by</label><input id="ePaid" list="payers" autocomplete="off" value="'+esc(x?x.paidBy||'':lastPayer(trip.id))+'" placeholder="e.g. Me, Sam, split"><datalist id="payers">'+payers(trip.id).map(n=>'<option value="'+esc(n)+'">').join('')+'</datalist></div></div>'
       + '<div class="field"><label for="eNote">Note (optional)</label><textarea id="eNote" placeholder="Receipt details, what it covered, who owes what…">'+esc(x?x.notes||'':'')+'</textarea></div>'
@@ -1167,10 +1168,10 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
       + '<div class="row"><button class="btn primary" type="submit" id="eSave">Save</button><button class="btn" type="button" id="xCancel">Cancel</button>'+(x?'<button class="btn danger" type="button" id="xDel" style="margin-left:auto">Delete</button>':'')+'</div>',
     form=>{ $('#xCancel').onclick=closeSheet;
       if(x) $('#xDel').onclick=()=>confirmDelete(form,'this expense', ()=>del('expenses', x.id));
-      let epos=x&&x.lat!=null?{lat:x.lat, lon:x.lon, address:x.address||''}:null;
-      placeFinder(trip, $('#eFind'), $('#eFound'), ()=>val('eLabel'), ()=>val('eCity')||((stopOnDate(trip.id, val('eDate')||todayStr())||{}).city||''), r=>{
-        const lb=val('eLabel').trim(); $('#eLabel').value=lb.split(/\s+/).length<=2?r.name:lb+' – '+r.name;
-        $('#eCity').value=r.city||r.address.split(',').pop().replace(/\d+/g,'').trim()||val('eCity'); epos={lat:r.lat, lon:r.lon, address:r.address}; });
+      const eNear=()=>val('eCity')||((stopOnDate(trip.id, val('eDate')||todayStr())||{}).city||'');
+      const eloc=bindLoc(trip, 'e', form, x, ()=>val('eLabel'), eNear, (city, r)=>{
+        if(r){ const lb=val('eLabel').trim(); if(!lb||lb.split(/\s+/).length<=2) $('#eLabel').value=r.name; }
+        $('#eCity').value=city||(r&&r.address.split(',').pop().replace(/\d+/g,'').trim())||val('eCity'); });
       const mealHint=()=>{ $('#eMeal').hidden=val('eCat')!=='Food & drink'; };
       $('#eCat').addEventListener('change', mealHint);
       $('#eToMeal').onclick=()=>{ const a=parseFloat(val('eAmt').replace(',','.')), tm=val('eTime'), d=val('eDate')||todayStr(), city=val('eCity').trim();
@@ -1189,9 +1190,11 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
         picked=picked.concat(fs);
         if(assets){ uploading=true; sync(); hint('Uploading…'); const up=await uploadPhotos(fs); added.push(...up); photoIds=photoIds.concat(up); uploading=false; if(!form.isConnected) return; drawPhotos(); hint(''); }
         sync();
+        if(!eloc.pos&&!eloc.text()){ const m=await readExif(fs[0]); if(m&&m.lat!=null&&form.isConnected) eloc.fromGps(m.lat, m.lon); }
         if(autoRead&&canRead) await fill(); else if(!assets) hint('');
       }
       function applyResult(r){
+          if(r.gps&&!eloc.text()) eloc.fromGps(r.lat, r.lon);
           const set=(id,v)=>{ if(v!=null&&v!=='') $('#'+id).value=v; };
           if(r.time) set('eTime', r.time); else if(r.date&&r.date!==todayStr()) $('#eTime').value=''; set('eLabel', r.name); set('eAmt', r.amount!=null?String(r.amount):null); set('eDate', r.date); set('eCity', r.city); set('eCat', r.expCat);
           if(r.currency){ const sel=$('#eCur'); if(![...sel.options].some(o=>o.value===r.currency)) sel.add(new Option(r.currency)); sel.value=r.currency; }
@@ -1222,9 +1225,11 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
         if(!label||!isFinite(a)){ const er=$('#fErr'); er.hidden=false; er.textContent='Add what it was and an amount.'; return; }
         const city=val('eCity').trim(), st=city&&tripStops(trip.id).find(s=>norm(s.city)===norm(city));
         const data={tripId:trip.id, label, amount:a, currency:val('eCur'), category:val('eCat'), date:val('eDate'), time:val('eTime'), city:st?st.city:city, stopId:st?st.id:'', paidBy:val('ePaid').trim(), notes:val('eNote').trim(), photoIds, updatedAt:now()};
-        if(epos){ data.lat=epos.lat; data.lon=epos.lon; data.address=epos.address; }
+        data.address=eloc.text(); if(eloc.pos){ data.lat=eloc.pos.lat; data.lon=eloc.pos.lon; } else if(x&&x.lat!=null){ data.lat=null; data.lon=null; }
         if(x&&x.date!==data.date) data.dayPos=null;
-        if(x) await patch('expenses', x.id, data); else await put('expenses', null, Object.assign({createdAt:now()}, data));
+        let eid=x&&x.id;
+        if(x) await patch('expenses', x.id, data); else eid=(await put('expenses', null, Object.assign({createdAt:now()}, data))).id;
+        eloc.afterSave('expenses', eid, data.city);
         closeSheet();
         for(const y of orig.concat(added)) if(!photoIds.includes(y)) forgetAsset(y, x); };
     });
@@ -1293,6 +1298,28 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
     if(!sample) return null;
     const r=await sample.json('What is at latitude '+lat.toFixed(5)+', longitude '+lon.toFixed(5)+(near?' (near '+near+')':'')+'? Reply with only JSON {"place": the venue, landmark, beach or park there if you are fairly sure, else "", "address": street or neighbourhood, postcode and town}.', {modelTier:'quick', cache:{gcTime:86400000}});
     return r&&typeof r==='object'?{place:String(r.place||'').slice(0,80), address:String(r.address||'').slice(0,140)}:null;
+  }
+  // A Location field: a photo's GPS pins it (Claude names the spot), or type / 🔎 Find / ✕ by hand.
+  const locFieldHtml=(id, init, ph)=>'<div class="field"><label for="'+id+'Loc">Location</label><div style="display:flex;gap:6px"><input id="'+id+'Loc" autocomplete="off" value="'+esc(init||'')+'" placeholder="'+esc(ph||'Filled from the photo, or type a place or address')+'" style="flex:1;min-width:0">'
+    + '<button type="button" class="btn small" id="'+id+'Find">🔎 Find</button><button type="button" class="btn small ghost" id="'+id+'Clr" aria-label="Remove the location">✕</button></div><div id="'+id+'Found"></div><div class="hint" id="'+id+'Pos"></div></div>';
+  function bindLoc(trip, id, form, init, getName, getNear, onCity){
+    const L={pos:init&&init.lat!=null?{lat:init.lat, lon:init.lon}:null, dirty:false};
+    const inp=$('#'+id+'Loc'), hint=t=>{ $('#'+id+'Pos').textContent=t; };
+    if(L.pos) hint('📍 Pinned on the map');
+    inp.addEventListener('input',()=>{ L.dirty=true; hint(inp.value.trim()?'Tap Find to pick the exact place, or just save and it gets placed from what you typed.':''); });
+    $('#'+id+'Clr').onclick=()=>{ L.pos=null; L.dirty=false; inp.value=''; $('#'+id+'Found').innerHTML=''; hint(''); };
+    placeFinder(trip, $('#'+id+'Find'), $('#'+id+'Found'), ()=>inp.value||getName(), getNear, r=>{
+      L.pos={lat:r.lat, lon:r.lon}; L.dirty=false; inp.value=[r.name,r.address].filter(Boolean).join(', '); hint('📍 Pinned on the map'); if(onCity&&r.city) onCity(r.city, r); });
+    L.fromGps=async(lat, lon)=>{ L.pos={lat, lon}; L.dirty=false; hint('📍 From the photo\'s GPS'+(sample?' · looking up the place…':''));
+      let near=null; tripStops(trip.id).filter(s=>!s.home&&s.lat!=null).forEach(s=>{ const d=haversine({lat,lon},s); if(d<40&&(!near||d<near.d)) near={s,d}; });
+      if(near&&onCity) onCity(near.s.city);
+      try{ const w=await whereIs(lat, lon, getNear()); if(!form.isConnected||!L.pos||L.pos.lat!==lat) return;
+        const txt=w?[w.place,w.address].filter(Boolean).join(', '):''; if(txt&&!L.dirty) inp.value=txt;
+        hint('📍 From the photo\'s GPS. Type over it or tap Find to change.'); }catch(e){ if(form.isConnected) hint('📍 From the photo\'s GPS (pinned).'); } };
+    // after saving: what was typed by hand gets placed
+    L.afterSave=(col, docId, near)=>{ const t=inp.value.trim(); if(docId&&t&&L.dirty) findPlaces(t, near).then(rs=>{ if(rs[0]) return patch(col, docId, {lat:rs[0].lat, lon:rs[0].lon}); }).catch(()=>{}); };
+    L.text=()=>inp.value.trim();
+    return L;
   }
   // A "🔎 Find" button + result list. getQ/getNear read the form; onPick gets {name,address,lat,lon,city}.
   function placeFinder(trip, btn, out, getQ, getNear, onPick){
@@ -1585,12 +1612,17 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
       async function addFiles(fs, autoRead){
         picked=picked.concat(fs);
         if(assets){ uploading=true; sync(); hint('Uploading…'); const up=await uploadPhotos(fs); added.push(...up); photoIds=photoIds.concat(up); uploading=false; if(!form.isConnected) return; drawPhotos(); hint(''); }
-        sync(); if(autoRead&&canRead) await fill();
+        sync();
+        if(!pos&&!val('sAddr').trim()){ const m=await readExif(fs[0]); if(m&&m.lat!=null&&form.isConnected){ pos={lat:m.lat, lon:m.lon};
+          whereIs(m.lat, m.lon, val('sCity')).then(w=>{ if(w&&form.isConnected&&!val('sAddr').trim()) $('#sAddr').value=[w.place,w.address].filter(Boolean).join(', '); }).catch(()=>{}); } }
+        if(autoRead&&canRead) await fill();
       }
       const pin=$('#sPhotoIn'); if(pin) pin.onchange=()=>{ const fs=Array.from(pin.files||[]); pin.value=''; if(fs.length) addFiles(fs, !st&&!val('sName').trim()); };
       const rb=$('#sRead'); if(rb) rb.onclick=fill;
       if(opts.files&&opts.files.length) addFiles(opts.files, true);
       else if(opts.pre&&canRead) fill();
+      if(opts.pre&&opts.pre.picked&&opts.pre.picked[0]&&!pos) readExif(opts.pre.picked[0]).then(m=>{ if(!m||m.lat==null||!form.isConnected||pos) return; pos={lat:m.lat, lon:m.lon};
+        whereIs(m.lat, m.lon, val('sCity')).then(w=>{ if(w&&form.isConnected&&!val('sAddr').trim()) $('#sAddr').value=[w.place,w.address].filter(Boolean).join(', '); }).catch(()=>{}); }).catch(()=>{});
       if(st) $('#xDel').onclick=()=>confirmDelete(form,'"'+st.name+'"', ()=>del('stays', st.id));
       placeFinder(trip, $('#sFind'), $('#sFound'), ()=>val('sName')||val('sAddr'), ()=>val('sCity'), r=>{
         if(!val('sName').trim()) $('#sName').value=r.name; if(r.address) $('#sAddr').value=r.address;
