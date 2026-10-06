@@ -210,6 +210,15 @@
   .ph-x{position:absolute;top:4px;right:4px;width:24px;height:24px;border-radius:999px;border:none;background:rgba(0,0,0,.65);color:#fff;font-size:12px;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;}
   .ph-cover{position:absolute;left:4px;bottom:4px;background:var(--accent);color:var(--accent-ink);font-size:10.5px;font-weight:700;padding:1px 6px;border-radius:5px;}
   .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(84px + env(safe-area-inset-bottom,0px));z-index:70;background:var(--ink);color:var(--bg);padding:9px 14px;border-radius:10px;font-size:14px;font-weight:600;box-shadow:var(--shadow);}
+  .rv input:not([type=checkbox]),.rv select{width:100%;min-width:0;border:1px solid var(--line);background:var(--surface-2);border-radius:10px;padding:10px;font-size:16px;}
+  .rv .grid2>*{min-width:0;}
+  .hero-add{display:flex;flex-direction:column;gap:8px;}
+  .hero-btn{font-size:18px;padding:16px;border-radius:14px;}
+  .qa{display:flex;gap:6px;}
+  .qa input{flex:1;min-width:0;border:1px solid var(--line);background:var(--surface);border-radius:12px;padding:12px;font-size:16px;}
+  details.more-add>summary{cursor:pointer;color:var(--ink-soft);font-size:14px;font-weight:600;list-style:none;}
+  details.more-add>summary::-webkit-details-marker{display:none;}
+  details.more-add>summary::after{content:' ▾';}
   .share-preview{width:100%;border-radius:12px;border:1px solid var(--line);}
   details.edit{border:1px solid var(--line);border-radius:12px;background:var(--surface);}
   details.edit>summary{padding:12px 14px;font-weight:700;cursor:pointer;list-style:none;display:flex;justify-content:space-between;align-items:center;}
@@ -637,15 +646,17 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
     main.innerHTML =
       '<div class="faint">'+fmtDate(t.startDate,{weekday:'short',month:'short',day:'numeric'})+' – '+fmtDate(t.endDate,{weekday:'short',month:'short',day:'numeric',year:'numeric'})+(t.notes?' · '+esc(t.notes):'')+'</div>'
       + ((t.people||[]).length?'<div class="faint" style="margin-top:-10px">👥 '+t.people.length+' '+(t.people.length===1?'traveller':'travellers')+': '+esc(t.people.map(x=>x.name||x.email||'?').join(', '))+'</div>':'')
+      + '<div class="hero-add">'+(assets||(sample&&sampleImages)?'<label class="btn primary hero-btn" for="heroPhotos">📷 Add photos</label><input id="heroPhotos" type="file" accept="image/*" multiple hidden>':'')
+        + (sample?'<div class="qa"><input id="qaText" autocomplete="off" enterkeyhint="send" placeholder="🎤 Say or type: dinner 45€ at Chez Pierre, Alex paid"><button class="btn" type="button" id="qaGo">Add</button></div>':'')
+        + '<div class="faint">Photos become activities, meals, receipts or stays on the right day. Tap 🎤 on your keyboard to speak.</div></div>'
       + '<div class="pass"><div class="cell"><div class="k">Distance</div><div class="v mono">'+fmtKm(st.km)+'<small style="font-size:14px"> km</small></div></div>'
       + '<div class="cell"><div class="k">Days</div><div class="v">'+st.days+'</div></div>'
       + '<div class="cell"><div class="k">Cities</div><div class="v">'+st.cities+'</div></div>'
       + '<div class="cell"><div class="k">Spent</div><div class="v" style="font-size:'+(money.length>1?'18px':'26px')+'">'+(money.length?money.map(([c,a])=>fmtMoney(a,c)).join('<br>'):'—')+'</div></div></div>'
       + '<div><div class="map-wrap" id="tripMap"></div><div style="margin-top:8px" class="between">'+legendHtml(modesUsed.length?modesUsed:['plane','car'], tripPlaces.length, tripPlaces.some(p=>p.track&&p.track.length))
       + '<span class="faint mono">'+modesUsed.map(m=>MODES[m].label+' '+fmtKm(st.byMode[m])+' km').join(' · ')+'</span></div></div>'
-      + '<div class="sec-title"><h2>Days</h2><div class="row" style="flex-wrap:nowrap">'+(assets||(sample&&sampleImages)?'<label class="btn small" for="actPhotoIn">'+ICON.camera+' From photo</label><input id="actPhotoIn" type="file" accept="image/*" multiple hidden>':'')
-      + '<button class="btn small" id="addAct">'+ICON.plus+' Activity</button></div></div>'
-      + '<div class="row">'+(mcp?'<button class="btn small ghost" id="fromStrava">⇣ From Strava</button>':'')+'<label class="btn small ghost" for="gpxIn">⇣ GPX file</label><input id="gpxIn" type="file" hidden><button class="btn small ghost" id="addStay">🛏 Stay</button></div>'
+      + '<div class="sec-title"><h2>Days</h2><div class="row" style="flex-wrap:nowrap"><button class="btn small" id="addAct">'+ICON.plus+' Activity</button></div></div>'
+      + '<details class="more-add"><summary>More ways to add</summary><div class="row" style="padding-top:8px">'+(mcp?'<button class="btn small ghost" type="button" id="fromStrava">⇣ From Strava</button>':'')+'<label class="btn small ghost" for="gpxIn">⇣ GPX file</label><input id="gpxIn" type="file" hidden><button class="btn small ghost" type="button" id="addStay">🛏 Stay</button><button class="btn small ghost" type="button" id="addExp2">💳 Expense</button></div></details>'
       + '<div class="faint">Wrong order in a day? Hold ⠿ and slide the row.</div>'
       + (sample&&unplaced.length?'<button class="btn small ghost" id="locateAll" style="align-self:flex-start">📍 Put '+unplaced.length+' activit'+(unplaced.length===1?'y':'ies')+' on the map</button>':'')
       + daysHtml(t)
@@ -666,7 +677,7 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
             + '<div class="faint">'+places.length+' place'+(places.length===1?'':'s')+'</div>'
             + (photos.length?'<div class="thumbs">'+photos.map(id=>'<img alt="" src="/_blob/'+id+'">').join('')+'</div>':'')+'</div>';
         }).join('')+'</div>':'<div class="faint">Cities appear as you add legs.</div>')
-      + '<div class="sec-title"><h2>Budget</h2><div class="row" style="flex-wrap:nowrap">'+(sample&&sampleImages?'<label class="btn small" for="scanIn">'+ICON.camera+' Scan</label><input id="scanIn" type="file" accept="image/*" hidden>':'')+'<button class="btn small" id="addExp">'+ICON.plus+' Expense</button></div></div>'
+      + '<div class="sec-title"><h2>Budget</h2><div class="row" style="flex-wrap:nowrap">'+(downloads?'<button class="btn small ghost" id="xlsxBtn">⬇ Excel</button>':'')+(sample&&sampleImages?'<label class="btn small" for="scanIn">'+ICON.camera+' Scan</label><input id="scanIn" type="file" accept="image/*" hidden>':'')+'<button class="btn small" id="addExp">'+ICON.plus+' Expense</button></div></div>'
       + budgetHtml(t.id)
       + '<div class="row"><button class="btn ghost small" id="discoverHere">'+ICON.spark+' Top 10 for a city on this trip</button></div>';
     drawMap($('#tripMap'), {key:'trip:'+t.id, stops, legs, places:tripPlaces, stays:tripStays(t.id), onStay:x=>staySheet(x, {trip:t}), visitedN3, height:520, label:'Route map for '+t.name,
@@ -674,7 +685,15 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
     $('#addAct').onclick=()=>placeSheet(null, null, {trip:t, date:(todayStr()>=t.startDate&&todayStr()<=t.endDate)?todayStr():t.startDate});
     const fs0=$('#fromStrava'); if(fs0) fs0.onclick=()=>stravaSheet(t);
     const gx0=$('#gpxIn'); gx0.onchange=()=>{ const f=gx0.files&&gx0.files[0]; gx0.value=''; if(f) gpxImport(t, f); };
-    const api=$('#actPhotoIn'); if(api) api.onchange=()=>{ const fs=Array.from(api.files||[]); api.value=''; if(fs.length) placeSheet(null, null, {trip:t, files:fs, any:true}); };
+    const hp=$('#heroPhotos'); if(hp) hp.onchange=()=>{ const fs=Array.from(hp.files||[]); hp.value=''; if(fs.length) photoBatch(t, fs); };
+    const qa=$('#qaText'), qg=$('#qaGo');
+    if(qa){ const go=async()=>{ const txt=qa.value.trim(); if(!txt){ qa.focus(); return; } qg.disabled=true; qg.textContent='…';
+        try{ const es=await quickAdd(t, txt); if(!es.length){ toast('Couldn\'t understand that. Try "lunch 18 euros at the market".'); return; } qa.value=''; reviewSheet(t, es, 'text'); }
+        catch(e){ toast(photoError(e)||'Couldn\'t add that. Try again.'); }
+        finally{ qg.disabled=false; qg.textContent='Add'; } };
+      qg.onclick=go; qa.addEventListener('keydown',e=>{ if(e.key==='Enter'){ e.preventDefault(); go(); } }); }
+    const xb=$('#xlsxBtn'); if(xb) xb.onclick=()=>exportExpenses(t);
+    const ae2=$('#addExp2'); if(ae2) ae2.onclick=()=>expenseSheet(t, null);
     const loc=$('#locateAll'); if(loc) loc.onclick=async()=>{ loc.disabled=true; loc.textContent='Finding them…';
       try{ const n=await locatePlaces(unplaced); toast(n?n+' on the map':'Couldn\'t place them. Open one and save it to try again.'); }
       catch(e){ toast(photoError(e)||'Couldn\'t place them'); } };
@@ -1780,6 +1799,160 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
       catch(e){ toast(e&&e.code==='quota_or_state'?'Photo storage is full':'A photo failed to upload'); }
     }
     return ids;
+  }
+  // ---------- Excel expense report (.xlsx built in the page: a stored zip of SpreadsheetML) ----------
+  const CRC_T=(()=>{ const t=new Uint32Array(256); for(let n=0;n<256;n++){ let c=n; for(let k=0;k<8;k++) c=c&1?0xEDB88320^(c>>>1):c>>>1; t[n]=c>>>0; } return t; })();
+  function crc32(b){ let c=0xFFFFFFFF; for(let i=0;i<b.length;i++) c=CRC_T[(c^b[i])&255]^(c>>>8); return (c^0xFFFFFFFF)>>>0; }
+  function zipStore(files){ // [{name, text}] → Uint8Array (no compression)
+    const enc=new TextEncoder(), parts=[], central=[]; let off=0;
+    const u16=v=>[v&255,(v>>8)&255], u32=v=>[v&255,(v>>8)&255,(v>>16)&255,(v>>>24)&255];
+    files.forEach(f=>{ const name=enc.encode(f.name), data=enc.encode(f.text), crc=crc32(data);
+      const head=[...u32(0x04034b50),...u16(20),...u16(0x0800),...u16(0),...u16(0),...u16(33),...u32(crc),...u32(data.length),...u32(data.length),...u16(name.length),...u16(0)];
+      parts.push(new Uint8Array(head), name, data);
+      central.push(new Uint8Array([...u32(0x02014b50),...u16(20),...u16(20),...u16(0x0800),...u16(0),...u16(0),...u16(33),...u32(crc),...u32(data.length),...u32(data.length),...u16(name.length),...u16(0),...u16(0),...u16(0),...u16(0),...u32(0),...u32(off)]), name);
+      off+=head.length+name.length+data.length; });
+    const csize=central.reduce((n,a)=>n+a.length,0);
+    const end=new Uint8Array([...u32(0x06054b50),...u16(0),...u16(0),...u16(files.length),...u16(files.length),...u32(csize),...u32(off),...u16(0)]);
+    const all=parts.concat(central,[end]), out=new Uint8Array(all.reduce((n,a)=>n+a.length,0)); let p=0; all.forEach(a=>{ out.set(a,p); p+=a.length; }); return out;
+  }
+  function xlsx(sheets){ // [{name, rows:[[cell]], widths:[n]}]; numbers stay numbers, first row bold
+    const x=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])).replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g,'');
+    const col=i=>{ let s=''; i++; while(i){ const m=(i-1)%26; s=String.fromCharCode(65+m)+s; i=Math.floor((i-1)/26); } return s; };
+    const sheetXml=sh=>'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>'
+      + (sh.widths?'<cols>'+sh.widths.map((w,i)=>'<col min="'+(i+1)+'" max="'+(i+1)+'" width="'+w+'" customWidth="1"/>').join('')+'</cols>':'')
+      + '<sheetData>'+sh.rows.map((r,ri)=>'<row r="'+(ri+1)+'">'+r.map((v,ci)=>{ const ref=col(ci)+(ri+1), st=ri===0||(r[0]==='Total'&&ci===0)?' s="1"':(typeof v==='number'?' s="2"':'');
+          return typeof v==='number'&&isFinite(v)?'<c r="'+ref+'"'+st+'><v>'+v+'</v></c>':'<c r="'+ref+'" t="inlineStr"'+st+'><is><t xml:space="preserve">'+x(v)+'</t></is></c>'; }).join('')+'</row>').join('')+'</sheetData></worksheet>';
+    const files=[
+      {name:'[Content_Types].xml', text:'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>'
+        + sheets.map((s,i)=>'<Override PartName="/xl/worksheets/sheet'+(i+1)+'.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>').join('')+'</Types>'},
+      {name:'_rels/.rels', text:'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>'},
+      {name:'xl/workbook.xml', text:'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>'
+        + sheets.map((s,i)=>'<sheet name="'+x(s.name).slice(0,31)+'" sheetId="'+(i+1)+'" r:id="rId'+(i+1)+'"/>').join('')+'</sheets></workbook>'},
+      {name:'xl/_rels/workbook.xml.rels', text:'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+        + sheets.map((s,i)=>'<Relationship Id="rId'+(i+1)+'" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet'+(i+1)+'.xml"/>').join('')
+        + '<Relationship Id="rId'+(sheets.length+1)+'" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>'},
+      {name:'xl/styles.xml', text:'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><numFmts count="1"><numFmt numFmtId="164" formatCode="#,##0.00"/></numFmts><fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font></fonts><fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills><borders count="1"><border/></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="3"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/><xf numFmtId="164" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>'}
+    ].concat(sheets.map((s,i)=>({name:'xl/worksheets/sheet'+(i+1)+'.xml', text:sheetXml(s)})));
+    return zipStore(files);
+  }
+  // every cost on the trip with its date: legs, meals/activities, expenses, stays
+  function costRows(tid){
+    const rows=[], city=id=>(stopOf(id)||{}).city||'';
+    tripLegs(tid).forEach(l=>{ if(!+l.cost) return; rows.push({date:l.date||'', time:hhmm(l), type:'Transport', cat:LEG_CAT[l.mode]||'Transport', what:(MODES[l.mode]||{}).label+': '+city(l.fromId)+' → '+city(l.toId), city:city(l.fromId), amount:+l.cost, cur:l.currency||'EUR', paid:'', notes:l.notes||''}); });
+    S.places.filter(p=>p.tripId===tid&&+p.cost).forEach(p=>rows.push({date:p.date||'', time:hhmm(p), type:MEAL_KEYS.has(p.category)?'Meal':'Activity', cat:p.category==='hotel'?'Lodging':MEAL_KEYS.has(p.category)?'Meals':p.category==='shopping'?'Shopping':'Activities', what:p.name+(MEAL_KEYS.has(p.category)?' ('+(CAT_LABEL[p.category]||'')+')':''), city:city(p.stopId), amount:+p.cost, cur:p.currency||'EUR', paid:p.paidBy||'', notes:p.notes||''}));
+    S.expenses.filter(e=>e.tripId===tid).forEach(e=>rows.push({date:e.date||'', time:hhmm(e), type:'Expense', cat:e.category==='Transport'?(RIDE_CAT[expIcon('Transport',e.label)]||'Transport'):(e.category||'Other'), what:e.label, city:e.city||city(e.stopId), amount:+e.amount||0, cur:e.currency||'EUR', paid:e.paidBy||'', notes:e.notes||''}));
+    S.stays.filter(x=>x.tripId===tid&&+x.cost).forEach(x=>rows.push({date:x.checkIn||'', time:'', type:'Stay', cat:'Lodging', what:x.name+' · '+stayNights(x)+' night'+(stayNights(x)===1?'':'s'), city:x.city||city(x.stopId), amount:+x.cost, cur:x.currency||'EUR', paid:x.paidBy||'', notes:[x.platform,x.bookingRef].filter(Boolean).join(' · ')}));
+    return rows.sort((a,b)=>(a.date+a.time).localeCompare(b.date+b.time));
+  }
+  async function exportExpenses(t){
+    if(!downloads){ toast('Saving files isn\'t available here.'); return; }
+    const rows=costRows(t.id); if(!rows.length){ toast('No costs to export yet.'); return; }
+    const head=['Date','Time','Type','Category','Description','City','Amount','Currency','Paid by','Notes'];
+    const list=[head].concat(rows.map(r=>[r.date,r.time,r.type,r.cat,r.what,r.city,Math.round(r.amount*100)/100,r.cur,r.paid,r.notes]));
+    const by={}; rows.forEach(r=>{ const k=r.cat+'|'+r.cur; by[k]=(by[k]||0)+r.amount; });
+    const tot={}; rows.forEach(r=>{ tot[r.cur]=(tot[r.cur]||0)+r.amount; });
+    const cats=[['Category','Currency','Total']].concat(Object.entries(by).sort((a,b)=>b[1]-a[1]).map(([k,v])=>{ const [c,cur]=k.split('|'); return [c,cur,Math.round(v*100)/100]; }))
+      .concat(Object.entries(tot).map(([c,v])=>['Total',c,Math.round(v*100)/100]));
+    const who={}; rows.filter(r=>r.paid).forEach(r=>{ const k=r.paid+'|'+r.cur; who[k]=(who[k]||0)+r.amount; });
+    const payers=[['Paid by','Currency','Total']].concat(Object.entries(who).sort().map(([k,v])=>{ const [n,cur]=k.split('|'); return [n,cur,Math.round(v*100)/100]; }));
+    const sheets=[{name:'Expenses', rows:list, widths:[11,7,10,16,40,16,11,9,12,30]}, {name:'By category', rows:cats, widths:[18,10,12]}];
+    if(payers.length>1) sheets.push({name:'Who paid', rows:payers, widths:[16,10,12]});
+    const data=xlsx(sheets), name=(t.name||'Trip').replace(/[^\w\- ]+/g,'').replace(/\s+/g,' ').trim()+' – expenses.xlsx';
+    try{ await downloads.save({filename:name, data}); toast('Saved'); }
+    catch(e){ if(e&&e.code==='declined') return; toast(e&&e.code==='extension_not_enabled'?'Excel files can\'t be saved here.':'Couldn\'t save the file.'); }
+  }
+
+  // ---------- quick add (type or dictate with the keyboard mic) and photo batches: both end in a review list ----------
+  async function quickAdd(t, text){
+    const today=todayStr(), here=stopOnDate(t.id, today)||{}, people=payers(t.id);
+    const r=await sample.json('A traveller logged this in their trip journal: '+JSON.stringify(String(text).slice(0,500))+'\n'
+      + 'Trip: "'+String(t.name||'').slice(0,80)+'", '+t.startDate+' to '+t.endDate+', main currency '+(t.currency||'EUR')+'. Today is '+today+', time now '+nowHM()+', current city '+(here.city||'unknown')+'. Travellers: '+people.join(', ')+'.\n'
+      + 'It may hold one or several things. Reply with only a JSON array, one object per thing: {"kind": "meal" | "activity" | "expense", "name": string (short, e.g. "Dinner at Chez Pierre", "Taxi to the airport"), '
+      + '"category": for meals one of breakfast|lunch|dinner|coffee|drinks, for activities one of '+CATS.slice(MEALS.length).map(c=>c[0]).filter(c=>c!=='food'&&c!=='restaurant').join('|')+', for expenses one of '+EXP_CATS.join('|')+', '
+      + '"amount": number or null, "currency": ISO code or null (default the trip currency when an amount is said without one), "date": "YYYY-MM-DD" (default today; "yesterday" etc. relative to today), "time": "HH:MM" or null, '
+      + '"city": string or null (only if said; else null), "paidBy": one of the travellers if said ("I"/"me" = "Me"), else null, "notes": string ("" if nothing more)}. Meals and paid activities are not expenses; an expense is anything else paid (taxi, fuel, SIM card, groceries, tickets).', {cache:false});
+    const list=Array.isArray(r)?r:(r&&typeof r==='object'?[r]:[]);
+    return list.slice(0,10).map(o=>{ const kind=['meal','activity','expense'].includes(o.kind)?o.kind:'activity', amt=parseFloat(String(o.amount==null?'':o.amount).replace(',','.'));
+      return {kind, name:String(o.name||'').slice(0,80), cat:String(o.category||''), amount:isFinite(amt)?amt:null, currency:/^[A-Za-z]{3}$/.test(o.currency||'')?o.currency.toUpperCase():(isFinite(amt)?t.currency||'EUR':''),
+        date:/^\d{4}-\d\d-\d\d$/.test(o.date||'')?o.date:today, time:/^\d\d:\d\d/.test(o.time||'')?o.time.slice(0,5):'', city:String(o.city||'')||((stopOnDate(t.id, /^\d{4}-\d\d-\d\d$/.test(o.date||'')?o.date:today)||{}).city||''),
+        paidBy:String(o.paidBy||''), notes:String(o.notes||'').slice(0,300), photoIds:[] }; });
+  }
+  // photos → groups (same moment: within 40 min and ~1 km) → one entry each
+  async function photoBatch(t, files){
+    files=Array.from(files).slice(0,24);
+    const canRead=!!(sample&&sampleImages);
+    openSheet('<h2>Adding '+files.length+' photo'+(files.length===1?'':'s')+'</h2><div class="hint" id="pbHint">Reading when and where they were taken…</div><div class="bar" style="height:8px"><i id="pbBar" style="width:5%"></i></div><div class="row"><button class="btn" type="button" id="xCancel">Cancel</button></div>', form=>{ $('#xCancel').onclick=closeSheet; });
+    const box=$('#sheet'), hint=s=>{ const h=$('#pbHint'); if(h) h.textContent=s; }, bar=f=>{ const b=$('#pbBar'); if(b) b.style.width=Math.round(5+f*95)+'%'; };
+    const metas=[]; for(const f of files){ const m=await readExif(f).catch(()=>null); metas.push({f, m:m||{}, when:m&&m.date?m.date+'T'+(m.time||'12:00'):''}); }
+    if(!box.isConnected) return;
+    metas.sort((a,b)=>(a.when||'~').localeCompare(b.when||'~'));
+    const groups=[]; let g=null;
+    metas.forEach(x=>{ const prev=g&&g.items[g.items.length-1];
+      const same=prev&&x.when&&prev.when&&(Date.parse(x.when)-Date.parse(prev.when))<=40*60000&&!(x.m.lat!=null&&prev.m.lat!=null&&haversine(x.m,prev.m)>1)&&g.items.length<6;
+      if(same) g.items.push(x); else { g={items:[x]}; groups.push(g); } });
+    hint('Uploading '+files.length+' photo'+(files.length===1?'':'s')+'…'); bar(.15);
+    for(const grp of groups){ grp.ids=await uploadPhotos(grp.items.map(x=>x.f)); if(!box.isConnected) return; }
+    const entries=[];
+    for(let i=0;i<groups.length;i++){ const grp=groups[i], m0=(grp.items.find(x=>x.m.date)||grp.items[0]).m, gps=grp.items.find(x=>x.m.lat!=null);
+      hint(canRead?'Claude is looking at '+(groups.length>1?'moment '+(i+1)+' of '+groups.length:'the photos')+'…':'Reading the photos…'); bar(.25+.7*i/groups.length);
+      let r=null; if(canRead){ try{ r=await readPhoto(t, grp.items.map(x=>x.f).slice(0,sampleImages), 'any'); }catch(e){ r=null; } }
+      if(!box.isConnected) return;
+      const e={photoIds:grp.ids||[], date:(r&&r.date)||m0.date||todayStr(), time:(m0.time)||(r&&r.time)||'', name:(r&&r.name)||'', notes:(r&&r.notes)||'', amount:r&&r.amount, currency:(r&&r.currency)||'',
+        lat:gps?gps.m.lat:(r&&r.lat), lon:gps?gps.m.lon:(r&&r.lon), city:(r&&r.city)||'', address:'', thumbs:grp.items.length};
+      if(r&&r.kind==='receipt'){ if(r.expCat==='Food & drink'){ e.kind='meal'; e.cat=mealFor(e.time, e.name); } else { e.kind='expense'; e.cat=r.expCat||'Other'; } }
+      else if(r&&r.kind==='stay'){ e.kind='stay'; e.cat='hotel'; }
+      else { e.kind=MEAL_KEYS.has(r&&r.actCat)?'meal':'activity'; e.cat=e.kind==='meal'?(MEALS.some(x=>x[0]===r.actCat)?r.actCat:mealFor(e.time,e.name)):((r&&r.actCat)||'attraction'); }
+      if(gps){ try{ const w=await whereIs(gps.m.lat, gps.m.lon); if(w){ e.city=w.city||e.city; e.address=[w.place,w.address].filter(Boolean).join(', '); if(!e.name) e.name=w.place||''; } }catch(err){} }
+      if(!e.city) e.city=(stopOnDate(t.id, e.date)||{}).city||'';
+      entries.push(e); }
+    if(!box.isConnected) return;
+    reviewSheet(t, entries, 'photos');
+  }
+  const KIND_LABEL={activity:'📍 Activity', meal:'🍽️ Meal', expense:'💳 Expense', stay:'🛏 Stay'};
+  function reviewSheet(t, entries, from){
+    const cityList=[...new Set(tripStops(t.id).filter(s=>!s.home).map(s=>s.city))];
+    const catOpts=e=>e.kind==='expense'?EXP_CATS.map(c=>'<option'+(c===e.cat?' selected':'')+'>'+esc(c)+'</option>').join(''):e.kind==='stay'?STAY_KINDS.map(k=>'<option value="'+k[0]+'"'+(k[0]===e.cat?' selected':'')+'>'+esc(k[1])+'</option>').join(''):catOptions(e.cat);
+    const card=(e,i)=>'<div class="card rv" data-ri="'+i+'" style="padding:12px;display:flex;flex-direction:column;gap:8px">'
+      + (e.photoIds.length?'<div class="photos">'+e.photoIds.map(id=>'<img alt="" src="/_blob/'+id+'" style="width:64px;height:64px">').join('')+'</div>':'')
+      + '<div class="chips">'+Object.entries(KIND_LABEL).map(([k,l])=>'<button type="button" class="chip'+(k===e.kind?' on':'')+'" data-rk="'+k+'">'+l+'</button>').join('')+'</div>'
+      + '<input data-f="name" value="'+esc(e.name)+'" placeholder="What (e.g. Dinner at Chez Pierre)">'
+      + '<div class="grid2"><select data-f="cat">'+catOpts(e)+'</select><input data-f="city" list="rvCities" value="'+esc(e.city)+'" placeholder="City"></div>'
+      + '<div class="grid2"><input data-f="date" type="date" value="'+esc(e.date)+'"><input data-f="time" type="time" value="'+esc(e.time)+'"></div>'
+      + '<div class="grid2"><input data-f="amount" inputmode="decimal" value="'+(e.amount!=null?esc(e.amount):'')+'" placeholder="Price (optional)">'+curSelect('rvCur'+i, e.currency||t.currency).replace('<select','<select data-f="currency"')+'</div>'
+      + (e.address?'<div class="faint">📍 '+esc(e.address)+'</div>':'')
+      + '<label class="row" style="gap:8px;font-size:14px"><input type="checkbox" data-f="keep" checked style="width:20px;height:20px"> Save this</label></div>';
+    openSheet('<h2>Check and save</h2><div class="hint">'+(from==='photos'?'Each group of photos taken at the same moment became one entry.':'Here\'s what Claude understood.')+' Fix anything, untick what you don\'t want, then save.</div>'
+      + '<datalist id="rvCities">'+cityList.map(c=>'<option value="'+esc(c)+'">').join('')+'</datalist>'
+      + '<div id="rvList" style="display:flex;flex-direction:column;gap:12px"></div><div class="err" id="fErr" hidden></div>'
+      + '<div class="row"><button class="btn primary" type="submit" id="rvSave">Save all</button><button class="btn" type="button" id="xCancel">Cancel</button></div>',
+    form=>{
+      $('#xCancel').onclick=()=>{ closeSheet(); entries.forEach(e=>e.photoIds.forEach(id=>forgetAsset(id))); };
+      const read=()=>$('#rvList').querySelectorAll('[data-ri]').forEach(el=>{ const e=entries[+el.dataset.ri]; el.querySelectorAll('[data-f]').forEach(inp=>{ const k=inp.dataset.f; e[k]=k==='keep'?inp.checked:inp.value; }); });
+      const draw=()=>{ $('#rvList').innerHTML=entries.map(card).join('');
+        $('#rvList').querySelectorAll('[data-rk]').forEach(b=>b.onclick=()=>{ read(); const e=entries[+b.closest('[data-ri]').dataset.ri], k=b.dataset.rk; if(k===e.kind) return;
+          e.kind=k; e.cat=k==='meal'?mealFor(e.time,e.name):k==='expense'?'Other':k==='stay'?'hotel':'attraction'; draw(); }); };
+      draw();
+      form.onsubmit=async ev=>{ ev.preventDefault(); read(); const btn=$('#rvSave'); btn.disabled=true; let n=0;
+        try{
+          for(const e of entries.filter(x=>x.keep)){
+            const name=String(e.name||'').trim()||(e.kind==='meal'?CAT_LABEL[e.cat]||'Meal':e.kind==='expense'?e.cat:e.kind==='stay'?'Stay':'Activity');
+            const date=e.date||todayStr(), city=String(e.city||'').trim(), amt=parseFloat(String(e.amount||'').replace(',','.'));
+            const same=city?tripStops(t.id).filter(s=>!s.home&&norm(s.city)===norm(city)):[];
+            let st=same.find(s=>s.arrive<=date&&date<=(s.depart||s.arrive))||same[0];
+            if(!st&&city) st=await ensureStop(t, city, date, date);
+            if(!st) st=stopOnDate(t.id,date)||tripStops(t.id).find(s=>!s.home);
+            if(!st) throw new Error('Add a city first.');
+            const pin=e.lat!=null&&isFinite(e.lat)?{lat:+e.lat, lon:+e.lon}:{};
+            if(e.kind==='expense') await put('expenses', null, Object.assign({tripId:t.id, label:name, amount:isFinite(amt)?amt:0, currency:e.currency||t.currency||'EUR', category:e.cat||'Other', date, time:e.time||'', city:st.city, stopId:st.id, paidBy:e.paidBy||lastPayer(t.id), notes:e.notes||'', photoIds:e.photoIds, address:e.address||'', createdAt:now(), updatedAt:now()}, pin));
+            else if(e.kind==='stay') await put('stays', null, Object.assign({tripId:t.id, stopId:st.id, city:st.city, name, kind:e.cat||'hotel', checkIn:date, checkOut:addDays(date,1), nights:1, cost:isFinite(amt)?amt:0, currency:e.currency||t.currency||'EUR', pricePerNight:isFinite(amt)?amt:0, platform:'', bookingRef:'', address:e.address||'', rating:0, notes:e.notes||'', photoIds:e.photoIds, createdAt:now(), updatedAt:now()}, pin));
+            else { const ref=await put('places', null, Object.assign({tripId:t.id, stopId:st.id, name, address:e.address||'', category:e.cat||(e.kind==='meal'?'lunch':'attraction'), date, time:e.time||'', status:date>todayStr()?'want':'done', rating:0, cost:isFinite(amt)?amt:0, currency:e.currency||t.currency||'EUR', notes:e.notes||'', photoIds:e.photoIds, private:false, paidBy:e.paidBy||'', createdAt:now(), updatedAt:now()}, pin));
+              if(e.lat==null&&ref&&ref.id) locatePlaces([Object.assign({id:ref.id, name, stopId:st.id})]).catch(()=>{}); }
+            n++; }
+          entries.filter(x=>!x.keep).forEach(e=>e.photoIds.forEach(id=>forgetAsset(id)));
+          closeSheet(); toast(n?'Saved '+n+(n===1?' entry':' entries'):'Nothing saved');
+        }catch(err){ btn.disabled=false; const er=$('#fErr'); er.hidden=false; er.textContent=String((err&&err.message)||err); }
+      };
+    });
   }
   // ---------- photo viewer: browse, make cover, replace, delete ----------
   // A photo id can sit in stops, places or expenses (photoIds[]). Edits apply to every row holding it.
