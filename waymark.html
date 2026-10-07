@@ -245,6 +245,14 @@
   .sec-dot{position:absolute;top:4px;right:6px;width:8px;height:8px;border-radius:50%;background:var(--accent);}
   section[data-sec]{display:flex;flex-direction:column;gap:18px;}
   section[data-sec][hidden]{display:none;}
+  .day-t{min-width:0;flex:1;}
+  .day-t[data-fold]{cursor:pointer;}
+  .day.folded{padding-top:8px;padding-bottom:8px;}
+  .day.folded b{color:var(--ink-soft);}
+  .fold-hint{color:var(--accent);font-size:12px;font-weight:700;}
+  .day-plus{flex-shrink:0;}
+  .day-menu{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:8px;}
+  .day-menu .btn{padding:14px 8px;justify-content:flex-start;}
   .empty{padding:28px 16px;text-align:center;color:var(--ink-soft);display:flex;flex-direction:column;gap:10px;align-items:center;}
 </style>
 
@@ -453,7 +461,11 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
   // where you were on each screen, so Back lands there again instead of at the top
   const scrollMem={}, viewKey=()=>R.tab+'|'+(R.tripId||'')+'|'+(R.stopId||'')+(R.tripId&&!R.stopId?'|'+tripSec():''), depth=()=>R.stopId?2:R.tripId?1:0;
   function go(next){ const from=depth(); scrollMem[viewKey()]=window.scrollY; Object.assign(R, next);
-    render(); const y=depth()<from?scrollMem[viewKey()]:0; window.scrollTo(0, y||0); if(y) requestAnimationFrame(()=>window.scrollTo(0,y)); }
+    render(); const y=depth()<from?scrollMem[viewKey()]:0; window.scrollTo(0, y||0); if(y) requestAnimationFrame(()=>window.scrollTo(0,y));
+    else if(depth()===1&&from===0) requestAnimationFrame(toToday); }
+  // opening a trip that's under way: Days starts at today (just under the section bar)
+  function toToday(){ if(!R.tripId||R.stopId||tripSec()!=='days') return; const el=main.querySelector('.day.today'), bar=$('#secTabs'); if(!el||!bar) return;
+    window.scrollTo(0, Math.max(0, el.getBoundingClientRect().top+window.scrollY-topH()-bar.offsetHeight-8)); }
   // trip page sections: one at a time under a sticky bar (the last one you opened is remembered)
   const TRIP_SECS=[['days','Days'],['map','Map'],['route','Route'],['cities','Cities'],['budget','Budget']];
   function tripSec(){ if(!R.sec){ try{ R.sec=localStorage.getItem('wm.sec')||''; }catch(e){} } return TRIP_SECS.some(x=>x[0]===R.sec)?R.sec:'days'; }
@@ -463,7 +475,8 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
     main.querySelectorAll('#secTabs [data-sec]').forEach(b=>b.classList.toggle('on',b.dataset.sec===k));
     // keep the bar where it is: if you'd scrolled past it, show the new section from its top; else stay put
     const bar=$('#secTabs'), stuck=bar&&window.scrollY>bar.offsetTop-topH()-2, back=scrollMem[viewKey()];
-    if(stuck) window.scrollTo(0, back&&back>bar.offsetTop-topH()?back:bar.offsetTop-topH()); }
+    if(stuck) window.scrollTo(0, back&&back>bar.offsetTop-topH()?back:bar.offsetTop-topH());
+    if(k==='days'&&!back) toToday(); }
   const topH=()=>(top.offsetHeight||0);
 
   function renderTabs(){
@@ -739,9 +752,8 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
     $('#addStay').onclick=()=>{ const td=todayStr(); staySheet(null, {trip:t, date:(td>=t.startDate&&td<t.endDate)?td:t.startDate}); };
     main.querySelectorAll('[data-night]').forEach(b=>b.onclick=()=>staySheet(null, {trip:t, date:b.dataset.night}));
     main.querySelectorAll('[data-stay]').forEach(el=>el.onclick=e=>{ if(e.target.dataset.photo) return; const x=S.stays.find(y=>y.id===el.dataset.stay); if(x) staySheet(x, {trip:t}); });
-    main.querySelectorAll('[data-shareday]').forEach(b=>b.onclick=()=>shareSheet(t, {from:b.dataset.shareday, to:b.dataset.shareday}));
-    main.querySelectorAll('[data-addact]').forEach(b=>b.onclick=()=>placeSheet(null, null, {trip:t, date:b.dataset.addact}));
-    main.querySelectorAll('[data-addmeal]').forEach(b=>b.onclick=()=>{ const d=b.dataset.addmeal, tm=d===todayStr()?nowHM():''; placeSheet(null, null, {trip:t, date:d, meal:true, prefill:{category:mealFor(tm), date:d, time:tm}}); });
+    main.querySelectorAll('[data-daymenu]').forEach(b=>b.onclick=()=>dayMenu(t, b.dataset.daymenu));
+    main.querySelectorAll('[data-fold]').forEach(b=>b.onclick=()=>{ const d=b.dataset.fold; if(openDays.has(d)) openDays.delete(d); else openDays.add(d); render(); });
     main.querySelectorAll('[data-pl]').forEach(el=>el.onclick=e=>{ if(e.target.dataset.photo) return; const p=S.places.find(x=>x.id===el.dataset.pl); if(p) placeSheet(stopOf(p.stopId), p, {trip:t}); });
     $('#addLeg').onclick=()=>legSheet(t, null);
     const am=$('#addMissing'); if(am) am.onclick=async()=>{ const ms=missingLegs(t.id), pick=[...main.querySelectorAll('[data-ml]')].filter(c=>c.checked).map(c=>ms[+c.dataset.ml]).filter(Boolean);
@@ -1806,16 +1818,42 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
       out.sort((a,b)=>a.p-b.p); }
     return out;
   }
+  const openDays=new Set(); // past days the owner unfolded
+  // the one ＋ on each day: everything you can add to that day, plus sharing it
+  function dayMenu(t, d){
+    const tm=d===todayStr()?nowHM():'', canPh=!!(assets||(sample&&sampleImages));
+    openSheet('<h2>'+fmtDate(d,{weekday:'long',month:'short',day:'numeric'})+'</h2><div class="day-menu">'
+      + (canPh?'<label class="btn" for="dmPh">📷 Photos</label><input id="dmPh" type="file" accept="image/*" multiple hidden>':'')
+      + '<button type="button" class="btn" data-dm="meal">🍽️ Meal</button><button type="button" class="btn" data-dm="act">🏙️ Activity</button>'
+      + '<button type="button" class="btn" data-dm="exp">💳 Expense</button><button type="button" class="btn" data-dm="leg">🚗 Drive / flight</button>'
+      + '<button type="button" class="btn" data-dm="stay">🛏 Where we slept</button><button type="button" class="btn" data-dm="share">'+ICON.share+' Share this day</button></div>'
+      + '<button type="button" class="btn ghost" id="dmX">Cancel</button>', f=>{
+      $('#dmX').onclick=closeSheet;
+      const ph=$('#dmPh'); if(ph) ph.onchange=()=>{ const fs=Array.from(ph.files||[]); closeSheet(); if(fs.length) photoBatch(t, fs); };
+      f.querySelectorAll('[data-dm]').forEach(b=>b.onclick=()=>{ const k=b.dataset.dm; closeSheet();
+        if(k==='meal') placeSheet(null, null, {trip:t, date:d, meal:true, prefill:{category:mealFor(tm), date:d, time:tm}});
+        else if(k==='act') placeSheet(null, null, {trip:t, date:d});
+        else if(k==='exp'){ expenseSheet(t, null); const de=$('#eDate'), te=$('#eTime'); if(de) de.value=d; if(te&&!tm) te.value=''; }
+        else if(k==='leg'){ legSheet(t, null); const dl=$('#lDate'); if(dl) dl.value=d; }
+        else if(k==='stay') staySheet(null, {trip:t, date:d});
+        else shareSheet(t, {from:d, to:d}); }); });
+  }
   function daysHtml(t){
     if(!t.startDate||!t.endDate||t.endDate<t.startDate) return '';
     const n=Math.min(dayCount(t.startDate,t.endDate),90), today=todayStr(), stops=tripStops(t.id).filter(s=>!s.home);
+    // while the trip is under way, days before today fold to one line (tap to open)
+    const live=t.startDate<=today&&today<=t.endDate;
     let html='';
     for(let i=0;i<n;i++){ const d=addDays(t.startDate,i);
       const cities=[...new Set(stops.filter(s=>s.arrive&&s.arrive<=d&&d<=(s.depart||s.arrive)).map(s=>s.city))];
       const legs=tripLegs(t.id).filter(l=>l.date===d), acts=S.places.filter(p=>p.tripId===t.id&&p.date===d), exps=S.expenses.filter(e=>e.tripId===t.id&&e.date===d);
-      html+='<div class="day'+(d===today?' today':'')+'"><div class="day-h"><div><b>'+fmtDate(d,{weekday:'short',month:'short',day:'numeric'})+'</b>'+(d===today?' <span class="pill accent">Today</span>':'')
-        +' <span class="faint">'+esc(cities.join(' → '))+'</span></div><div class="row" style="flex-wrap:nowrap;gap:4px"><button type="button" class="btn small ghost" data-shareday="'+d+'" aria-label="Share '+fmtDate(d)+'">'+ICON.share+'</button><button type="button" class="btn small ghost" data-addmeal="'+d+'" aria-label="Add a meal on '+fmtDate(d)+'" style="font-size:15px">🍽️</button><button type="button" class="btn small ghost" data-addact="'+d+'" aria-label="Add an activity on '+fmtDate(d)+'">'+ICON.plus+'</button></div></div>'
-        + '<div class="day-list" data-day="'+d+'">'+dayOrder(d, legs, acts, exps).map(({k,x})=>{ const tv=hhmm(x), tm='<label class="tset'+(tv?'':' empty')+'" data-tcol="'+(k==='leg'?'legs':k==='act'?'places':'expenses')+'" data-tid="'+x.id+'">'+(tv||'+ time')+'<input type="time" value="'+tv+'" aria-label="Time"></label>';
+      const folded=live&&d<today&&!openDays.has(d), nThings=acts.length+exps.length, km=d3.sum(legs,l=>+l.km||0);
+      const sum=[nThings?nThings+(nThings===1?' thing':' things'):'', km?(legs.some(l=>l.kmEstimated)?'≈':'')+fmtKm(km)+' km':''].filter(Boolean).join(' · ')||'nothing logged';
+      html+='<div class="day'+(d===today?' today':'')+(folded?' folded':'')+'"><div class="day-h"><div class="day-t"'+(live&&d<today?' data-fold="'+d+'" role="button" aria-expanded="'+!folded+'"':'')+'><b>'+fmtDate(d,{weekday:'short',month:'short',day:'numeric'})+'</b>'+(d===today?' <span class="pill accent">Today</span>':'')
+        +' <span class="faint">'+esc(cities.join(' → '))+'</span>'+(folded?'<div class="faint">'+sum+' <span class="fold-hint">▾ show</span></div>':live&&d<today?' <span class="fold-hint">▴</span>':'')+'</div>'
+        +'<button type="button" class="btn small ghost day-plus" data-daymenu="'+d+'" aria-label="Add or share on '+fmtDate(d)+'">'+ICON.plus+'</button></div>';
+      if(folded){ html+='</div>'; continue; }
+      html+='<div class="day-list" data-day="'+d+'">'+dayOrder(d, legs, acts, exps).map(({k,x})=>{ const tv=hhmm(x), tm='<label class="tset'+(tv?'':' empty')+'" data-tcol="'+(k==='leg'?'legs':k==='act'?'places':'expenses')+'" data-tid="'+x.id+'">'+(tv||'+ time')+'<input type="time" value="'+tv+'" aria-label="Time"></label>';
             if(k==='leg'){ const l=x; const a=stopOf(l.fromId)||{}, b=stopOf(l.toId)||{};
             return '<div class="day-i" data-leg="'+l.id+'">'+tm+emo(MODE_EMOJI[l.mode]||'🚗')+'<span style="flex:1">'+esc(a.city||'?')+' → '+esc(b.city||'?')+'</span><span class="faint mono">'+(l.kmEstimated?'≈':'')+fmtKm(l.km||0)+' km</span></div>'; }
             if(k==='act'){ const p=x; return '<div class="day-i" data-pl="'+p.id+'">'+tm+emo(catIcon(p.category))+'<span style="flex:1;min-width:0">'+esc(p.name)+(p.status==='want'?' <span class="faint">· planned</span>':'')
