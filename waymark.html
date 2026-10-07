@@ -733,13 +733,13 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
       + '<section data-sec="map"'+(tripSec()==='map'?'':' hidden')+'><div class="map-wrap" id="tripMap"></div><div style="margin-top:8px" class="between">'+legendHtml(modesUsed.length?modesUsed:['plane','car'], tripPlaces.length, tripPlaces.some(p=>p.track&&p.track.length))
       + '<span class="faint mono">'+modesUsed.map(m=>MODES[m].label+' '+fmtKm(st.byMode[m])+' km').join(' · ')+'</span></div></section>'
       + '<section data-sec="days"'+(tripSec()==='days'?'':' hidden')+'><div class="sec-title"><h2>Days</h2><div class="row" style="flex-wrap:nowrap"><button class="btn small" id="addAct">'+ICON.plus+' Activity</button></div></div>'
-      + '<details class="more-add"><summary>More ways to add</summary><div class="row" style="padding-top:8px">'+(mcp?'<button class="btn small ghost" type="button" id="fromStrava">⇣ From Strava</button>':'')+'<label class="btn small ghost" for="gpxIn">⇣ GPX file</label><input id="gpxIn" type="file" hidden><button class="btn small ghost" type="button" id="addStay">🛏 Stay</button><button class="btn small ghost" type="button" id="addExp2">💳 Expense</button></div></details>'
+      + '<details class="more-add"><summary>More ways to add</summary><div class="row" style="padding-top:8px">'+(mcp?'<button class="btn small ghost" type="button" id="fromStrava">⇣ From Strava</button>':'')+'<label class="btn small ghost" for="gpxIn">⇣ GPX file</label><input id="gpxIn" type="file" hidden><button class="btn small ghost" type="button" id="addStay">🛏 Stay</button><label class="btn small ghost" for="gtlIn">🗺️ Google Timeline</label><input id="gtlIn" type="file" hidden><button class="btn small ghost" type="button" id="addExp2">💳 Expense</button></div></details>'
       + '<div class="faint">Wrong order in a day? Hold ⠿ and slide the row.</div>'
       + (sample&&unplaced.length?'<button class="btn small ghost" id="locateAll" style="align-self:flex-start">📍 Put '+unplaced.length+' activit'+(unplaced.length===1?'y':'ies')+' on the map</button>':'')
       + (()=>{ const v=Object.entries(tripSteps(t)).filter(([k,n])=>k>=t.startDate&&k<=t.endDate&&+n>0).map(x=>+x[1]); if(!v.length) return '';
           const tot=v.reduce((a,b)=>a+b,0); return '<div class="faint">👟 '+tot.toLocaleString()+' steps over '+v.length+' day'+(v.length===1?'':'s')+' · '+Math.round(tot/v.length).toLocaleString()+' a day</div>'; })()
       + daysHtml(t)+'</section>'
-      + '<section data-sec="route"'+(tripSec()==='route'?'':' hidden')+'><div class="sec-title"><h2>Route</h2><button class="btn small" id="addLeg">'+ICON.plus+' Leg</button></div>'
+      + '<section data-sec="route"'+(tripSec()==='route'?'':' hidden')+'><div class="sec-title"><h2>Route</h2><div class="row" style="flex-wrap:nowrap"><label class="btn small ghost" for="gtlIn2">🗺️ Timeline</label><input id="gtlIn2" type="file" hidden><button class="btn small" id="addLeg">'+ICON.plus+' Leg</button></div></div>'
       + dupLegs(legs).map(([keep,extra])=>'<div class="confirm"><span>↻ '+esc((stopOf(extra.fromId)||{}).city||'?')+' → '+esc((stopOf(extra.toId)||{}).city||'?')+' is in the route twice on '+fmtDate(extra.date,{month:'short',day:'numeric'})+(+keep.cost&&+extra.cost?' ('+fmtMoney(+keep.cost,keep.currency)+' and '+fmtMoney(+extra.cost,extra.currency)+')':'')+'.</span><div class="row"><button type="button" class="btn small primary" data-dupkeep="'+keep.id+'" data-dupdel="'+extra.id+'">Merge into one drive</button><span class="faint">'+(+keep.cost&&+extra.cost?'Costs are added up, notes kept.':'Keeps the time, cost and notes.')+'</span></div></div>').join('')
       + (()=>{ const ms=missingLegs(t.id); if(!ms.length) return '';
           return '<div class="confirm" id="missLegs"><span>🧭 '+ms.length+' drive'+(ms.length===1?'':'s')+' between your cities '+(ms.length===1?'isn\'t':'aren\'t')+' on the route yet, so '+(ms.length===1?'its':'their')+' distance is missing:</span>'
@@ -788,6 +788,7 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
       l.addEventListener('click',e=>e.stopPropagation());
       const save=()=>{ if(i.value===last) return; last=i.value; patch(l.dataset.tcol, l.dataset.tid, {time:i.value}).catch(()=>toast('Couldn\'t save the time.')); };
       i.addEventListener('change',save); i.addEventListener('blur',save); });
+    ['#gtlIn','#gtlIn2'].forEach(sel=>{ const x=$(sel); if(x) x.onchange=()=>{ const f=x.files&&x.files[0]; x.value=''; if(f) timelineImport(t, f); }; });
     $('#addStay').onclick=()=>{ const td=todayStr(); staySheet(null, {trip:t, date:(td>=t.startDate&&td<t.endDate)?td:t.startDate}); };
     main.querySelectorAll('[data-night]').forEach(b=>b.onclick=()=>staySheet(null, {trip:t, date:b.dataset.night}));
     main.querySelectorAll('[data-stay]').forEach(el=>el.onclick=e=>{ if(e.target.dataset.photo) return; const x=S.stays.find(y=>y.id===el.dataset.stay); if(x) staySheet(x, {trip:t}); });
@@ -1718,6 +1719,81 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
     // a drive already in the route (e.g. an estimated one) gets the recording instead of a second copy
     const c=id=>norm((stopOf(id)||{}).city||''), same=tripLegs(t.id).find(l=>l.date===r.date&&c(l.fromId)===norm(r.from)&&c(l.toId)===norm(r.to));
     legSheet(t, same||null, r);
+  }
+  // ---------- Google Maps Timeline ----------
+  // Google Maps → Your Timeline → Settings → Export Timeline data gives a JSON file. Three shapes are read:
+  // Android/on-device ({semanticSegments:[{startTime,endTime,activity|visit|timelinePath}]}), iPhone (a top-level array
+  // of {startTime,endTime,activity|visit|timelinePath} with "geo:lat,lon" points) and the old Takeout
+  // ({timelineObjects:[{activitySegment}]}, E7 coordinates). Vehicle segments become drives, with their road when
+  // the file has the path.
+  const TL_MODE={IN_PASSENGER_VEHICLE:'car', IN_VEHICLE:'car', IN_CAR:'car', DRIVING:'car', MOTORCYCLING:'car', IN_TAXI:'car', IN_BUS:'bus', IN_TRAIN:'train', IN_SUBWAY:'train', IN_TRAM:'train', IN_FERRY:'ferry', FLYING:'plane'};
+  function tlPoint(v){ if(!v) return null;
+    if(typeof v==='object'){ if(v.latitudeE7!=null) return [v.latitudeE7/1e7, v.longitudeE7/1e7]; if(v.latE7!=null) return [v.latE7/1e7, v.lngE7/1e7];
+      return tlPoint(v.latLng||v.point||v.location||v.placeLocation); }
+    const m=String(v).match(/(-?\d+(?:\.\d+)?)°?\s*,\s*(-?\d+(?:\.\d+)?)/); return m?[+m[1],+m[2]]:null; }
+  // local date/time as the phone saw it: keep the written clock time when the string has an offset, else convert
+  function tlWhen(v){ const s=String(v||''); if(!s) return null;
+    const m=s.match(/^(\d{4}-\d\d-\d\d)T(\d\d:\d\d)/), ms=Date.parse(s); if(!isFinite(ms)) return null;
+    if(m&&!/Z$/.test(s)) return {date:m[1], time:m[2], ms};
+    const d=new Date(ms); return {date:d.getFullYear()+'-'+pad2(d.getMonth()+1)+'-'+pad2(d.getDate()), time:pad2(d.getHours())+':'+pad2(d.getMinutes()), ms}; }
+  function parseTimeline(text){
+    let j; try{ j=JSON.parse(text); }catch(e){ throw new Error('That isn\'t a Timeline file (expected the .json export).'); }
+    const segs=Array.isArray(j)?j:Array.isArray(j.semanticSegments)?j.semanticSegments:Array.isArray(j.timelineObjects)?j.timelineObjects:null;
+    if(!segs) throw new Error('No Timeline data found in that file.');
+    const paths=[], drives=[];
+    segs.forEach(sg=>{
+      if(sg.activitySegment){ const a=sg.activitySegment, s0=tlWhen(a.duration&&a.duration.startTimestamp), s1=tlWhen(a.duration&&a.duration.endTimestamp);
+        const wp=((a.waypointPath&&a.waypointPath.waypoints)||(a.simplifiedRawPath&&a.simplifiedRawPath.points)||[]).map(tlPoint).filter(Boolean);
+        drives.push({type:String(a.activityType||''), a:tlPoint(a.startLocation), b:tlPoint(a.endLocation), m:+a.distance||0, s0, s1, path:wp}); return; }
+      const s0=tlWhen(sg.startTime), s1=tlWhen(sg.endTime);
+      if(Array.isArray(sg.timelinePath)) paths.push(...sg.timelinePath.map(p=>{ const pt=tlPoint(p.point||p);
+        const ms=p.time?Date.parse(p.time):(s0&&p.durationMinutesOffsetFromStartTime!=null?s0.ms+(+p.durationMinutesOffsetFromStartTime)*60000:NaN);
+        return pt&&isFinite(ms)?{pt,ms}:null; }).filter(Boolean));
+      const a=sg.activity; if(!a) return;
+      const top=a.topCandidate||{}, type=String(top.type||a.activityType||'').toUpperCase().replace(/\s+/g,'_');
+      drives.push({type, a:tlPoint(a.start), b:tlPoint(a.end), m:+a.distanceMeters||+a.distance||0, s0, s1, path:[]}); });
+    paths.sort((x,y)=>x.ms-y.ms);
+    return drives.filter(d=>TL_MODE[d.type]&&d.a&&d.b&&d.s0).map(d=>{
+      if(!d.path.length&&d.s1) d.path=paths.filter(p=>p.ms>=d.s0.ms-60000&&p.ms<=d.s1.ms+60000).map(p=>p.pt);
+      const km=d.m?d.m/1000:haversine({lat:d.a[0],lon:d.a[1]},{lat:d.b[0],lon:d.b[1]})*1.25;
+      return {mode:TL_MODE[d.type], a:d.a, b:d.b, km, date:d.s0.date, time:d.s0.time, s0:d.s0.ms, s1:d.s1?d.s1.ms:null, path:[d.a].concat(d.path,[d.b])}; })
+      .sort((x,y)=>x.s0-y.s0);
+  }
+  async function timelineImport(t, file){
+    let ds; try{ ds=parseTimeline(await file.text()); }catch(e){ toast(e.message||'Couldn\'t read that file'); return; }
+    ds=ds.filter(d=>d.date>=t.startDate&&d.date<=t.endDate);
+    // one drive with a coffee or fuel stop is still one drive: join same-mode legs less than 30 min apart
+    const out=[]; ds.forEach(d=>{ const p=out[out.length-1];
+      if(p&&p.mode===d.mode&&p.s1&&d.s0-p.s1<30*60000&&p.date===d.date){ p.b=d.b; p.km+=d.km; p.s1=d.s1; p.path=p.path.concat(d.path); } else out.push(Object.assign({},d)); });
+    const drives=out.filter(d=>d.km>=2);
+    if(!drives.length){ toast('No drives found in that file for '+t.name+'.'); return; }
+    openSheet('<h2>🗺️ Google Timeline</h2><div class="hint" id="tlHint">Finding the towns…</div><div id="tlList" style="display:flex;flex-direction:column;gap:6px"></div><div class="err" id="fErr" hidden></div>'
+      + '<div class="row"><button class="btn primary" type="submit" id="tlGo" disabled>Add to the route</button><button class="btn" type="button" id="xCancel">Cancel</button></div>', async form=>{
+      $('#xCancel').onclick=closeSheet;
+      const cache={}, near=ll=>tripStops(t.id).filter(x=>!x.home&&x.lat!=null).map(x=>[haversine({lat:ll[0],lon:ll[1]},x),x]).sort((a,b)=>a[0]-b[0])[0];
+      const town=async ll=>{ const k=ll[0].toFixed(2)+','+ll[1].toFixed(2); if(cache[k]!=null) return cache[k];
+        const n=near(ll); let c=n&&n[0]<8?n[1].city:'';
+        if(!c){ try{ const w=await whereIs(ll[0],ll[1]); c=(w&&w.city)||''; }catch(e){} }
+        if(!c&&n&&n[0]<40) c=n[1].city; return cache[k]=c; };
+      for(const d of drives){ d.from=await town(d.a); d.to=await town(d.b); if(!form.isConnected) return; }
+      const legs=tripLegs(t.id), cc=id=>cityKey((stopOf(id)||{}).city||'');
+      const rows=drives.filter(d=>d.from&&d.to&&cityKey(d.from)!==cityKey(d.to));
+      rows.forEach(d=>{ d.same=legs.find(l=>l.date===d.date&&cc(l.fromId)===cityKey(d.from)&&cc(l.toId)===cityKey(d.to)); d.km=Math.round(d.km); d.dur=d.s1?Math.round((d.s1-d.s0)/1000):null; });
+      $('#tlHint').textContent=rows.length?'Found '+rows.length+' trip'+(rows.length===1?'':'s')+' between towns. Untick any you don\'t want:':'Nothing between towns in that file (only short local moves).';
+      $('#tlList').innerHTML=rows.map((d,i)=>'<label class="row" style="gap:8px;flex-wrap:nowrap"><input type="checkbox" data-tl="'+i+'" '+(d.same&&d.same.track?'':'checked ')+'style="width:20px;height:20px;flex-shrink:0"><span style="flex:1">'+(MODE_EMOJI[d.mode]||'🚗')+' '+esc(d.from)+' → '+esc(d.to)
+        +' <span class="faint">· '+fmtDate(d.date,{month:'short',day:'numeric'})+' '+d.time+' · '+fmtKm(d.km)+' km'+(d.dur?' · '+fmtDur(d.dur):'')+(d.same?(d.same.track?' · already recorded':' · updates the '+(d.same.kmEstimated?'≈':'')+fmtKm(d.same.km||0)+' km one'):'')+'</span></span></label>').join('');
+      $('#tlGo').disabled=!rows.length;
+      form.onsubmit=async e=>{ e.preventDefault(); const pick=[...form.querySelectorAll('[data-tl]')].filter(c=>c.checked).map(c=>rows[+c.dataset.tl]); if(!pick.length){ closeSheet(); return; }
+        const btn=$('#tlGo'); btn.disabled=true; btn.textContent='Adding…'; let n=0;
+        try{ for(const d of pick){
+            const data={mode:d.mode, date:d.date, time:d.time, km:d.km, kmEstimated:false, durationS:d.dur, track:thinTrack(d.path), updatedAt:now()};
+            if(d.same) await patch('legs', d.same.id, data);
+            else { const A=await ensureStop(t, d.from, null, d.date), B=await ensureStop(t, d.to, d.date, null);
+              await put('legs', null, Object.assign({tripId:t.id, fromId:A.id, toId:B.id, cost:0, currency:t.currency||'EUR', notes:'', order:Date.now(), createdAt:now()}, data)); }
+            n++; }
+          closeSheet(); toast('Added '+n+' drive'+(n===1?'':'s')+' from Timeline'); }
+        catch(err){ btn.disabled=false; btn.textContent='Add to the route'; const er=$('#fErr'); er.hidden=false; er.textContent=(err&&err.message)||'Couldn\'t save. Try again.'; } };
+    });
   }
   async function gpxImport(t, file){
     let g; try{ g=parseGpx(await file.text()); }catch(e){ toast(e.message||'Couldn\'t read that file'); return; }
