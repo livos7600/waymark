@@ -251,6 +251,7 @@
   .day.folded b{color:var(--ink-soft);}
   .fold-hint{color:var(--accent);font-size:12px;font-weight:700;}
   .day-plus{flex-shrink:0;}
+  .steps-tag{border:none;background:var(--surface-2);border-radius:999px;padding:1px 8px;font-size:12px;font-weight:600;color:var(--ink-soft);cursor:pointer;}
   .day-menu{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:8px;}
   .day-menu .btn{padding:14px 8px;justify-content:flex-start;}
   .empty{padding:28px 16px;text-align:center;color:var(--ink-soft);display:flex;flex-direction:column;gap:10px;align-items:center;}
@@ -566,7 +567,7 @@ const WORLD = __WORLD__;
     const legEls=[];
     order.forEach(l=>{
       const a=stopOf(l.fromId), b=stopOf(l.toId); if(!a||!b||a.lat==null||b.lat==null) return;
-      const d=path({type:'LineString',coordinates:[[a.lon,a.lat],[b.lon,b.lat]]}); if(!d) return;
+      const tr=legTrack(l), d=path({type:'LineString',coordinates:tr||[[a.lon,a.lat],[b.lon,b.lat]]}); if(!d) return;
       const color=(MODES[l.mode]||MODES.car).color;
       const ln={el:gl.append('path').attr('d',d).attr('stroke',color).attr('opacity',.95), w:world?1.6:3.2, dash:l.mode==='plane'?[7,6]:l.mode==='train'?[2,5]:null};
       lines.push(ln); legEls.push(ln);
@@ -575,7 +576,7 @@ const WORLD = __WORLD__;
       // a flight from/to home has its middle off the map: put its badge near the trip end instead
       const lenKm=haversine(a,b), near=Math.min(.5, 12/Math.max(lenKm,1));
       const bt=a.home&&!b.home?1-near:b.home&&!a.home?near:.5;
-      const gi=d3.geoInterpolate([a.lon,a.lat],[b.lon,b.lat]), mm=proj(gi(bt)), m=proj(gi(.62)), p0=proj(gi(.57)), p1=proj(gi(.67));
+      const gi=tr?(f=>tr[Math.min(tr.length-1,Math.round(f*(tr.length-1)))]):d3.geoInterpolate([a.lon,a.lat],[b.lon,b.lat]), mm=proj(gi(bt)), m=proj(gi(.62)), p0=proj(gi(.57)), p1=proj(gi(.67));
       if(!m||!mm||!p0||!p1||Math.hypot(p1[0]-p0[0],p1[1]-p0[1])<.01) return;
       const badge=ga.append('g').node();
       d3.select(badge).append('circle').attr('r',11).attr('fill','var(--surface)').attr('stroke',color).attr('stroke-width',2);
@@ -722,6 +723,8 @@ const WORLD = __WORLD__;
       + '<details class="more-add"><summary>More ways to add</summary><div class="row" style="padding-top:8px">'+(mcp?'<button class="btn small ghost" type="button" id="fromStrava">⇣ From Strava</button>':'')+'<label class="btn small ghost" for="gpxIn">⇣ GPX file</label><input id="gpxIn" type="file" hidden><button class="btn small ghost" type="button" id="addStay">🛏 Stay</button><button class="btn small ghost" type="button" id="addExp2">💳 Expense</button></div></details>'
       + '<div class="faint">Wrong order in a day? Hold ⠿ and slide the row.</div>'
       + (sample&&unplaced.length?'<button class="btn small ghost" id="locateAll" style="align-self:flex-start">📍 Put '+unplaced.length+' activit'+(unplaced.length===1?'y':'ies')+' on the map</button>':'')
+      + (()=>{ const v=Object.entries(tripSteps(t)).filter(([k,n])=>k>=t.startDate&&k<=t.endDate&&+n>0).map(x=>+x[1]); if(!v.length) return '';
+          const tot=v.reduce((a,b)=>a+b,0); return '<div class="faint">👟 '+tot.toLocaleString()+' steps over '+v.length+' day'+(v.length===1?'':'s')+' · '+Math.round(tot/v.length).toLocaleString()+' a day</div>'; })()
       + daysHtml(t)+'</section>'
       + '<section data-sec="route"'+(tripSec()==='route'?'':' hidden')+'><div class="sec-title"><h2>Route</h2><button class="btn small" id="addLeg">'+ICON.plus+' Leg</button></div>'
       + dupLegs(legs).map(([keep,extra])=>'<div class="confirm"><span>↻ '+esc((stopOf(extra.fromId)||{}).city||'?')+' → '+esc((stopOf(extra.toId)||{}).city||'?')+' is in the route twice on '+fmtDate(extra.date,{month:'short',day:'numeric'})+(+keep.cost&&+extra.cost?' ('+fmtMoney(+keep.cost,keep.currency)+' and '+fmtMoney(+extra.cost,extra.currency)+')':'')+'.</span><div class="row"><button type="button" class="btn small primary" data-dupkeep="'+keep.id+'" data-dupdel="'+extra.id+'">Merge into one drive</button><span class="faint">'+(+keep.cost&&+extra.cost?'Costs are added up, notes kept.':'Keeps the time, cost and notes.')+'</span></div></div>').join('')
@@ -732,7 +735,7 @@ const WORLD = __WORLD__;
       + (legs.length?'<div class="card legs">'+legs.map(l=>{
           const a=stopOf(l.fromId)||{}, b=stopOf(l.toId)||{};
           return '<div class="leg" data-leg="'+l.id+'"><div class="mode-badge" style="background:'+(MODES[l.mode]||MODES.car).color+'">'+modeIcon(l.mode)+'</div>'
-            + '<div><div class="route">'+esc(a.city||'?')+' → '+esc(b.city||'?')+'</div><div class="meta">'+fmtDate(l.date,{weekday:'short',month:'short',day:'numeric'})+(l.cost?' · '+fmtMoney(l.cost,l.currency):'')+(l.notes?' · '+esc(l.notes):'')+'</div></div>'
+            + '<div><div class="route">'+esc(a.city||'?')+' → '+esc(b.city||'?')+'</div><div class="meta">'+(legTrack(l)?'📍 ':'')+fmtDate(l.date,{weekday:'short',month:'short',day:'numeric'})+(l.durationS?' · '+fmtDur(l.durationS):'')+(l.cost?' · '+fmtMoney(l.cost,l.currency):'')+(l.notes?' · '+esc(l.notes):'')+'</div></div>'
             + '<div class="km">'+(l.kmEstimated?'≈':'')+fmtKm(l.km||0)+' km</div></div>';
         }).join('')+'</div>':'<div class="card empty"><p>Add your first flight, drive or train.</p></div>')+'</section>'
       + '<section data-sec="cities"'+(tripSec()==='cities'?'':' hidden')+'><div class="sec-title"><h2>Cities</h2><span class="faint">Tap a city to log places & photos</span></div>'
@@ -781,6 +784,7 @@ const WORLD = __WORLD__;
       if(x.notes&&x.notes!==k.notes) ch.notes=[k.notes,x.notes].filter(Boolean).join(' · ');
       if(!hhmm(k)&&hhmm(x)) ch.time=hhmm(x);
       try{ await patch('legs', k.id, ch); await del('legs', x.id); toast('Merged into one drive'); }catch(e){ b.disabled=false; toast('Couldn\'t merge them. Try again.'); } });
+    main.querySelectorAll('[data-steps]').forEach(b=>b.onclick=e=>{ e.stopPropagation(); stepsSheet(t, b.dataset.steps); });
     main.querySelectorAll('[data-daymenu]').forEach(b=>b.onclick=()=>dayMenu(t, b.dataset.daymenu));
     main.querySelectorAll('[data-fold]').forEach(b=>b.onclick=()=>{ const d=b.dataset.fold; if(openDays.has(d)) openDays.delete(d); else openDays.add(d); render(); });
     main.querySelectorAll('[data-pl]').forEach(el=>el.onclick=e=>{ if(e.target.dataset.photo) return; const p=S.places.find(x=>x.id===el.dataset.pl); if(p) placeSheet(stopOf(p.stopId), p, {trip:t}); });
@@ -1042,19 +1046,23 @@ const WORLD = __WORLD__;
     return Object.assign({id:ref.id}, data);
   }
 
-  function legSheet(trip, l){
+  // rec: a drive recorded with a GPS app ({track, km, durationS, date, time, from, to}), from gpxDrive or the form's own file button
+  function legSheet(trip, l, rec){
     const a=l?stopOf(l.fromId):null, b=l?stopOf(l.toId):null;
     const prevLeg=tripLegs(trip.id).slice(-1)[0];
-    const defaultFrom = a? a.city : (prevLeg? (stopOf(prevLeg.toId)||{}).city||'' : '');
-    let mode=l?l.mode:'car';
+    const defaultFrom = rec&&rec.from&&!l? rec.from : a? a.city : (prevLeg? (stopOf(prevLeg.toId)||{}).city||'' : '');
+    let mode=l?l.mode:'car', dropTrack=false;
+    const recHint=()=>{ const r=rec||(l&&l.track&&l.track.length>1?{km:l.km, durationS:l.durationS, saved:true}:null);
+      return r?'📍 Recorded route'+(r.km?' · '+fmtKm(r.km)+' km':'')+(r.durationS?' · '+fmtDur(r.durationS):'')+(r.saved?' <button type="button" class="btn small ghost" id="lNoTrk">Remove</button>':' · saved with this drive'):''; };
     const known=[...new Set(S.stops.map(s=>s.city))];
     openSheet('<h2>'+(l?'Edit leg':'Add a leg')+'</h2>'
       + '<div class="modes" id="modes">'+Object.keys(MODES).map(m=>'<button type="button" data-mode="'+m+'" class="'+(m===mode?'on':'')+'">'+modeIcon(m)+MODES[m].label+'</button>').join('')+'</div>'
-      + '<div class="grid2"><div class="field"><label for="lFrom">From</label><input id="lFrom" list="kc" value="'+esc(defaultFrom)+'" placeholder="City"></div><div class="field"><label for="lTo">To</label><input id="lTo" list="kc" value="'+esc(b?b.city:'')+'" placeholder="City"></div></div>'
+      + '<div class="row"><label class="btn small" for="lGpx">📍 '+(l&&l.track?'Replace GPS file':'Load GPS file (.gpx)')+'</label><input id="lGpx" type="file" hidden><span class="faint" id="lRec">'+recHint()+'</span></div>'
+      + '<div class="grid2"><div class="field"><label for="lFrom">From</label><input id="lFrom" list="kc" value="'+esc(defaultFrom)+'" placeholder="City"></div><div class="field"><label for="lTo">To</label><input id="lTo" list="kc" value="'+esc(b?b.city:(rec&&rec.to)||'')+'" placeholder="City"></div></div>'
       + '<datalist id="kc">'+known.map(c=>'<option value="'+esc(c)+'">').join('')+'</datalist>'
-      + '<div class="grid2"><div class="field"><label for="lDate">Date</label><input id="lDate" type="date" value="'+esc(l?l.date:(prevLeg?prevLeg.date:trip.startDate))+'"></div>'
-      + '<div class="field"><label for="lTime">Time (optional)</label><input id="lTime" type="time" value="'+esc(l?hhmm(l):'')+'"></div></div>'
-      + '<div class="field"><label for="lKm">Distance km (optional)</label><input id="lKm" inputmode="numeric" value="'+esc(l&&!l.kmEstimated?l.km:'')+'" placeholder="'+(l&&l.kmEstimated?'≈'+fmtKm(l.km):'Auto')+'"></div>'
+      + '<div class="grid2"><div class="field"><label for="lDate">Date</label><input id="lDate" type="date" value="'+esc(l?l.date:rec&&rec.date?rec.date:(prevLeg?prevLeg.date:trip.startDate))+'"></div>'
+      + '<div class="field"><label for="lTime">Time (optional)</label><input id="lTime" type="time" value="'+esc(rec&&rec.time?rec.time:l?hhmm(l):'')+'"></div></div>'
+      + '<div class="field"><label for="lKm">Distance km (optional)</label><input id="lKm" inputmode="numeric" value="'+esc(rec&&rec.km?rec.km:l&&!l.kmEstimated?l.km:'')+'" placeholder="'+(l&&l.kmEstimated?'≈'+fmtKm(l.km):'Auto')+'"></div>'
       + '<div class="grid3"><div class="field"><label for="lCost">Cost (optional)</label><input id="lCost" inputmode="decimal" value="'+esc(l&&l.cost?l.cost:'')+'"></div><div class="field"><label for="lCur">Currency</label>'+curSelect('lCur', l?l.currency:trip.currency)+'</div></div>'
       + '<div class="field"><label for="lNotes">Notes (optional)</label><input id="lNotes" value="'+esc(l?l.notes||'':'')+'" placeholder="Flight number, rental car, scenic route…"></div>'
       + '<div class="hint">Leave distance blank: flights use straight‑line km, drives and trains an estimate (≈) you can correct later.</div>'
@@ -1063,6 +1071,13 @@ const WORLD = __WORLD__;
     form=>{
       $('#xCancel').onclick=closeSheet;
       $('#modes').querySelectorAll('[data-mode]').forEach(btn=>btn.onclick=()=>{ mode=btn.dataset.mode; $('#modes').querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===btn)); });
+      const bindNoTrk=()=>{ const x=$('#lNoTrk'); if(x) x.onclick=()=>{ dropTrack=true; $('#lRec').textContent='Recorded route will be removed'; }; }; bindNoTrk();
+      const gf=$('#lGpx'); gf.onchange=async()=>{ const f=gf.files&&gf.files[0]; gf.value=''; if(!f) return;
+        try{ const r=await readDrive(trip, f); rec=r; dropTrack=false;
+          $('#lKm').value=r.km||''; if(r.time) $('#lTime').value=r.time; if(r.date) $('#lDate').value=r.date;
+          if(r.from&&!val('lFrom').trim()) $('#lFrom').value=r.from; if(r.to&&!val('lTo').trim()) $('#lTo').value=r.to;
+          $('#lRec').innerHTML=recHint(); }
+        catch(e){ toast(e.message||'Couldn\'t read that file'); } };
       if(l) $('#xDel').onclick=()=>confirmDelete(form,'this leg', async()=>{ await del('legs', l.id); await dropEmptyStops([l.fromId, l.toId], l.id); });
       form.onsubmit=async e=>{ e.preventDefault();
         const er=$('#fErr'); er.hidden=true;
@@ -1078,6 +1093,8 @@ const WORLD = __WORLD__;
           const costIn=parseFloat(val('lCost').replace(',','.'));
           const data={tripId:trip.id, mode, fromId:A.id, toId:B.id, date, time:val('lTime'), km, kmEstimated:!(isFinite(kmIn)&&kmIn>0)&&mode!=='plane',
             cost:isFinite(costIn)?costIn:0, currency:val('lCur'), notes:val('lNotes').trim(), updatedAt:now()};
+          if(rec&&rec.track){ data.track=rec.track; data.durationS=rec.durationS||null; if(isFinite(kmIn)&&kmIn>0) data.kmEstimated=false; }
+          else if(dropTrack){ data.track=null; data.durationS=null; }
           if(l&&l.date!==date) data.dayPos=null;
           if(l) await patch('legs', l.id, data); else await put('legs', null, Object.assign({order:Date.now(), createdAt:now()}, data));
           closeSheet();
@@ -1647,6 +1664,8 @@ const WORLD = __WORLD__;
       };
     });
   }
+  // a recorded drive's road as [lon,lat] points (null for a plain city-to-city leg)
+  const legTrack=l=>Array.isArray(l.track)&&l.track.length>1?l.track.map(q=>[q[1],q[0]]):null;
   function parseGpx(text){
     const doc=new DOMParser().parseFromString(text,'application/xml');
     if(doc.getElementsByTagName('parsererror').length) throw new Error('That file isn\'t a GPX file.');
@@ -1658,15 +1677,36 @@ const WORLD = __WORLD__;
     for(let i=1;i<P.length;i++){ const d=haversine(P[i-1],P[i])*1000; dist+=d;
       const dt=(P[i].t-P[i-1].t)/1000; if(isFinite(dt)&&dt>0&&dt<120&&d/dt>0.4) moving+=dt; }
     P.forEach(p=>{ if(!isFinite(p.ele)) return; if(lastEle==null) lastEle=p.ele; else if(p.ele-lastEle>2){ up+=p.ele-lastEle; lastEle=p.ele; } else if(lastEle-p.ele>2) lastEle=p.ele; });
-    const t0=P.find(p=>isFinite(p.t)); const d0=t0?new Date(t0.t):null;
+    const t0=P.find(p=>isFinite(p.t)), t1=[...P].reverse().find(p=>isFinite(p.t)); const d0=t0?new Date(t0.t):null;
     const trk=doc.getElementsByTagName('trk')[0];
     return { name:(trk&&tag(trk,'name'))||tag(doc.documentElement,'name')||'', sport:(trk&&tag(trk,'type'))||'',
       date:d0?d0.getFullYear()+'-'+pad2(d0.getMonth()+1)+'-'+pad2(d0.getDate()):'', time:d0?pad2(d0.getHours())+':'+pad2(d0.getMinutes()):'', distanceKm:Math.round(dist/10)/100, movingS:moving?Math.round(moving):null,
-      elevM:up?Math.round(up):null, track:thinTrack(P.map(p=>[p.lat,p.lon])) };
+      elevM:up?Math.round(up):null, durationS:t0&&t1&&t1.t>t0.t?Math.round((t1.t-t0.t)/1000):null, track:thinTrack(P.map(p=>[p.lat,p.lon])) };
+  }
+  // A drive recorded with a GPS app: the road, real km, start time and duration; towns from the track's ends
+  async function readDrive(t, file){
+    const g=parseGpx(await file.text()), s0=g.track[0], s1=g.track[g.track.length-1];
+    const town=async ll=>{ const near=tripStops(t.id).filter(x=>!x.home&&x.lat!=null).map(x=>[haversine({lat:ll[0],lon:ll[1]},x),x]).sort((a,b)=>a[0]-b[0])[0];
+      if(near&&near[0]<8) return near[1].city;
+      try{ const w=await whereIs(ll[0],ll[1]); if(w&&w.city) return w.city; }catch(e){}
+      return near&&near[0]<40?near[1].city:''; };
+    const [from,to]=await Promise.all([town(s0),town(s1)]);
+    return {track:g.track, km:Math.round(g.distanceKm)||null, durationS:g.durationS||g.movingS||null, date:g.date, time:g.time, from, to};
+  }
+  async function gpxDrive(t, file, day){
+    let r; toast('Reading the drive…');
+    try{ r=await readDrive(t, file); }catch(e){ toast(e.message||'Couldn\'t read that file'); return; }
+    if(!r.date) r.date=day;
+    // a drive already in the route (e.g. an estimated one) gets the recording instead of a second copy
+    const c=id=>norm((stopOf(id)||{}).city||''), same=tripLegs(t.id).find(l=>l.date===r.date&&c(l.fromId)===norm(r.from)&&c(l.toId)===norm(r.to));
+    legSheet(t, same||null, r);
   }
   async function gpxImport(t, file){
     let g; try{ g=parseGpx(await file.text()); }catch(e){ toast(e.message||'Couldn\'t read that file'); return; }
     const cat=sportCat(g.sport||g.name);
+    // a car trip (named so, or faster than any run or ride) goes in the route as a drive
+    const kmh=g.distanceKm&&(g.durationS||g.movingS)?g.distanceKm/((g.durationS||g.movingS)/3600):0;
+    if(/driv|car|auto|voiture|coche/i.test(g.sport+' '+g.name)||kmh>40){ gpxDrive(t, file, g.date); return; }
     const start=g.track[0], st=stopForPoint(t.id, start, g.date);
     placeSheet(st, null, {trip:t, prefill:{ name:g.name||({run:'Run',hike:'Hike',walk:'Walk',ride:'Bike ride'}[cat]||'Activity'), category:CAT_LABEL[cat]?cat:'other', date:g.date, time:g.time,
       lat:start[0], lon:start[1], extra:{track:g.track, distanceKm:g.distanceKm, movingS:g.movingS, elevM:g.elevM, sport:g.sport||cat} }});
@@ -1683,6 +1723,45 @@ const WORLD = __WORLD__;
   const tripStays=tid=>S.stays.filter(s=>s.tripId===tid).sort((a,b)=>(a.checkIn||'').localeCompare(b.checkIn||''));
   const staysOnNight=(tid,d)=>tripStays(tid).filter(s=>s.checkIn&&s.checkIn<=d&&d<(s.checkOut||addDays(s.checkIn,1)));
   function perNight(s){ const n=stayNights(s); return s.cost&&n?fmtMoney(s.cost/n,s.currency)+'/night':''; }
+  // ---------- steps ----------
+  // Kept on the trip as steps {YYYY-MM-DD: count}. A page can't read Apple Health, so: type it, or a screenshot of
+  // Health / Fitness (Steps → Show All Data lists one line per day) read by Claude.
+  const tripSteps=t=>(t&&t.steps&&typeof t.steps==='object')?t.steps:{};
+  async function readSteps(trip, imgs){
+    const blobs=await Promise.all(imgs.map(shrink));
+    const o=await sample.json('These are screenshots of a phone health or fitness app showing step counts (Apple Health, Fitness, Google Fit, Samsung Health, a watch app…).\n'
+      + 'The trip runs '+trip.startDate+' to '+trip.endDate+' (use that year when the screen shows no year). Read the step count for every day you can see clearly; skip hours, weeks or averages.\n'
+      + 'Reply with only JSON {"days":[{"date":"YYYY-MM-DD","steps":integer}]}.', {images:blobs});
+    const ds=o&&Array.isArray(o.days)?o.days:[];
+    return ds.map(x=>({date:String(x.date||''), steps:Math.round(+x.steps)})).filter(x=>/^\d{4}-\d\d-\d\d$/.test(x.date)&&x.steps>0&&x.steps<200000);
+  }
+  function stepsSheet(t, d){
+    const cur=tripSteps(t), canRead=!!(sample&&sampleImages);
+    openSheet('<h2>👟 Steps</h2>'
+      + '<div class="field"><label for="stN">'+fmtDate(d,{weekday:'long',month:'short',day:'numeric'})+'</label><input id="stN" inputmode="numeric" placeholder="e.g. 18234" value="'+(cur[d]||'')+'"></div>'
+      + (canRead?'<div class="row"><label class="btn small" for="stImg">📷 Read a screenshot</label><input id="stImg" type="file" accept="image/*" multiple hidden><span class="faint" id="stHint">Health app → Steps → Show All Data: one screenshot fills every day on it.</span></div><div id="stFound"></div>':'')
+      + '<div class="err" id="fErr" hidden></div>'
+      + '<div class="row"><button class="btn primary" type="submit" id="stSave">Save</button><button class="btn" type="button" id="xCancel">Cancel</button>'+(cur[d]?'<button class="btn danger" type="button" id="stDel" style="margin-left:auto">Clear</button>':'')+'</div>',
+    form=>{
+      let found=[];
+      $('#xCancel').onclick=closeSheet;
+      const save=async ch=>{ const next=Object.assign({}, tripSteps(t)); Object.entries(ch).forEach(([k,v])=>{ if(v) next[k]=v; else delete next[k]; });
+        try{ await patch('trips', t.id, {steps:next, updatedAt:now()}); closeSheet(); }catch(e){ const er=$('#fErr'); er.hidden=false; er.textContent='Couldn\'t save. Try again.'; } };
+      const del0=$('#stDel'); if(del0) del0.onclick=()=>save({[d]:0});
+      const im=$('#stImg'); if(im) im.onchange=async()=>{ const fs=Array.from(im.files||[]).slice(0,sampleImages||1); im.value=''; if(!fs.length) return;
+        $('#stHint').textContent='Reading…';
+        try{ found=(await readSteps(t, fs)).filter(x=>x.date>=t.startDate&&x.date<=t.endDate);
+          if(!found.length){ $('#stHint').textContent='No trip days found on that screenshot. Try the "Show All Data" list.'; return; }
+          $('#stHint').textContent='Found '+found.length+' day'+(found.length===1?'':'s')+' of your trip:';
+          $('#stFound').innerHTML=found.map((x,i)=>'<label class="row" style="gap:8px;flex-wrap:nowrap"><input type="checkbox" data-sf="'+i+'" checked style="width:20px;height:20px"><span style="flex:1">'+fmtDate(x.date,{weekday:'short',month:'short',day:'numeric'})+'</span><b class="mono">'+x.steps.toLocaleString()+'</b></label>').join('');
+          const mine=found.find(x=>x.date===d); if(mine) $('#stN').value=mine.steps; }
+        catch(e){ $('#stHint').textContent=photoError(e)||'Couldn\'t read that screenshot.'; } };
+      form.onsubmit=e=>{ e.preventDefault(); const ch={};
+        form.querySelectorAll('[data-sf]').forEach(c=>{ if(c.checked){ const x=found[+c.dataset.sf]; ch[x.date]=x.steps; } });
+        const n=parseInt(val('stN').replace(/[^0-9]/g,''),10); if(n>0) ch[d]=n;
+        if(!Object.keys(ch).length){ closeSheet(); return; } save(ch); };
+    });
+  }
   // Booking confirmation screenshot → stay fields.
   async function readBooking(trip, imgs){
     const blobs=await Promise.all(imgs.map(shrink));
@@ -1856,10 +1935,11 @@ const WORLD = __WORLD__;
     openSheet('<h2>'+fmtDate(d,{weekday:'long',month:'short',day:'numeric'})+'</h2><div class="day-menu">'
       + (canPh?'<label class="btn" for="dmPh">📷 Photos</label><input id="dmPh" type="file" accept="image/*" multiple hidden>':'')
       + '<button type="button" class="btn" data-dm="meal">🍽️ Meal</button><button type="button" class="btn" data-dm="act">🏙️ Activity</button>'
-      + '<button type="button" class="btn" data-dm="exp">💳 Expense</button><button type="button" class="btn" data-dm="leg">🚗 Drive / flight</button>'
-      + '<button type="button" class="btn" data-dm="stay">🛏 Where we slept</button><button type="button" class="btn" data-dm="share">'+ICON.share+' Share this day</button></div>'
+      + '<button type="button" class="btn" data-dm="exp">💳 Expense</button><button type="button" class="btn" data-dm="leg">🚗 Drive / flight</button><label class="btn" for="dmGpx">📍 Drive from GPS file</label><input id="dmGpx" type="file" hidden>'
+      + '<button type="button" class="btn" data-dm="stay">🛏 Where we slept</button><button type="button" class="btn" data-dm="steps">👟 Steps</button><button type="button" class="btn" data-dm="share">'+ICON.share+' Share this day</button></div>'
       + '<button type="button" class="btn ghost" id="dmX">Cancel</button>', f=>{
       $('#dmX').onclick=closeSheet;
+      const gx=$('#dmGpx'); gx.onchange=()=>{ const f=gx.files&&gx.files[0]; closeSheet(); if(f) gpxDrive(t, f, d); };
       const ph=$('#dmPh'); if(ph) ph.onchange=()=>{ const fs=Array.from(ph.files||[]); closeSheet(); if(fs.length) photoBatch(t, fs); };
       f.querySelectorAll('[data-dm]').forEach(b=>b.onclick=()=>{ const k=b.dataset.dm; closeSheet();
         if(k==='meal') placeSheet(null, null, {trip:t, date:d, meal:true, prefill:{category:mealFor(tm), date:d, time:tm}});
@@ -1867,6 +1947,7 @@ const WORLD = __WORLD__;
         else if(k==='exp'){ expenseSheet(t, null); const de=$('#eDate'), te=$('#eTime'); if(de) de.value=d; if(te&&!tm) te.value=''; }
         else if(k==='leg'){ legSheet(t, null); const dl=$('#lDate'); if(dl) dl.value=d; }
         else if(k==='stay') staySheet(null, {trip:t, date:d});
+        else if(k==='steps') stepsSheet(t, d);
         else shareSheet(t, {from:d, to:d}); }); });
   }
   function daysHtml(t){
@@ -1883,9 +1964,10 @@ const WORLD = __WORLD__;
       const firstT=c=>{ const ts=acts.concat(exps).filter(x=>hhmm(x)&&norm((stopOf(x.stopId)||{}).city||x.city||'')===norm(c)).map(hhmm).sort(); return ts[0]||''; };
       cities.sort((a,b)=>{ const x=firstT(a), y=firstT(b); if(x&&y) return x.localeCompare(y); const i=route.indexOf(norm(a)), j=route.indexOf(norm(b)); return (i<0?99:i)-(j<0?99:j); });
       const folded=live&&d<today&&!openDays.has(d), nThings=acts.length+exps.length, km=d3.sum(legs,l=>+l.km||0);
-      const sum=[nThings?nThings+(nThings===1?' thing':' things'):'', km?(legs.some(l=>l.kmEstimated)?'≈':'')+fmtKm(km)+' km':''].filter(Boolean).join(' · ')||'nothing logged';
+      const stp=tripSteps(t)[d];
+      const sum=[nThings?nThings+(nThings===1?' thing':' things'):'', stp?'👟 '+(+stp).toLocaleString():'', km?(legs.some(l=>l.kmEstimated)?'≈':'')+fmtKm(km)+' km':''].filter(Boolean).join(' · ')||'nothing logged';
       html+='<div class="day'+(d===today?' today':'')+(folded?' folded':'')+'"><div class="day-h"><div class="day-t"'+(live&&d<today?' data-fold="'+d+'" role="button" aria-expanded="'+!folded+'"':'')+'><b>'+fmtDate(d,{weekday:'short',month:'short',day:'numeric'})+'</b>'+(d===today?' <span class="pill accent">Today</span>':'')
-        +' <span class="faint">'+esc(cities.join(' → '))+'</span>'+(folded?'<div class="faint">'+sum+' <span class="fold-hint">▾ show</span></div>':live&&d<today?' <span class="fold-hint">▴</span>':'')+'</div>'
+        +' <span class="faint">'+esc(cities.join(' → '))+'</span>'+(stp&&!folded?' <button type="button" class="steps-tag" data-steps="'+d+'">👟 '+(+stp).toLocaleString()+'</button>':'')+(folded?'<div class="faint">'+sum+' <span class="fold-hint">▾ show</span></div>':live&&d<today?' <span class="fold-hint">▴</span>':'')+'</div>'
         +'<button type="button" class="btn small ghost day-plus" data-daymenu="'+d+'" aria-label="Add or share on '+fmtDate(d)+'">'+ICON.plus+'</button></div>';
       if(folded){ html+='</div>'; continue; }
       html+='<div class="day-list" data-day="'+d+'">'+dayOrder(d, legs, acts, exps).map(({k,x})=>{ const tv=hhmm(x), tm='<label class="tset'+(tv?'':' empty')+'" data-tcol="'+(k==='leg'?'legs':k==='act'?'places':'expenses')+'" data-tid="'+x.id+'">'+(tv||'+ time')+'<input type="time" value="'+tv+'" aria-label="Time"></label>';
@@ -2310,7 +2392,7 @@ const WORLD = __WORLD__;
       g.setLineDash([]); g.lineJoin='round';
       if(!priv(o,'spots')) d.acts.forEach(p=>{ if(!Array.isArray(p.track)||p.track.length<2) return; g.beginPath(); path({type:'LineString',coordinates:p.track.map(q=>[q[1],q[0]])}); g.strokeStyle='#FF5C8A'; g.lineWidth=6; g.stroke(); });
       d.legs.forEach(l=>{ const a=stopOf(l.fromId), b=stopOf(l.toId); if(!a||!b||a.home||b.home||a.lat==null||b.lat==null) return;
-        g.beginPath(); path({type:'LineString',coordinates:[[a.lon,a.lat],[b.lon,b.lat]]}); g.strokeStyle=colors[l.mode]||'#FF7A3D'; g.lineWidth=7; g.setLineDash(l.mode==='plane'?[18,14]:[]); g.stroke(); });
+        g.beginPath(); path({type:'LineString',coordinates:legTrack(l)||[[a.lon,a.lat],[b.lon,b.lat]]}); g.strokeStyle=colors[l.mode]||'#FF7A3D'; g.lineWidth=7; g.setLineDash(l.mode==='plane'?[18,14]:[]); g.stroke(); });
       g.setLineDash([]);
       (d.hops||[]).forEach(h=>{ g.beginPath(); path({type:'LineString',coordinates:[[h.a.lon,h.a.lat],[h.b.lon,h.b.lat]]}); g.strokeStyle=colors.car; g.lineWidth=7; g.stroke(); });
       if(!priv(o,'spots')) d.acts.forEach(p=>{ if(p.lat==null) return; const q=proj([p.lon,p.lat]); g.save(); g.translate(q[0],q[1]); g.rotate(Math.PI/4); g.fillStyle=p.status==='done'?'#FF7A3D':'#16222D'; g.strokeStyle=p.status==='done'?'#fff':'#FF7A3D'; g.lineWidth=4; g.fillRect(-9,-9,18,18); g.strokeRect(-9,-9,18,18); g.restore(); });
@@ -2416,10 +2498,10 @@ const WORLD = __WORLD__;
       return [(x0+x1)/2,(y0+y1)/2,W/k]; };
     // events in the Days order: legs, and Strava/GPX tracks when activities are on
     const evs=[], legEv=l=>{ const a=stopOf(l.fromId), b=stopOf(l.toId); if(!a||!b||a.lat==null||b.lat==null||norm(a.city)===norm(b.city)) return;
-      const ua=U(a.lon,a.lat), ub=U(b.lon,b.lat); let pts=[ua,ub];
-      if(l.mode==='plane'){ const dx=ub[0]-ua[0], dy=ub[1]-ua[1], m=[(ua[0]+ub[0])/2+dy*.2,(ua[1]+ub[1])/2-dx*.2];
+      const ua=U(a.lon,a.lat), ub=U(b.lon,b.lat), tr=legTrack(l); let pts=tr?tr.map(q=>U(q[0],q[1])):[ua,ub];
+      if(l.mode==='plane'&&!tr){ const dx=ub[0]-ua[0], dy=ub[1]-ua[1], m=[(ua[0]+ub[0])/2+dy*.2,(ua[1]+ub[1])/2-dx*.2];
         pts=d3.range(41).map(i=>{ const s=i/40, q=1-s; return [q*q*ua[0]+2*s*q*m[0]+s*s*ub[0], q*q*ua[1]+2*s*q*m[1]+s*s*ub[1]]; }); }
-      evs.push({kind:'leg', date:l.date, mode:MODE_HEX[l.mode]?l.mode:'car', pts, km:+l.km||0, label:a.city+' → '+b.city, from:a, to:b, leg:l, far:!!(a.home||b.home), ll:[[a.lon,a.lat],[b.lon,b.lat]]}); };
+      evs.push({kind:'leg', date:l.date, mode:MODE_HEX[l.mode]?l.mode:'car', pts, km:+l.km||0, label:a.city+' → '+b.city, from:a, to:b, leg:l, far:!!(a.home||b.home), ll:tr||[[a.lon,a.lat],[b.lon,b.lat]]}); };
     const trackEv=p=>{ if(!o.showActs||priv(o,'spots')||!Array.isArray(p.track)||p.track.length<2) return false; const ll=p.track.map(q=>[q[1],q[0]]);
       evs.push({kind:'track', date:p.date, mode:'walk', pts:ll.map(q=>U(q[0],q[1])), km:0, label:shareName(p,o)+(p.distanceKm?' · '+(+p.distanceKm).toFixed(1)+' km':''), act:p, ll}); return true; };
     // a "moment": an activity, or a meal/ticket/shopping expense, shown as a card where it happened
