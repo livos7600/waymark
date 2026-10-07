@@ -419,12 +419,24 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
   async function del(col, id){ return db.collection(col).doc(id).delete(); }
 
   // Find coordinates for a city: reuse any stop we already know, else ask Claude.
-  async function geocode(name){
+  // City names as typed or dictated: "St Jean de Luz", "saint-jean-de-luz.", "San Sebastian" and "Saint Jean de Lutz"
+  // should all land on the trip's Saint-Jean-de-Luz. cityKey drops case, accents, punctuation and spaces; fuzzyCity
+  // also forgives a letter or two (dictation spelling) on names of 5+ letters.
+  const cityKey=s=>norm(s).replace(/[.,!?;:]+$/,'').replace(/\bste?\.?\s/g,m=>/e/.test(m)?'sainte ':'saint ').replace(/[^a-z0-9]/g,'');
+  function editDist(a,b){ const d=Array.from({length:b.length+1},(_,j)=>j);
+    for(let i=1;i<=a.length;i++){ let p=d[0]; d[0]=i; for(let j=1;j<=b.length;j++){ const t=d[j]; d[j]=Math.min(d[j]+1,d[j-1]+1,p+(a[i-1]===b[j-1]?0:1)); p=t; } } return d[b.length]; }
+  function fuzzyCity(name, cities){ const k=cityKey(name); if(!k) return '';
+    const exact=cities.find(c=>cityKey(c)===k); if(exact) return exact;
+    if(k.length<5) return '';
+    let best=null; cities.forEach(c=>{ const ck=cityKey(c), dd=editDist(k,ck), lim=Math.max(1,Math.floor(Math.max(k.length,ck.length)/6)); if(dd<=lim&&(!best||dd<best[1])) best=[c,dd]; });
+    return best?best[0]:''; }
+  const sameCity=(a,b)=>!!b&&(cityKey(a)===cityKey(b)||fuzzyCity(b,[a])===a);
+  async function geocode(name, hint){
     const n=norm(name);
     const known=S.stops.find(s=>norm(s.city)===n && s.lat!=null);
     if(known) return {city:known.city, country:known.country, countryA2:known.countryA2, countryN3:known.countryN3, lat:known.lat, lon:known.lon};
     if(!sample) return null;
-    const r = await sample.json('Give the location of this place a traveller typed: "'+name.slice(0,120)+'". Reply with only a JSON object '
+    const r = await sample.json('Give the location of this place a traveller typed or dictated by voice (so the spelling may be off): "'+name.slice(0,120)+'".'+(hint?' They are travelling near: '+hint.slice(0,300)+'; prefer a town in that area when the name is ambiguous or misheard.':'')+' Reply with only a JSON object '
       +'{"city": string (proper name), "country": string (English short name), "countryA2": string (ISO 3166-1 alpha-2), "countryN3": string (ISO 3166-1 numeric, 3 digits), "lat": number, "lon": number}. '
       +'Example: {"city":"Bilbao","country":"Spain","countryA2":"ES","countryN3":"724","lat":43.263,"lon":-2.935}', {modelTier:'quick', cache:{gcTime:86400000}});
     if(!r || typeof r.lat!=='number' || typeof r.lon!=='number') return null;
@@ -1029,7 +1041,10 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
       out.push({a:cur, b:B.s, date:B.d, km:Math.round(d*ROAD_FACTOR.car)}); }
     return out;
   }
-  async function ensureStop(trip, name, dateArrive, dateDepart){
+  async function ensureStop(trip, name, dateArrive, dateDepart, again){
+    name=String(name||'').trim().replace(/[.,!?;:]+$/,'');
+    const tripCities=[...new Set(tripStops(trip.id).filter(s=>!s.home).map(s=>s.city))];
+    name=fuzzyCity(name, tripCities)||name;
     const n=norm(name);
     // reuse a stop in this trip if the dates touch it
     const existing=tripStops(trip.id).filter(s=>norm(s.city)===n);
@@ -1040,7 +1055,9 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
       if(Object.keys(up).length) await patch('stops', hit.id, up);
       return Object.assign({}, hit, up);
     }
-    const g=await geocode(name);
+    const g=await geocode(name, tripCities.join(', '));
+    // Claude's proper name may be a city the trip already has ("Donostia" → San Sebastián)
+    if(g&&!again){ const known=fuzzyCity(g.city, tripCities); if(known) return ensureStop(trip, known, dateArrive, dateDepart, true); }
     if(!g) throw new Error('Couldn\'t find "'+name+'". Check the spelling, or add country (e.g. "Pau, France").');
     const data=Object.assign(g,{tripId:trip.id, arrive:dateArrive||dateDepart||'', depart:dateDepart||dateArrive||'', order:Date.now(), photoIds:[], createdAt:now()});
     const ref=await put('stops', null, data);
@@ -1284,7 +1301,7 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
       // the reverse of "Make it a meal": keep it as a plain expense (photos, place and time move with it)
       $('#pToExp').onclick=async()=>{ const b=$('#pToExp'); b.disabled=true;
         try{ const c=parseFloat(val('pCost').replace(',','.')), date=val('pDate')||todayStr(), city=val('pCity').trim();
-          const same=city?tStops.filter(s=>norm(s.city)===norm(city)):[]; let st=same.find(s=>s.arrive<=date&&date<=(s.depart||s.arrive))||same[0];
+          const same=city?tStops.filter(s=>sameCity(s.city,city)):[]; let st=same.find(s=>s.arrive<=date&&date<=(s.depart||s.arrive))||same[0];
           if(!st&&city) st=await ensureStop(trip, city, date, date); if(!st) st=stopOnDate(trip.id,date)||cur;
           const data={tripId:trip.id, label:val('pName').trim()||CAT_LABEL[val('pCat')]||'Expense', amount:isFinite(c)?c:0, currency:val('pCur'), category:isMeal(val('pCat'))?'Food & drink':val('pCat')==='shopping'?'Shopping':val('pCat')==='hotel'?'Lodging':'Activities',
             date, time:val('pTime'), city:st.city, stopId:st.id, paidBy:val('pPaid').trim()||lastPayer(trip.id), notes:val('pNotes').trim(), photoIds, address:val('pLoc').trim(), createdAt:now(), updatedAt:now()};
@@ -1295,7 +1312,7 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
       form.onsubmit=async e=>{ e.preventDefault();
         const name=val('pName').trim(); if(!name){ const er=$('#fErr'); er.hidden=false; er.textContent='Say what it was (a name is enough).'; return; }
         const date=val('pDate'); let city=val('pCity').trim(), st;
-        const same=city?tStops.filter(s=>norm(s.city)===norm(city)):[];
+        const same=city?tStops.filter(s=>sameCity(s.city,city)):[];
         if(same.length) st=same.find(s=>date&&s.arrive<=date&&date<=(s.depart||s.arrive))||same[0];
         else if(city){ // a city the trip hasn't had yet (from the photo or typed): add it
           try{ $('#pSave').disabled=true; st=await ensureStop(trip, city, date, date); }
@@ -1355,7 +1372,7 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
       $('#eCat').addEventListener('change', mealHint);
       $('#eToMeal').onclick=()=>{ const a=parseFloat(val('eAmt').replace(',','.')), tm=val('eTime'), d=val('eDate')||todayStr(), city=val('eCity').trim();
         const n=val('eLabel').trim(), late=(tm&&tm>='17:00')||(!tm&&/dinner|d[îi]ner|drinks?|bar\b|ap[ée]ro/i.test(n));
-        const st=(city&&tripStops(trip.id).find(s=>norm(s.city)===norm(city)))||(late?eveningStop(trip.id,d):stopOnDate(trip.id,d));
+        const st=(city&&tripStops(trip.id).find(s=>sameCity(s.city,city)))||(late?eveningStop(trip.id,d):stopOnDate(trip.id,d));
         closeSheet();
         placeSheet(st||null, null, {trip, replaces:x||null, prefill:{name:n, category:mealFor(tm,n), date:d, time:tm, cost:isFinite(a)?a:'', currency:val('eCur'), notes:val('eNote').trim(), photoIds}}); };
       const hint=t=>{ const el=$('#eUp'); if(el) el.textContent=t; };
@@ -1402,7 +1419,7 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
       mealHint();
       form.onsubmit=async e=>{ e.preventDefault(); const a=parseFloat(val('eAmt').replace(',','.')); const label=val('eLabel').trim();
         if(!label||!isFinite(a)){ const er=$('#fErr'); er.hidden=false; er.textContent='Add what it was and an amount.'; return; }
-        const city=val('eCity').trim(), st=city&&tripStops(trip.id).find(s=>norm(s.city)===norm(city));
+        const city=val('eCity').trim(), st=city&&tripStops(trip.id).find(s=>sameCity(s.city,city));
         const data={tripId:trip.id, label, amount:a, currency:val('eCur'), category:val('eCat'), date:val('eDate'), time:val('eTime'), city:st?st.city:city, stopId:st?st.id:'', paidBy:val('ePaid').trim(), notes:val('eNote').trim(), photoIds, updatedAt:now()};
         data.address=eloc.text(); if(eloc.pos){ data.lat=eloc.pos.lat; data.lon=eloc.pos.lon; } else if(x&&x.lat!=null){ data.lat=null; data.lon=null; }
         if(x&&x.date!==data.date) data.dayPos=null;
@@ -1878,7 +1895,7 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
         const name=val('sName').trim()||(kind==='friends'?'With friends':kind==='camping'?'Camping':''), checkIn=val('sIn'), checkOut=val('sOut');
         if(!name){ er.hidden=false; er.textContent='Give it a name (the hotel, or "Airbnb in…").'; return; }
         if(!checkIn||!checkOut||checkOut<=checkIn){ er.hidden=false; er.textContent='Check-out must be after check-in.'; return; }
-        let city=val('sCity').trim(); const same=city?tStops.filter(s=>norm(s.city)===norm(city)):[]; let stop=same.find(s=>s.arrive<=checkIn&&checkIn<=(s.depart||s.arrive))||same[0];
+        let city=val('sCity').trim(); const same=city?tStops.filter(s=>sameCity(s.city,city)):[]; let stop=same.find(s=>s.arrive<=checkIn&&checkIn<=(s.depart||s.arrive))||same[0];
         let typed=city;
         if(!stop&&city){ try{ stop=await ensureStop(trip, city, checkIn, checkIn); typed=''; }catch(err){ stop=null; } } // couldn't place the town: keep its name, file it under that night's city
         if(!stop) stop=stopOnDate(trip.id, checkIn)||atNight||null;
@@ -2205,7 +2222,7 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
           for(const e of entries.filter(x=>x.keep)){
             const name=String(e.name||'').trim()||(e.kind==='meal'?CAT_LABEL[e.cat]||'Meal':e.kind==='expense'?e.cat:e.kind==='stay'?'Stay':'Activity');
             const date=e.date||todayStr(), city=String(e.city||'').trim(), amt=parseFloat(String(e.amount||'').replace(',','.'));
-            const same=city?tripStops(t.id).filter(s=>!s.home&&norm(s.city)===norm(city)):[];
+            const same=city?tripStops(t.id).filter(s=>!s.home&&sameCity(s.city,city)):[];
             let st=same.find(s=>s.arrive<=date&&date<=(s.depart||s.arrive))||same[0];
             if(!st&&city) st=await ensureStop(t, city, date, date);
             if(!st) st=stopOnDate(t.id,date)||tripStops(t.id).find(s=>!s.home);
