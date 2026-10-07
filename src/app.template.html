@@ -2138,7 +2138,9 @@ const WORLD = __WORLD__;
     const entries=[];
     for(let i=0;i<groups.length;i++){ const grp=groups[i], m0=(grp.items.find(x=>x.m.date)||grp.items[0]).m, gps=grp.items.find(x=>x.m.lat!=null);
       hint(canRead?'Claude is looking at '+(groups.length>1?'moment '+(i+1)+' of '+groups.length:'the photos')+'…':'Reading the photos…'); bar(.25+.7*i/groups.length);
-      let r=null; if(canRead){ try{ r=await readPhoto(t, grp.items.map(x=>x.f).slice(0,sampleImages), 'any'); }catch(e){ r=null; } }
+      let r=null; if(canRead){ try{ r=await readPhoto(t, grp.items.map(x=>x.f).slice(0,sampleImages), 'any'); }catch(e){ r=null; }
+        // several photos at once can fail (size, format): one more try with just the first
+        if(!r&&grp.items.length>1){ try{ r=await readPhoto(t, [grp.items[0].f], 'any'); }catch(e){ r=null; } } }
       if(!box.isConnected) return;
       const e={photoIds:grp.ids||[], date:(r&&r.date)||m0.date||todayStr(), time:(m0.time)||(r&&r.time)||'', name:(r&&r.name)||'', notes:(r&&r.notes)||'', amount:r&&r.amount, currency:(r&&r.currency)||'',
         lat:gps?gps.m.lat:(r&&r.lat), lon:gps?gps.m.lon:(r&&r.lon), city:(r&&r.city)||'', address:'', thumbs:grp.items.length};
@@ -2147,9 +2149,29 @@ const WORLD = __WORLD__;
       else { e.kind=MEAL_KEYS.has(r&&r.actCat)?'meal':'activity'; e.cat=e.kind==='meal'?(MEALS.some(x=>x[0]===r.actCat)?r.actCat:mealFor(e.time,e.name)):((r&&r.actCat)||'attraction'); }
       if(gps){ try{ const w=await whereIs(gps.m.lat, gps.m.lon); if(w){ e.city=w.city||e.city; e.address=[w.place,w.address].filter(Boolean).join(', '); if(!e.name) e.name=w.place||''; } }catch(err){} }
       if(!e.city) e.city=(stopOnDate(t.id, e.date)||{}).city||'';
+      if(!e.name&&e.address) e.name=e.address.split(',')[0].trim();
       entries.push(e); }
     if(!box.isConnected) return;
-    reviewSheet(t, entries, 'photos');
+    reviewSheet(t, mergeWander(entries), 'photos');
+  }
+  // Sightseeing photos through the same town on the same day are one outing ("Bordeaux city visit"), not one entry per
+  // stop: consecutive sightseeing moments in one city, less than 3 h apart, are merged. Meals, receipts, stays and
+  // specific activities (museum, hike, run…) stay on their own. A merged entry keeps its parts so the card can split it back.
+  const WANDER=new Set(['attraction','citytour','walk','other','shopping']);
+  function mergeWander(entries){
+    const out=[]; let cur=null;
+    const ts=e=>Date.parse(e.date+'T'+(e.time||'12:00'));
+    entries.forEach(e=>{ const ok=e.kind==='activity'&&WANDER.has(e.cat)&&e.city;
+      const last=cur&&(cur.parts||[cur]).slice(-1)[0];
+      if(ok&&cur&&cur.date===e.date&&norm(cur.city)===norm(e.city)&&ts(e)-ts(last)<=3*3600000){
+        if(!cur.parts){ const first=Object.assign({}, cur); Object.assign(cur, {parts:[first]}); }
+        cur.parts.push(e); cur.photoIds=cur.parts.flatMap(x=>x.photoIds); cur.thumbs=cur.photoIds.length;
+        const names=[...new Set(cur.parts.map(x=>String(x.name||'').trim()).filter(Boolean))];
+        cur.name=cur.city+' city visit'; cur.cat='citytour'; cur.notes=names.join(' · ');
+        if(cur.lat==null&&e.lat!=null){ cur.lat=e.lat; cur.lon=e.lon; }
+        return; }
+      cur=ok?e:null; out.push(e); });
+    return out;
   }
   const KIND_LABEL={activity:'📍 Activity', meal:'🍽️ Meal', expense:'💳 Expense', stay:'🛏 Stay'};
   function reviewSheet(t, entries, from){
@@ -2162,9 +2184,9 @@ const WORLD = __WORLD__;
       + '<div class="grid2"><select data-f="cat">'+catOpts(e)+'</select><input data-f="city" list="rvCities" value="'+esc(e.city)+'" placeholder="City"></div>'
       + '<div class="grid2"><input data-f="date" type="date" value="'+esc(e.date)+'"><input data-f="time" type="time" value="'+esc(e.time)+'"></div>'
       + '<div class="grid2"><input data-f="amount" inputmode="decimal" value="'+(e.amount!=null?esc(e.amount):'')+'" placeholder="Price (optional)">'+curSelect('rvCur'+i, e.currency||t.currency).replace('<select','<select data-f="currency"')+'</div>'
-      + (e.address?'<div class="faint">📍 '+esc(e.address)+'</div>':'')
+      + (e.parts?'<div class="faint">'+e.parts.length+' stops'+(e.notes?': '+esc(e.notes):'')+' <button type="button" class="btn small ghost" data-split="'+i+'">Split into '+e.parts.length+'</button></div>':e.address?'<div class="faint">📍 '+esc(e.address)+'</div>':'')
       + '<label class="row" style="gap:8px;font-size:14px"><input type="checkbox" data-f="keep" checked style="width:20px;height:20px"> Save this</label></div>';
-    openSheet('<h2>Check and save</h2><div class="hint">'+(from==='photos'?'Each group of photos taken at the same moment became one entry.':'Here\'s what Claude understood.')+' Fix anything, untick what you don\'t want, then save.</div>'
+    openSheet('<h2>Check and save</h2><div class="hint">'+(from==='photos'?'Photos from the same outing became one entry (a walk through a town is one city visit; meals stay separate).':'Here\'s what Claude understood.')+' Fix anything, untick what you don\'t want, then save.</div>'
       + '<datalist id="rvCities">'+cityList.map(c=>'<option value="'+esc(c)+'">').join('')+'</datalist>'
       + '<div id="rvList" style="display:flex;flex-direction:column;gap:12px"></div><div class="err" id="fErr" hidden></div>'
       + '<div class="row"><button class="btn primary" type="submit" id="rvSave">Save all</button><button class="btn" type="button" id="xCancel">Cancel</button></div>',
@@ -2173,7 +2195,9 @@ const WORLD = __WORLD__;
       const read=()=>$('#rvList').querySelectorAll('[data-ri]').forEach(el=>{ const e=entries[+el.dataset.ri]; el.querySelectorAll('[data-f]').forEach(inp=>{ const k=inp.dataset.f; e[k]=k==='keep'?inp.checked:inp.value; }); });
       const draw=()=>{ $('#rvList').innerHTML=entries.map(card).join('');
         $('#rvList').querySelectorAll('[data-rk]').forEach(b=>b.onclick=()=>{ read(); const e=entries[+b.closest('[data-ri]').dataset.ri], k=b.dataset.rk; if(k===e.kind) return;
-          e.kind=k; e.cat=k==='meal'?mealFor(e.time,e.name):k==='expense'?'Other':k==='stay'?'hotel':'attraction'; draw(); }); };
+          e.kind=k; e.cat=k==='meal'?mealFor(e.time,e.name):k==='expense'?'Other':k==='stay'?'hotel':'attraction'; draw(); });
+        $('#rvList').querySelectorAll('[data-split]').forEach(b=>b.onclick=()=>{ read(); const i=+b.dataset.split, e=entries[i]; if(!e.parts) return;
+          entries.splice(i, 1, ...e.parts.map(x=>Object.assign(x,{keep:true}))); draw(); }); };
       draw();
       form.onsubmit=async ev=>{ ev.preventDefault(); read(); const btn=$('#rvSave'); btn.disabled=true; let n=0;
         try{
