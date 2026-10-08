@@ -636,17 +636,24 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
       stops.forEach(s=>{ const p=proj([s.lon,s.lat]); if(!p) return; items['s:'+s.id]={type:'stop', s};
         pin(p[0],p[1],'s:'+s.id,m=>{ m.append('circle').attr('r',12).attr('fill','transparent'); m.append('circle').attr('r',3.5).attr('fill','var(--surface)').attr('stroke','var(--ink)').attr('stroke-width',1.4); }); });
       // one photo pin per trip (its cover photo, labelled with the month), like a travel scrapbook
+      // photo pins: the point always sits on the real place; when two photos would cover each other the later one
+      // leans aside on a short stick (it stays the same size on screen at any zoom, like the pins)
       const placed=[];
       (opts.tripPins||[]).forEach((tp,i)=>{ const p0=proj([tp.lon,tp.lat]); if(!p0) return; items['t:'+tp.id]={type:'trip', tp};
-        // neighbours (Spain and France) would hide each other: slide sideways until the photo is clear
-        const p=[p0[0],p0[1]]; for(let k=0;k<8&&placed.some(q=>Math.abs(q[0]-p[0])<66&&Math.abs(q[1]-p[1])<70);k++) p[0]+=(k%2?1:-1)*66*(k+1); placed.push(p);
-        pin(p[0],p[1],'t:'+tp.id,m=>{ const cid='tpc'+i;
-          m.append('clipPath').attr('id',cid).append('rect').attr('x',-27).attr('y',-66).attr('width',54).attr('height',54).attr('rx',9);
-          m.append('rect').attr('x',-31).attr('y',-70).attr('width',62).attr('height',62).attr('rx',12).attr('fill','#fff').attr('stroke','rgba(0,0,0,.18)');
-          if(tp.photo) m.append('image').attr('href','/_blob/'+tp.photo).attr('x',-27).attr('y',-66).attr('width',54).attr('height',54).attr('preserveAspectRatio','xMidYMid slice').attr('clip-path','url(#'+cid+')');
-          else m.append('text').text('🧳').attr('text-anchor','middle').attr('y',-30).attr('font-size',30);
-          m.append('path').attr('d','M-8,-8.5 L0,0 L8,-8.5 Z').attr('fill','#fff');
-          m.append('text').text(tp.label).attr('text-anchor','middle').attr('y',20).attr('font-family','Figtree, sans-serif').attr('font-size',17).attr('font-weight',700)
+        let dx=0; for(let k=0;k<8;k++){ const hit=placed.find(q=>Math.abs(q[0]-(p0[0]+dx))<70&&Math.abs(q[1]-p0[1])<74); if(!hit) break;
+          dx+=(p0[0]>=hit[0]-dx?1:-1)*(70-Math.abs(hit[0]-(p0[0]+dx))+4); }
+        placed.push([p0[0]+dx,p0[1]]);
+        pin(p0[0],p0[1],'t:'+tp.id,m=>{ const cid='tpc'+i, bx=dx;
+          if(dx){ m.append('path').attr('d','M0,0 L'+bx+',-10').attr('stroke','#fff').attr('stroke-width',5).attr('stroke-linecap','round');
+            m.append('path').attr('d','M0,0 L'+bx+',-10').attr('stroke','var(--ink)').attr('stroke-width',1.6).attr('stroke-linecap','round'); }
+          m.append('circle').attr('r',4).attr('fill','var(--ink)').attr('stroke','#fff').attr('stroke-width',1.5);
+          const y0=dx?-10:0;
+          m.append('clipPath').attr('id',cid).append('rect').attr('x',bx-27).attr('y',y0-66).attr('width',54).attr('height',54).attr('rx',9);
+          m.append('rect').attr('x',bx-31).attr('y',y0-70).attr('width',62).attr('height',62).attr('rx',12).attr('fill','#fff').attr('stroke','rgba(0,0,0,.18)');
+          if(tp.photo) m.append('image').attr('href','/_blob/'+tp.photo).attr('x',bx-27).attr('y',y0-66).attr('width',54).attr('height',54).attr('preserveAspectRatio','xMidYMid slice').attr('clip-path','url(#'+cid+')');
+          else m.append('text').text('🧳').attr('x',bx).attr('text-anchor','middle').attr('y',y0-30).attr('font-size',30);
+          if(!dx) m.append('path').attr('d','M-8,-8.5 L0,-1 L8,-8.5 Z').attr('fill','#fff');
+          m.append('text').text(tp.label).attr('x',bx).attr('text-anchor','middle').attr('y',20).attr('font-family','Figtree, sans-serif').attr('font-size',17).attr('font-weight',700)
             .attr('fill','var(--ink)').attr('paint-order','stroke').attr('stroke','var(--sea)').attr('stroke-width',3); }); });
     } else {
       // one numbered pin per city, in visiting order; home shows as a small dot
