@@ -969,6 +969,8 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
           + '<div class="st-name">'+esc(it.name)+'</div><div class="faint">'+esc(it.sub)+'</div></button>'; }).join('')+'</div>'; }
   // the year(s) you were there: "2026", or "2023 – 2026" over several trips
   const yearsTxt=v=>{ const a=String(v.first||'').slice(0,4), b=String(v.last||'').slice(0,4); return a&&b&&a!==b?a+' – '+b:a; };
+  // a country you've seen one city of reads as that city ("Miami", not "United States")
+  const placeName=v=>v.cities.length===1?v.cities[0].s.city:v.name;
   const whenTxt=v=>v.trips.size>1?v.trips.size+' trips':fmtDate(v.first,{month:'long',year:'numeric'});
   // Past travels from memory: a typed or dictated list ("Rome 2017 and 2022, Cancún Oct 2025") → Claude → trips with
   // their cities and dates (approximate when only a year or season is given) → check → saved. Photos can be added later
@@ -1046,13 +1048,13 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
       + '<div class="cell"><div class="k">Trips</div><div class="v">'+S.trips.length+'</div></div><div class="cell"><div class="k">Distance</div><div class="v mono" style="font-size:22px">'+fmtKm(km)+' km</div></div></div>'
       + '<div><div class="map-wrap" id="worldMap"></div><div style="margin-top:8px" class="between">'+legendHtml(Object.keys(byMode).length?Object.keys(byMode):['plane','car'])+'<span class="faint">'+pct+'% of 195 countries · '+(km/40075).toFixed(2)+'× around Earth</span></div></div>'
       + (sample?'<button type="button" class="btn" id="addPast" style="align-self:flex-start">＋ Add past trips</button>':'')
-      + stampRow('Where I\'ve been', beenCountries().map(v=>({title:v.name, icon:flag(v.a2), cc:v.a2, name:v.cities.length+' cit'+(v.cities.length===1?'y':'ies'), sub:whenTxt(v), attr:'data-country="'+v.a2+'"'})))
+      + stampRow('Where I\'ve been', beenCountries().map(v=>({title:placeName(v), icon:flag(v.a2), cc:v.a2, name:v.cities.length>1?v.cities.length+' cities':v.name, sub:whenTxt(v), attr:'data-country="'+v.a2+'"'})))
       + '<div class="sec-title"><h2>By mode</h2></div><div class="card">'+(Object.keys(byMode).length?Object.entries(byMode).sort((a,b)=>b[1]-a[1]).map(([m,k])=>'<div class="budget-row"><span><i class="dot" style="display:inline-block;background:'+MODES[m].color+';margin-right:8px"></i>'+MODES[m].label+'</span><span class="amt">'+fmtKm(k)+' km</span></div>').join(''):'<div class="budget-row faint">No legs yet</div>')+'</div>'
       + '<div class="sec-title"><h2>Countries</h2></div>'
       + (visited.size?'<div class="countries">'+[...visited.values()].sort((a,b)=>a.name.localeCompare(b.name)).map(v=>'<div class="card country" data-country="'+v.a2+'" style="cursor:pointer"><span class="flag">'+flag(v.a2)+'</span><div><div>'+esc(v.name)+'</div><div class="faint">'+v.cities.size+' cit'+(v.cities.size===1?'y':'ies')+'</div></div></div>').join('')+'</div>':'<div class="faint">Countries fill in as you add trips.</div>');
     const been=beenCountries();
     drawMap($('#worldMap'), {key:'world2', world:true, stops, legs, focus:stops.filter(s=>s.lat!=null&&(s.home||(s.arrive&&s.arrive<=todayStr()))).map(s=>[s.lon,s.lat]),
-      onCountry:n3=>{ const v=been.find(x=>String(x.n3)===n3); if(v) go({country:v.a2}); }, tripPins:beenCountries().map(v=>{ const c=busiest(v.cities); return {id:'k'+v.a2, name:flag(v.a2)+' '+v.name, lat:c.lat, lon:c.lon, photo:placeCover(v.ids), label:v.name, sub:yearsTxt(v),
+      onCountry:n3=>{ const v=been.find(x=>String(x.n3)===n3); if(v) go({country:v.a2}); }, tripPins:beenCountries().map(v=>{ const c=busiest(v.cities); return {id:'k'+v.a2, name:flag(v.a2)+' '+v.name, lat:c.lat, lon:c.lon, photo:placeCover(v.ids), label:placeName(v), sub:yearsTxt(v),
         when:v.cities.length+' cit'+(v.cities.length===1?'y':'ies')+' · '+whenTxt(v), open:()=>go({country:v.a2})}; }), visitedN3:[...visited.values()].map(v=>v.n3), width:720, height:560, label:'World map of your travels',
       onStop:s=>go({tab:'trips', tripId:s.tripId, stopId:s.id, placeCat:'all'})});
     main.querySelectorAll('[data-country]').forEach(b=>b.onclick=()=>go({country:b.dataset.country}));
