@@ -970,6 +970,50 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
   // the year(s) you were there: "2026", or "2023 – 2026" over several trips
   const yearsTxt=v=>{ const a=String(v.first||'').slice(0,4), b=String(v.last||'').slice(0,4); return a&&b&&a!==b?a+' – '+b:a; };
   const whenTxt=v=>v.trips.size>1?v.trips.size+' trips':fmtDate(v.first,{month:'long',year:'numeric'});
+  // Past travels from memory: a typed or dictated list ("Rome 2017 and 2022, Cancún Oct 2025") → Claude → trips with
+  // their cities and dates (approximate when only a year or season is given) → check → saved. Photos can be added later
+  // from the trip page; their own dates and GPS do the rest.
+  async function readPastTrips(text){
+    const o=await sample.json('A traveller listed trips they took in the past, typed or dictated (spelling may be off): "'+text.slice(0,2000)+'"\n'
+      + 'Today is '+todayStr()+'. Make one trip per separate journey (the same city in two different years is two trips; several cities in one journey stay one trip). '
+      + 'Dates: use what they said; a month only → the 1st to the 7th of that month; a season → its middle month; a year only → July 1 to July 7 of that year; never after today.\n'
+      + 'Reply with only JSON {"trips":[{"name": short title like "Rome 2017" or "Paris & Lyon", "startDate":"YYYY-MM-DD", "endDate":"YYYY-MM-DD", "approx": true if the dates were guessed, "cities":[{"city": proper name, "country": English short name}]}]}.', {modelTier:'default'});
+    const ts=o&&Array.isArray(o.trips)?o.trips:[], d=v=>/^\d{4}-\d\d-\d\d$/.test(v||'')?v:'';
+    return ts.map(t=>({name:String(t.name||'').slice(0,80), start:d(t.startDate), end:d(t.endDate)||d(t.startDate), approx:!!t.approx,
+      cities:(Array.isArray(t.cities)?t.cities:[]).map(c=>[c.city,c.country].filter(Boolean).join(', ')).filter(Boolean).slice(0,12)})).filter(t=>t.start&&t.cities.length);
+  }
+  function pastTripsSheet(){
+    openSheet('<h2>＋ Add past trips</h2><div class="hint">List where you\'ve been: type it or tap 🎤 on the keyboard. Years are enough; add months or seasons if you remember.</div>'
+      + '<div class="field"><textarea id="ptText" placeholder="e.g. Rome 2017 and again in 2022, Cancún October 2025, Paris and Lyon summer 2019, Tokyo 2015"></textarea></div>'
+      + '<div class="row"><button type="button" class="btn" id="ptRead">Read my list</button><span class="faint" id="ptHint"></span></div>'
+      + '<div id="ptList" style="display:flex;flex-direction:column;gap:10px"></div><div class="err" id="fErr" hidden></div>'
+      + '<div class="row"><button class="btn primary" type="submit" id="ptSave" hidden>Add these trips</button><button class="btn" type="button" id="xCancel">Cancel</button></div>', form=>{
+      let trips=[];
+      $('#xCancel').onclick=closeSheet;
+      const draw=()=>{ $('#ptList').innerHTML=trips.map((t,i)=>'<div class="card rv" data-pt="'+i+'" style="padding:10px;display:flex;flex-direction:column;gap:6px">'
+          + '<label class="row" style="gap:8px;flex-wrap:nowrap"><input type="checkbox" data-pf="keep" '+(t.keep===false?'':'checked ')+'style="width:20px;height:20px;flex-shrink:0"><input data-pf="name" value="'+esc(t.name)+'" style="flex:1"></label>'
+          + '<input data-pf="cities" value="'+esc(t.cities.join('; '))+'" placeholder="Cities, separated by ;">'
+          + '<div class="grid2"><input data-pf="start" type="date" value="'+t.start+'"><input data-pf="end" type="date" value="'+t.end+'"></div>'
+          + (t.approx?'<div class="faint">Dates are a guess. Fix them if you remember.</div>':'')+'</div>').join('');
+        $('#ptSave').hidden=!trips.length; };
+      const read=()=>form.querySelectorAll('[data-pt]').forEach(el=>{ const t=trips[+el.dataset.pt]; el.querySelectorAll('[data-pf]').forEach(inp=>{ const k=inp.dataset.pf;
+        if(k==='keep') t.keep=inp.checked; else if(k==='cities') t.cities=inp.value.split(';').map(x=>x.trim()).filter(Boolean); else t[k]=inp.value; }); });
+      $('#ptRead').onclick=async()=>{ const txt=val('ptText').trim(); if(!txt){ $('#ptText').focus(); return; } const b=$('#ptRead'); b.disabled=true; $('#ptHint').textContent='Reading…';
+        try{ trips=await readPastTrips(txt); $('#ptHint').textContent=trips.length?trips.length+' trip'+(trips.length===1?'':'s')+' found. Check them:':'Couldn\'t find trips in that. Try "Rome 2017, Cancún 2025".'; draw(); }
+        catch(e){ $('#ptHint').textContent=photoError(e)||'Couldn\'t read that. Try again.'; }
+        finally{ b.disabled=false; } };
+      form.onsubmit=async e=>{ e.preventDefault(); read(); const pick=trips.filter(t=>t.keep!==false&&t.start&&t.cities.length); if(!pick.length) return;
+        const btn=$('#ptSave'); btn.disabled=true; let n=0, failed=[];
+        for(const t of pick){ btn.textContent='Adding '+(n+1)+' of '+pick.length+'…';
+          try{ const end=t.end&&t.end>=t.start?t.end:t.start;
+            const ref=await put('trips', null, {name:t.name||t.cities[0].split(',')[0]+' '+t.start.slice(0,4), startDate:t.start, endDate:end, currency:'EUR', notes:'', past:true, createdAt:now(), updatedAt:now()});
+            const trip={id:ref.id, startDate:t.start, endDate:end};
+            for(const c of t.cities){ try{ await ensureStop(trip, c, t.start, end); }catch(err){ failed.push(c); } }
+            n++; }catch(err){ failed.push(t.name); } }
+        closeSheet(); toast('Added '+n+' past trip'+(n===1?'':'s')+(failed.length?' · couldn\'t place '+failed.join(', '):''));
+      };
+    });
+  }
   function renderCountry(){
     const v=beenCountries().find(x=>x.a2===R.country); if(!v){ go({country:null}); return; }
     setTop(flag(v.a2)+' '+v.name, {back:()=>go({country:null})});
@@ -1001,6 +1045,7 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
       '<div class="pass"><div class="cell"><div class="k">Countries</div><div class="v">'+visited.size+'</div></div><div class="cell"><div class="k">Cities</div><div class="v">'+cities.size+'</div></div>'
       + '<div class="cell"><div class="k">Trips</div><div class="v">'+S.trips.length+'</div></div><div class="cell"><div class="k">Distance</div><div class="v mono" style="font-size:22px">'+fmtKm(km)+' km</div></div></div>'
       + '<div><div class="map-wrap" id="worldMap"></div><div style="margin-top:8px" class="between">'+legendHtml(Object.keys(byMode).length?Object.keys(byMode):['plane','car'])+'<span class="faint">'+pct+'% of 195 countries · '+(km/40075).toFixed(2)+'× around Earth</span></div></div>'
+      + (sample?'<button type="button" class="btn" id="addPast" style="align-self:flex-start">＋ Add past trips</button>':'')
       + stampRow('Where I\'ve been', beenCountries().map(v=>({title:v.name, icon:flag(v.a2), cc:v.a2, name:v.cities.length+' cit'+(v.cities.length===1?'y':'ies'), sub:whenTxt(v), attr:'data-country="'+v.a2+'"'})))
       + '<div class="sec-title"><h2>By mode</h2></div><div class="card">'+(Object.keys(byMode).length?Object.entries(byMode).sort((a,b)=>b[1]-a[1]).map(([m,k])=>'<div class="budget-row"><span><i class="dot" style="display:inline-block;background:'+MODES[m].color+';margin-right:8px"></i>'+MODES[m].label+'</span><span class="amt">'+fmtKm(k)+' km</span></div>').join(''):'<div class="budget-row faint">No legs yet</div>')+'</div>'
       + '<div class="sec-title"><h2>Countries</h2></div>'
@@ -1011,6 +1056,7 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
         when:v.cities.length+' cit'+(v.cities.length===1?'y':'ies')+' · '+whenTxt(v), open:()=>go({country:v.a2})}; }), visitedN3:[...visited.values()].map(v=>v.n3), width:720, height:560, label:'World map of your travels',
       onStop:s=>go({tab:'trips', tripId:s.tripId, stopId:s.id, placeCat:'all'})});
     main.querySelectorAll('[data-country]').forEach(b=>b.onclick=()=>go({country:b.dataset.country}));
+    const ap=$('#addPast'); if(ap) ap.onclick=pastTripsSheet;
   }
 
   // ---------- discover ----------
