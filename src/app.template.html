@@ -571,7 +571,7 @@ const WORLD = __WORLD__;
     let proj;
     if(world&&opts.focus&&opts.focus.length){ // one country: fit its cities, not the whole world
       proj=d3.geoMercator();
-      if(opts.focus.length>1) proj.fitExtent([[80,100],[W-80,H-40]],{type:'MultiPoint',coordinates:opts.focus});
+      if(opts.focus.length>1) proj.fitExtent([[90,120],[W-200,H-50]],{type:'MultiPoint',coordinates:opts.focus}); // room for photo pins above, zoom buttons on the right
       else proj.scale(3000).center(opts.focus[0]).translate([W/2,H/2+20]);
       if(proj.scale()>12000){ const c=[d3.mean(opts.focus,p=>p[0]),d3.mean(opts.focus,p=>p[1])]; proj.scale(12000).center(c).translate([W/2,H/2+20]); } }
     else if(world) proj=d3.geoNaturalEarth1().fitExtent([[6,6],[W-6,H-6]],{type:'Sphere'});
@@ -590,7 +590,8 @@ const WORLD = __WORLD__;
     svg.append('rect').attr('width',W).attr('height',H).attr('fill','var(--sea)');
     const g=svg.append('g');
     g.append('g').selectAll('path').data(worldFeat.features).join('path').attr('d',path)
-      .attr('fill',d=>visited.has(String(d.id))?'var(--land-visited)':'var(--land)').attr('stroke','var(--border-land)').attr('stroke-width',.6).attr('vector-effect','non-scaling-stroke');
+      .attr('fill',d=>visited.has(String(d.id))?'var(--land-visited)':'var(--land)').attr('stroke','var(--border-land)').attr('stroke-width',.6).attr('vector-effect','non-scaling-stroke')
+      .attr('data-n3',d=>opts.onCountry&&visited.has(String(d.id))?String(d.id):null).style('cursor',d=>opts.onCountry&&visited.has(String(d.id))?'pointer':null);
     const lines=[], marks=[];
     // side trips: dotted line from the city to each activity pin
     const gx=g.append('g').attr('fill','none').attr('stroke','var(--accent)').attr('opacity',.7);
@@ -637,7 +638,7 @@ const WORLD = __WORLD__;
       const placed=[];
       (opts.tripPins||[]).forEach((tp,i)=>{ const p0=proj([tp.lon,tp.lat]); if(!p0) return; items['t:'+tp.id]={type:'trip', tp};
         // neighbours (Spain and France) would hide each other: slide sideways until the photo is clear
-        const p=[p0[0],p0[1]]; for(let k=0;k<8&&placed.some(q=>Math.abs(q[0]-p[0])<66&&Math.abs(q[1]-p[1])<70);k++) p[0]+=(k%2?-1:1)*66*(k+1); placed.push(p);
+        const p=[p0[0],p0[1]]; for(let k=0;k<8&&placed.some(q=>Math.abs(q[0]-p[0])<66&&Math.abs(q[1]-p[1])<70);k++) p[0]+=(k%2?1:-1)*66*(k+1); placed.push(p);
         pin(p[0],p[1],'t:'+tp.id,m=>{ const cid='tpc'+i;
           m.append('clipPath').attr('id',cid).append('rect').attr('x',-27).attr('y',-66).attr('width',54).attr('height',54).attr('rx',9);
           m.append('rect').attr('x',-31).attr('y',-70).attr('width',62).attr('height',62).attr('rx',12).attr('fill','#fff').attr('stroke','rgba(0,0,0,.18)');
@@ -674,7 +675,7 @@ const WORLD = __WORLD__;
     const apply=t=>{ g.attr('transform',t); const k=t.k;
       marks.forEach(m=>m.node.setAttribute('transform','translate('+m.x+','+m.y+') scale('+(1/k)+')'));
       lines.forEach(l=>{ l.el.attr('stroke-width',l.w/k); if(!l.anim) l.el.attr('stroke-dasharray',l.dash?l.dash.map(v=>v/k).join(' '):null); }); };
-    const zoom=d3.zoom().scaleExtent(world?[1,30]:[.02,60])
+    const zoom=d3.zoom().scaleExtent(world?(opts.focus?[.15,30]:[1,30]):[.02,60])
       .filter(e=>(!e.ctrlKey||e.type==='wheel')&&!e.button&&!(e.touches&&e.touches.length<2))
       .on('zoom',e=>{ mapView[key]=e.transform; apply(e.transform); });
     svg.call(zoom).on('dblclick.zoom',null);
@@ -717,7 +718,8 @@ const WORLD = __WORLD__;
       card.innerHTML=html+(act?'<button type="button" class="btn small">Open</button>':'')+'<button type="button" class="btn small ghost" aria-label="Close">✕</button>';
       const bs=card.querySelectorAll('button'); if(act) bs[0].onclick=act; bs[bs.length-1].onclick=()=>show(null);
       card.hidden=false; };
-    svg.on('click',e=>{ const t=e.target.closest('[data-pin]'); show(t?t.getAttribute('data-pin'):null); });
+    svg.on('click',e=>{ const t=e.target.closest('[data-pin]'); if(!t&&opts.onCountry&&e.target.getAttribute&&e.target.getAttribute('data-n3')){ opts.onCountry(e.target.getAttribute('data-n3')); return; }
+      show(t?t.getAttribute('data-pin'):null); });
     if(mapSel[key]) show(mapSel[key]);
   }
   function legendHtml(modes, acts, tracks){
@@ -991,8 +993,10 @@ const WORLD = __WORLD__;
       + '<div class="sec-title"><h2>By mode</h2></div><div class="card">'+(Object.keys(byMode).length?Object.entries(byMode).sort((a,b)=>b[1]-a[1]).map(([m,k])=>'<div class="budget-row"><span><i class="dot" style="display:inline-block;background:'+MODES[m].color+';margin-right:8px"></i>'+MODES[m].label+'</span><span class="amt">'+fmtKm(k)+' km</span></div>').join(''):'<div class="budget-row faint">No legs yet</div>')+'</div>'
       + '<div class="sec-title"><h2>Countries</h2></div>'
       + (visited.size?'<div class="countries">'+[...visited.values()].sort((a,b)=>a.name.localeCompare(b.name)).map(v=>'<div class="card country" data-country="'+v.a2+'" style="cursor:pointer"><span class="flag">'+flag(v.a2)+'</span><div><div>'+esc(v.name)+'</div><div class="faint">'+v.cities.size+' cit'+(v.cities.size===1?'y':'ies')+'</div></div></div>').join('')+'</div>':'<div class="faint">Countries fill in as you add trips.</div>');
-    drawMap($('#worldMap'), {key:'world', world:true, stops, legs, tripPins:beenCountries().map(v=>{ const c=busiest(v.cities); return {id:'k'+v.a2, name:flag(v.a2)+' '+v.name, lat:c.lat, lon:c.lon, photo:placeCover(v.ids), label:v.name,
-        when:v.cities.length+' cit'+(v.cities.length===1?'y':'ies')+' · '+whenTxt(v), open:()=>go({country:v.a2})}; }), visitedN3:[...visited.values()].map(v=>v.n3), width:720, height:380, label:'World map of your travels',
+    const been=beenCountries();
+    drawMap($('#worldMap'), {key:'world2', world:true, stops, legs, focus:stops.filter(s=>s.lat!=null&&(s.home||(s.arrive&&s.arrive<=todayStr()))).map(s=>[s.lon,s.lat]),
+      onCountry:n3=>{ const v=been.find(x=>String(x.n3)===n3); if(v) go({country:v.a2}); }, tripPins:beenCountries().map(v=>{ const c=busiest(v.cities); return {id:'k'+v.a2, name:flag(v.a2)+' '+v.name, lat:c.lat, lon:c.lon, photo:placeCover(v.ids), label:v.name,
+        when:v.cities.length+' cit'+(v.cities.length===1?'y':'ies')+' · '+whenTxt(v), open:()=>go({country:v.a2})}; }), visitedN3:[...visited.values()].map(v=>v.n3), width:720, height:560, label:'World map of your travels',
       onStop:s=>go({tab:'trips', tripId:s.tripId, stopId:s.id, placeCat:'all'})});
     main.querySelectorAll('[data-country]').forEach(b=>b.onclick=()=>go({country:b.dataset.country}));
   }
