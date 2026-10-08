@@ -855,7 +855,7 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
   function whoPaidHtml(list){
     const m={}; list.filter(e=>e.paidBy).forEach(e=>{ const k=e.paidBy; m[k]=m[k]||{}; m[k][e.currency||'EUR']=(m[k][e.currency||'EUR']||0)+(+e.amount||0); });
     const names=Object.keys(m); if(!names.length) return '';
-    return '<div class="sec-title"><h2 style="font-size:18px">Who paid</h2><span class="faint">Expenses and meals</span></div><div class="card">'
+    return '<div class="sec-title"><h2 style="font-size:18px">Who paid</h2><span class="faint">Everything with a price</span></div><div class="card">'
       + names.sort().map(n=>'<div class="budget-row"><span>'+esc(n)+'</span><span class="amt">'+Object.entries(m[n]).map(([c,a])=>fmtMoney(a,c)).join(' + ')+'</span></div>').join('')+'</div>';
   }
   function budgetHtml(tid){
@@ -870,7 +870,8 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
       + '<div class="budget-row" style="font-weight:700"><span>Total</span><span class="amt">'+Object.entries(tot).map(([c,a])=>fmtMoney(a,c)).join(' + ')+'</span></div></div>'
       + (other.length?'<div class="card">'+other.sort((a,b)=>(b.date||'').localeCompare(a.date||'')).map(e=>'<div class="budget-row" data-exp="'+e.id+'" style="cursor:pointer;gap:10px"><span style="min-width:0">'+expIcon(e.category,e.label)+' '+esc(e.label)+' <span class="faint">· '+esc(e.category||'Other')+(e.date?' · '+fmtDate(e.date):'')+(e.city?' · '+esc(e.city):'')+(e.paidBy?' · paid by '+esc(e.paidBy):'')+'</span>'
           + (e.notes?'<span class="faint" style="display:block;white-space:pre-wrap">'+esc(e.notes)+'</span>':'')+'</span><span class="amt" style="display:flex;gap:8px;align-items:center;flex-shrink:0">'+((e.photoIds||[]).length?'<img alt="Receipt" src="/_blob/'+e.photoIds[0]+'" data-photo="'+e.photoIds[0]+'" style="width:32px;height:32px;object-fit:cover;border-radius:6px;cursor:zoom-in">':'')+fmtMoney(e.amount,e.currency)+'</span></div>').join('')+'</div>':'')
-      + whoPaidHtml(other.concat(S.places.filter(p=>p.tripId===tid&&+p.cost&&p.paidBy).map(p=>({paidBy:p.paidBy, currency:p.currency, amount:p.cost}))))
+      + whoPaidHtml(other.concat(S.places.filter(p=>p.tripId===tid&&+p.cost&&p.paidBy).map(p=>({paidBy:p.paidBy, currency:p.currency, amount:p.cost})),
+          S.legs.concat(S.stays).filter(x=>x.tripId===tid&&+x.cost&&x.paidBy).map(x=>({paidBy:x.paidBy, currency:x.currency, amount:x.cost}))))
       + '<div class="faint">Totals are kept per currency; no exchange rates are applied.</div>';
   }
 
@@ -1149,6 +1150,7 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
       + '<div class="field"><label for="lTime">Time (optional)</label><input id="lTime" type="time" value="'+esc(rec&&rec.time?rec.time:l?hhmm(l):'')+'"></div></div>'
       + '<div class="field"><label for="lKm">Distance km (optional)</label><input id="lKm" inputmode="numeric" value="'+esc(rec&&rec.km?rec.km:l&&!l.kmEstimated?l.km:'')+'" placeholder="'+(l&&l.kmEstimated?'≈'+fmtKm(l.km):'Auto')+'"></div>'
       + '<div class="grid3"><div class="field"><label for="lCost">Cost (optional)</label><input id="lCost" inputmode="decimal" value="'+esc(l&&l.cost?l.cost:'')+'"></div><div class="field"><label for="lCur">Currency</label>'+curSelect('lCur', l?l.currency:trip.currency)+'</div></div>'
+      + '<div class="field" id="lPaidF"'+(l&&+l.cost?'':' hidden')+'><label for="lPaid">Paid by</label><input id="lPaid" list="lPayers" autocomplete="off" value="'+esc(l&&l.paidBy||lastPayer(trip.id))+'"><datalist id="lPayers">'+payers(trip.id).map(n=>'<option value="'+esc(n)+'">').join('')+'</datalist></div>'
       + '<div class="field"><label for="lNotes">Notes (optional)</label><input id="lNotes" value="'+esc(l?l.notes||'':'')+'" placeholder="Flight number, rental car, scenic route…"></div>'
       + '<div class="hint">Leave distance blank: flights use straight‑line km, drives and trains an estimate (≈) you can correct later.</div>'
       + '<div class="err" id="fErr" hidden></div>'
@@ -1156,6 +1158,7 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
     form=>{
       $('#xCancel').onclick=closeSheet;
       $('#modes').querySelectorAll('[data-mode]').forEach(btn=>btn.onclick=()=>{ mode=btn.dataset.mode; $('#modes').querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===btn)); });
+      $('#lCost').addEventListener('input',()=>{ $('#lPaidF').hidden=!(parseFloat(val('lCost').replace(',','.'))>0); });
       const bindNoTrk=()=>{ const x=$('#lNoTrk'); if(x) x.onclick=()=>{ dropTrack=true; $('#lRec').textContent='Recorded route will be removed'; }; }; bindNoTrk();
       const gf=$('#lGpx'); gf.onchange=async()=>{ const f=gf.files&&gf.files[0]; gf.value=''; if(!f) return;
         try{ const r=await readDrive(trip, f); rec=r; dropTrack=false;
@@ -1177,7 +1180,7 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
           const km = isFinite(kmIn)&&kmIn>0 ? kmIn : Math.round(straight*(ROAD_FACTOR[mode]||1.2));
           const costIn=parseFloat(val('lCost').replace(',','.'));
           const data={tripId:trip.id, mode, fromId:A.id, toId:B.id, date, time:val('lTime'), km, kmEstimated:!(isFinite(kmIn)&&kmIn>0)&&mode!=='plane',
-            cost:isFinite(costIn)?costIn:0, currency:val('lCur'), notes:val('lNotes').trim(), updatedAt:now()};
+            cost:isFinite(costIn)?costIn:0, currency:val('lCur'), paidBy:isFinite(costIn)&&costIn>0?(val('lPaid').trim()||lastPayer(trip.id)):'', notes:val('lNotes').trim(), updatedAt:now()};
           if(rec&&rec.track){ data.track=rec.track; data.durationS=rec.durationS||null; if(isFinite(kmIn)&&kmIn>0) data.kmEstimated=false; }
           else if(dropTrack){ data.track=null; data.durationS=null; }
           if(l&&l.date!==date) data.dayPos=null;
@@ -1411,8 +1414,8 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
     });
   }
 
-  function payers(tid){ const set=new Set(['Me']); ((tripOf(tid)||{}).people||[]).forEach(x=>{ if(x.name) set.add(x.name); }); S.expenses.filter(e=>e.tripId===tid&&e.paidBy).forEach(e=>set.add(e.paidBy)); return [...set]; }
-  function lastPayer(tid){ const l=S.expenses.filter(e=>e.tripId===tid&&e.paidBy).sort((a,b)=>(b.updatedAt||'').localeCompare(a.updatedAt||''))[0]; return l?l.paidBy:'Me'; }
+  function payers(tid){ const set=new Set(['Me']); ((tripOf(tid)||{}).people||[]).forEach(x=>{ if(x.name) set.add(x.name); }); S.expenses.concat(S.places, S.legs, S.stays).filter(e=>e.tripId===tid&&e.paidBy).forEach(e=>set.add(e.paidBy)); return [...set]; }
+  function lastPayer(tid){ const l=S.expenses.concat(S.places, S.legs, S.stays).filter(e=>e.tripId===tid&&e.paidBy).sort((a,b)=>(b.updatedAt||'').localeCompare(a.updatedAt||''))[0]; return l?l.paidBy:'Me'; }
 
   const EXP_CATS=['Transport','Lodging','Food & drink','Activities','Shopping','Fees & insurance','Other'];
   function expenseSheet(trip, x, files, pre){
@@ -1986,6 +1989,7 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
       + '<div class="hint" id="sNights"></div>'
       + '<div class="field"><label for="sCity">City</label><input id="sCity" list="sCities" autocomplete="off" placeholder="From the photo or booking, or type" value="'+esc(st?city0||'':'')+'"><datalist id="sCities">'+cityNames.map(c=>'<option value="'+esc(c)+'">').join('')+'</datalist></div>'
       + '<div class="grid3"><div class="field"><label for="sCost">Total price (optional)</label><input id="sCost" inputmode="decimal" value="'+esc(st&&st.cost?st.cost:'')+'"></div><div class="field"><label for="sCur">Currency</label>'+curSelect('sCur', st?st.currency:trip.currency)+'</div></div>'
+      + '<div class="field" id="sPaidF"'+(st&&+st.cost?'':' hidden')+'><label for="sPaid">Paid by</label><input id="sPaid" list="sPayers" autocomplete="off" value="'+esc(st&&st.paidBy||lastPayer(trip.id))+'"><datalist id="sPayers">'+payers(trip.id).map(n=>'<option value="'+esc(n)+'">').join('')+'</datalist></div>'
       + '<div class="grid2"><div class="field"><label for="sPlat">Booked via</label><select id="sPlat">'+PLATFORMS.map(x=>'<option value="'+esc(x)+'"'+((st?st.platform||'':'')===x?' selected':'')+'>'+(x||'—')+'</option>').join('')+'</select></div>'
       + '<div class="field"><label for="sRef">Booking ref</label><input id="sRef" value="'+esc(st?st.bookingRef||'':'')+'" autocomplete="off"></div></div>'
       + '<div class="field"><label for="sAddr">Address (optional)</label><input id="sAddr" value="'+esc(st?st.address||'':'')+'"><div class="row"><button type="button" class="btn small" id="sFind">🔎 Find it from the name</button></div><div id="sFound"></div></div>'
@@ -2002,6 +2006,7 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
       const showNights=()=>{ const n=stayNights({checkIn:val('sIn'),checkOut:val('sOut')}), c=parseFloat(val('sCost').replace(',','.'));
         $('#sNights').textContent=n?n+' night'+(n>1?'s':'')+(isFinite(c)&&c>0?' · '+fmtMoney(c/n,val('sCur'))+'/night':''):'Check-out must be after check-in.'; };
       ['sIn','sOut','sCost','sCur'].forEach(id=>$('#'+id).addEventListener('input',showNights)); showNights();
+      $('#sCost').addEventListener('input',()=>{ $('#sPaidF').hidden=!(parseFloat(val('sCost').replace(',','.'))>0); });
       $('#sIn').addEventListener('change',()=>{ if(val('sOut')<=val('sIn')) $('#sOut').value=addDays(val('sIn'),1); showNights(); });
       $('#sKind').querySelectorAll('[data-k]').forEach(b=>b.onclick=()=>{ kind=b.dataset.k; $('#sKind').querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b)); });
       $('#sRating').querySelectorAll('[data-r]').forEach(b=>b.onclick=()=>{ const r=+b.dataset.r; rating=rating===r?0:r; $('#sRating').querySelectorAll('button').forEach(x=>x.classList.toggle('on', +x.dataset.r<=rating)); });
@@ -2057,7 +2062,7 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
         city=typed&&!same.length?typed:(stop?stop.city:city);
         const c=parseFloat(val('sCost').replace(',','.')), nights=stayNights({checkIn,checkOut});
         const keep=pos&&(pos.name==null||pos.name===name);
-        const data={tripId:trip.id, stopId:stop?stop.id:'', city, name, kind, checkIn, checkOut, nights, cost:isFinite(c)?c:0, currency:val('sCur'),
+        const data={tripId:trip.id, stopId:stop?stop.id:'', city, name, kind, checkIn, checkOut, nights, cost:isFinite(c)?c:0, currency:val('sCur'), paidBy:isFinite(c)&&c>0?(val('sPaid').trim()||lastPayer(trip.id)):'',
           pricePerNight:isFinite(c)&&c>0&&nights?Math.round(c/nights*100)/100:0, platform:val('sPlat'), bookingRef:val('sRef').trim(), address:val('sAddr').trim(),
           rating, notes:val('sNotes').trim(), photoIds, updatedAt:now()};
         if(keep){ data.lat=pos.lat; data.lon=pos.lon; } else if(st&&st.lat!=null&&st.name!==name){ data.lat=null; data.lon=null; }
@@ -2275,7 +2280,7 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
   // every cost on the trip with its date: legs, meals/activities, expenses, stays
   function costRows(tid){
     const rows=[], city=id=>(stopOf(id)||{}).city||'';
-    tripLegs(tid).forEach(l=>{ if(!+l.cost) return; rows.push({date:l.date||'', time:hhmm(l), type:'Transport', cat:LEG_CAT[l.mode]||'Transport', what:(MODES[l.mode]||{}).label+': '+city(l.fromId)+' → '+city(l.toId), city:city(l.fromId), amount:+l.cost, cur:l.currency||'EUR', paid:'', notes:l.notes||''}); });
+    tripLegs(tid).forEach(l=>{ if(!+l.cost) return; rows.push({date:l.date||'', time:hhmm(l), type:'Transport', cat:LEG_CAT[l.mode]||'Transport', what:(MODES[l.mode]||{}).label+': '+city(l.fromId)+' → '+city(l.toId), city:city(l.fromId), amount:+l.cost, cur:l.currency||'EUR', paid:l.paidBy||'', notes:l.notes||''}); });
     S.places.filter(p=>p.tripId===tid&&+p.cost).forEach(p=>rows.push({date:p.date||'', time:hhmm(p), type:MEAL_KEYS.has(p.category)?'Meal':'Activity', cat:p.category==='hotel'?'Lodging':MEAL_KEYS.has(p.category)?'Meals':p.category==='shopping'?'Shopping':'Activities', what:p.name+(MEAL_KEYS.has(p.category)?' ('+(CAT_LABEL[p.category]||'')+')':''), city:city(p.stopId), amount:+p.cost, cur:p.currency||'EUR', paid:p.paidBy||'', notes:p.notes||''}));
     S.expenses.filter(e=>e.tripId===tid).forEach(e=>rows.push({date:e.date||'', time:hhmm(e), type:'Expense', cat:e.category==='Transport'?(RIDE_CAT[expIcon('Transport',e.label)]||'Transport'):(e.category||'Other'), what:e.label, city:e.city||city(e.stopId), amount:+e.amount||0, cur:e.currency||'EUR', paid:e.paidBy||'', notes:e.notes||''}));
     S.stays.filter(x=>x.tripId===tid&&+x.cost).forEach(x=>rows.push({date:x.checkIn||'', time:'', type:'Stay', cat:'Lodging', what:x.name+' · '+stayNights(x)+' night'+(stayNights(x)===1?'':'s'), city:x.city||city(x.stopId), amount:+x.cost, cur:x.currency||'EUR', paid:x.paidBy||'', notes:[x.platform,x.bookingRef].filter(Boolean).join(' · ')}));
