@@ -597,7 +597,8 @@ const WORLD = __WORLD__;
       const d=path({type:'LineString',coordinates:p.track.map(q=>[q[1],q[0]])}); if(d) lines.push({el:gt.append('path').attr('d',d), w:3, dash:null}); });
     const gl=g.append('g').attr('fill','none').attr('stroke-linecap','round');
     const ga=g.append('g');
-    const order=legs.slice().sort((a,b)=>(a.date||'').localeCompare(b.date||'')||(a.order||0)-(b.order||0));
+    // the legs come in travel order (tripLegs chains each day: A→B before B→C); only regroup by date, keeping that order
+    const order=legs.map((l,i)=>[l,i]).sort((a,b)=>(a[0].date||'').localeCompare(b[0].date||'')||a[1]-b[1]).map(x=>x[0]);
     const legEls=[];
     order.forEach(l=>{
       const a=stopOf(l.fromId), b=stopOf(l.toId); if(!a||!b||a.lat==null||b.lat==null) return;
