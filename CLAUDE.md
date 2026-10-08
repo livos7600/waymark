@@ -59,3 +59,4 @@ Waymark is a travel-log web app published as a claude.ai artifact. The owner (Ol
 
 ## Parked (owner's call, don't start without asking)
 - Multi-user trips: inviting travellers through the artifact's Share menu and adding the `user` capability to tag who added what and limit trips to their members. Travellers are only listed on the trip (`people`) for now.
+- Couples / per-person stats: a "Who" choice on steps and runs (from the trip's `people`) so each traveller keeps their own 👟 and 🏃 numbers instead of one per day per trip. Proposed with sharing the artifact (owner invites via the Share menu with edit access); owner said not yet.
