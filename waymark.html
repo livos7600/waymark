@@ -251,6 +251,11 @@
   .day.folded b{color:var(--ink-soft);}
   .fold-hint{color:var(--accent);font-size:12px;font-weight:700;}
   .day-plus{flex-shrink:0;}
+  .steps-grid{display:flex;flex-direction:column;max-height:46vh;overflow-y:auto;border:1px solid var(--line);border-radius:12px;}
+  .steps-grid label{display:flex;align-items:center;gap:10px;padding:6px 12px;border-bottom:1px solid var(--line);font-size:14px;}
+  .steps-grid label.on{background:var(--accent-soft);}
+  .steps-grid span{flex:1;}
+  .steps-grid input{width:120px;text-align:right;border:1px solid var(--line);background:var(--surface-2);border-radius:8px;padding:8px;font-size:16px;font-family:'IBM Plex Mono',monospace;}
   .steps-tag{border:none;background:var(--surface-2);border-radius:999px;padding:1px 8px;font-size:12px;font-weight:600;color:var(--ink-soft);cursor:pointer;}
   .day-menu{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:8px;}
   .day-menu .btn{padding:14px 8px;justify-content:flex-start;}
@@ -1832,31 +1837,30 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
     const ds=o&&Array.isArray(o.days)?o.days:[];
     return ds.map(x=>({date:String(x.date||''), steps:Math.round(+x.steps)})).filter(x=>/^\d{4}-\d\d-\d\d$/.test(x.date)&&x.steps>0&&x.steps<200000);
   }
+  // One sheet for every trip day so far: type a week at once (tap each bar in Health to see its number), or let
+  // Claude read a screenshot into the boxes where this view can send images.
   function stepsSheet(t, d){
-    const cur=tripSteps(t), canRead=!!(sample&&sampleImages);
+    const cur=tripSteps(t), canRead=!!(sample&&sampleImages), td=todayStr(), last=[t.endDate, td>d?td:d].sort()[0];
+    const days=[]; for(let x=t.startDate; x<=last&&days.length<90; x=addDays(x,1)) days.push(x);
     openSheet('<h2>👟 Steps</h2>'
-      + '<div class="field"><label for="stN">'+fmtDate(d,{weekday:'long',month:'short',day:'numeric'})+'</label><input id="stN" inputmode="numeric" placeholder="e.g. 18234" value="'+(cur[d]||'')+'"></div>'
-      + (canRead?'<div class="row"><label class="btn small" for="stImg">📷 Read a screenshot</label><input id="stImg" type="file" accept="image/*" multiple hidden><span class="faint" id="stHint">Health app → Steps → Show All Data: one screenshot fills every day on it.</span></div><div id="stFound"></div>':'')
+      + '<div class="row">'+(canRead?'<label class="btn small" for="stImg">📷 Read a screenshot</label><input id="stImg" type="file" accept="image/*" multiple hidden>':'')
+      + '<span class="faint" id="stHint">'+(canRead?'Health app → Steps → Show All Data: one screenshot fills every day on it.':'Type each day (in Health, tap a bar to see its number). Reading screenshots needs Claude to see images, which this view of the app doesn\'t allow; in Safari at claude.ai it does.')+'</span></div>'
+      + '<div class="steps-grid">'+days.slice().reverse().map(x=>'<label'+(x===d?' class="on"':'')+'><span>'+fmtDate(x,{weekday:'short',month:'short',day:'numeric'})+'</span><input data-sd="'+x+'" inputmode="numeric" placeholder="—" value="'+(cur[x]?(+cur[x]).toLocaleString():'')+'"></label>').join('')+'</div>'
       + '<div class="err" id="fErr" hidden></div>'
-      + '<div class="row"><button class="btn primary" type="submit" id="stSave">Save</button><button class="btn" type="button" id="xCancel">Cancel</button>'+(cur[d]?'<button class="btn danger" type="button" id="stDel" style="margin-left:auto">Clear</button>':'')+'</div>',
+      + '<div class="row"><button class="btn primary" type="submit" id="stSave">Save</button><button class="btn" type="button" id="xCancel">Cancel</button></div>',
     form=>{
-      let found=[];
       $('#xCancel').onclick=closeSheet;
-      const save=async ch=>{ const next=Object.assign({}, tripSteps(t)); Object.entries(ch).forEach(([k,v])=>{ if(v) next[k]=v; else delete next[k]; });
-        try{ await patch('trips', t.id, {steps:next, updatedAt:now()}); closeSheet(); }catch(e){ const er=$('#fErr'); er.hidden=false; er.textContent='Couldn\'t save. Try again.'; } };
-      const del0=$('#stDel'); if(del0) del0.onclick=()=>save({[d]:0});
+      const box=x=>form.querySelector('[data-sd="'+x+'"]'); const b0=box(d); if(b0&&!b0.value) setTimeout(()=>b0.focus(),50);
       const im=$('#stImg'); if(im) im.onchange=async()=>{ const fs=Array.from(im.files||[]).slice(0,sampleImages||1); im.value=''; if(!fs.length) return;
-        $('#stHint').textContent='Reading…';
-        try{ found=(await readSteps(t, fs)).filter(x=>x.date>=t.startDate&&x.date<=t.endDate);
-          if(!found.length){ $('#stHint').textContent='No trip days found on that screenshot. Try the "Show All Data" list.'; return; }
-          $('#stHint').textContent='Found '+found.length+' day'+(found.length===1?'':'s')+' of your trip:';
-          $('#stFound').innerHTML=found.map((x,i)=>'<label class="row" style="gap:8px;flex-wrap:nowrap"><input type="checkbox" data-sf="'+i+'" checked style="width:20px;height:20px"><span style="flex:1">'+fmtDate(x.date,{weekday:'short',month:'short',day:'numeric'})+'</span><b class="mono">'+x.steps.toLocaleString()+'</b></label>').join('');
-          const mine=found.find(x=>x.date===d); if(mine) $('#stN').value=mine.steps; }
-        catch(e){ $('#stHint').textContent=photoError(e)||'Couldn\'t read that screenshot.'; } };
-      form.onsubmit=e=>{ e.preventDefault(); const ch={};
-        form.querySelectorAll('[data-sf]').forEach(c=>{ if(c.checked){ const x=found[+c.dataset.sf]; ch[x.date]=x.steps; } });
-        const n=parseInt(val('stN').replace(/[^0-9]/g,''),10); if(n>0) ch[d]=n;
-        if(!Object.keys(ch).length){ closeSheet(); return; } save(ch); };
+        const h=$('#stHint'); h.textContent='Reading…';
+        try{ const found=(await readSteps(t, fs)).filter(x=>box(x.date));
+          found.forEach(x=>{ const b=box(x.date); b.value=x.steps.toLocaleString(); b.parentNode.classList.add('on'); });
+          h.textContent=found.length?'Filled '+found.length+' day'+(found.length===1?'':'s')+'. Check them, then Save.':'No trip days found on that screenshot. Try the "Show All Data" list, or type them.'; }
+        catch(e){ h.textContent=photoError(e)||'Couldn\'t read that screenshot. Type the numbers instead.'; } };
+      form.onsubmit=async e=>{ e.preventDefault(); const next=Object.assign({}, tripSteps(t));
+        form.querySelectorAll('[data-sd]').forEach(b=>{ const n=parseInt(b.value.replace(/[^0-9]/g,''),10); if(n>0) next[b.dataset.sd]=n; else delete next[b.dataset.sd]; });
+        try{ await patch('trips', t.id, {steps:next, updatedAt:now()}); closeSheet(); toast('Steps saved'); }
+        catch(err){ const er=$('#fErr'); er.hidden=false; er.textContent='Couldn\'t save. Try again.'; } };
     });
   }
   // Booking confirmation screenshot → stay fields.
@@ -2252,6 +2256,7 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
       const same=prev&&x.when&&prev.when&&(Date.parse(x.when)-Date.parse(prev.when))<=40*60000&&!(x.m.lat!=null&&prev.m.lat!=null&&haversine(x.m,prev.m)>1)&&g.items.length<6;
       if(same) g.items.push(x); else { g={items:[x]}; groups.push(g); } });
     hint('Uploading '+files.length+' photo'+(files.length===1?'':'s')+'…'); bar(.15);
+    if(!canRead) toast('This view of the app can\'t show photos to Claude, so names come from the location only. Open Waymark in Safari at claude.ai for full photo reading.');
     for(const grp of groups){ grp.ids=await uploadPhotos(grp.items.map(x=>x.f)); if(!box.isConnected) return; }
     const entries=[];
     for(let i=0;i<groups.length;i++){ const grp=groups[i], m0=(grp.items.find(x=>x.m.date)||grp.items[0]).m, gps=grp.items.find(x=>x.m.lat!=null);
