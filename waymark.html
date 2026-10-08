@@ -1068,8 +1068,11 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
   // rec: a drive recorded with a GPS app ({track, km, durationS, date, time, from, to}), from gpxDrive or the form's own file button
   function legSheet(trip, l, rec){
     const a=l?stopOf(l.fromId):null, b=l?stopOf(l.toId):null;
-    const prevLeg=tripLegs(trip.id).slice(-1)[0];
-    const defaultFrom = rec&&rec.from&&!l? rec.from : a? a.city : (prevLeg? (stopOf(prevLeg.toId)||{}).city||'' : '');
+    // a new leg defaults to today during the trip (not the date of the trip's last leg, often the flight home),
+    // and starts where you are: the last leg up to that day
+    const td=todayStr(), dDate=rec&&rec.date?rec.date:(td>=trip.startDate&&td<=trip.endDate?td:trip.startDate);
+    const prevLeg=tripLegs(trip.id).filter(x=>x.date<=dDate).slice(-1)[0], here=morningStop(trip.id, dDate);
+    const defaultFrom = rec&&rec.from&&!l? rec.from : !l&&here? here.city : a? a.city : (prevLeg? (stopOf(prevLeg.toId)||{}).city||'' : '');
     let mode=l?l.mode:'car', dropTrack=false;
     const recHint=()=>{ const r=rec||(l&&l.track&&l.track.length>1?{km:l.km, durationS:l.durationS, saved:true}:null);
       return r?'📍 Recorded route'+(r.km?' · '+fmtKm(r.km)+' km':'')+(r.durationS?' · '+fmtDur(r.durationS):'')+(r.saved?' <button type="button" class="btn small ghost" id="lNoTrk">Remove</button>':' · saved with this drive'):''; };
@@ -1079,7 +1082,7 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
       + '<div class="row"><label class="btn small" for="lGpx">📍 '+(l&&l.track?'Replace GPS file':'Load GPS file (.gpx)')+'</label><input id="lGpx" type="file" hidden><span class="faint" id="lRec">'+recHint()+'</span></div>'
       + '<div class="grid2"><div class="field"><label for="lFrom">From</label><input id="lFrom" list="kc" value="'+esc(defaultFrom)+'" placeholder="City"></div><div class="field"><label for="lTo">To</label><input id="lTo" list="kc" value="'+esc(b?b.city:(rec&&rec.to)||'')+'" placeholder="City"></div></div>'
       + '<datalist id="kc">'+known.map(c=>'<option value="'+esc(c)+'">').join('')+'</datalist>'
-      + '<div class="grid2"><div class="field"><label for="lDate">Date</label><input id="lDate" type="date" value="'+esc(l?l.date:rec&&rec.date?rec.date:(prevLeg?prevLeg.date:trip.startDate))+'"></div>'
+      + '<div class="grid2"><div class="field"><label for="lDate">Date</label><input id="lDate" type="date" value="'+esc(l?l.date:dDate)+'"></div>'
       + '<div class="field"><label for="lTime">Time (optional)</label><input id="lTime" type="time" value="'+esc(rec&&rec.time?rec.time:l?hhmm(l):'')+'"></div></div>'
       + '<div class="field"><label for="lKm">Distance km (optional)</label><input id="lKm" inputmode="numeric" value="'+esc(rec&&rec.km?rec.km:l&&!l.kmEstimated?l.km:'')+'" placeholder="'+(l&&l.kmEstimated?'≈'+fmtKm(l.km):'Auto')+'"></div>'
       + '<div class="grid3"><div class="field"><label for="lCost">Cost (optional)</label><input id="lCost" inputmode="decimal" value="'+esc(l&&l.cost?l.cost:'')+'"></div><div class="field"><label for="lCur">Currency</label>'+curSelect('lCur', l?l.currency:trip.currency)+'</div></div>'
@@ -1995,7 +1998,26 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
   function addDays(s, n){ const [y,m,d]=s.split('-').map(Number); const t=new Date(y,m-1,d+n); return t.getFullYear()+'-'+pad2(t.getMonth()+1)+'-'+pad2(t.getDate()); }
   // where the day ended: the last leg's destination that day, else the city you were in
   function eveningStop(tid, d){ const l=tripLegs(tid).filter(x=>x.date===d).pop(), s=l&&stopOf(l.toId); return s&&!s.home?s:stopOnDate(tid,d); }
-  function stopOnDate(tid, d){ const xs=tripStops(tid).filter(s=>!s.home&&s.arrive&&s.arrive<=d&&d<=(s.depart||s.arrive)); return xs.find(s=>s.arrive!==d)||xs[xs.length-1]||null; }
+  // where you woke up on day d: the stay covering the night before, else where the last earlier leg took you
+  function morningStop(tid, d){ const prev=addDays(d,-1);
+    const st=staysOnNight(tid, prev)[0], ss=st&&stopOf(st.stopId); if(ss&&!ss.home) return ss;
+    const l=tripLegs(tid).filter(x=>x.date&&x.date<d).pop(), ls=l&&stopOf(l.toId);
+    // a planned stop that starts after that leg (an itinerary city with no leg yet) is newer news
+    const plan=tripStops(tid).filter(x=>!x.home&&x.arrive&&x.arrive<d&&(!l||x.arrive>l.date)).pop();
+    if(plan) return plan;
+    return ls&&!ls.home?ls:null; }
+  function stopOnDate(tid, d){ const m=morningStop(tid, d); if(m) return m; const xs=tripStops(tid).filter(s=>!s.home&&s.arrive&&s.arrive<=d&&d<=(s.depart||s.arrive)); return xs.find(s=>s.arrive!==d)||xs[xs.length-1]||null; }
+  // The towns of a day, from what happened: where you woke up, the day's legs, activities, expenses and the night's stay.
+  // An empty day shows only the towns planned to start that day (itinerary stops), never a stop whose stored
+  // date range was stretched by an old edit.
+  function dayCities(t, d){ const out=[], add=s=>{ if(s&&!s.home&&s.city&&!out.some(c=>cityKey(c)===cityKey(s.city))) out.push(s.city); };
+    const legs=tripLegs(t.id).filter(l=>l.date===d), xs=S.places.filter(p=>p.tripId===t.id&&p.date===d).concat(S.expenses.filter(e=>e.tripId===t.id&&e.date===d));
+    const night=d<t.endDate?staysOnNight(t.id, d)[0]:null;
+    if(legs.length||xs.length||night){ if(d<=todayStr()||legs.length) add(morningStop(t.id, d));
+      legs.forEach(l=>{ add(stopOf(l.fromId)); add(stopOf(l.toId)); }); xs.forEach(x=>add(stopOf(x.stopId))); if(night) add(stopOf(night.stopId)); return out; }
+    if(d<=todayStr()) add(morningStop(t.id, d));
+    tripStops(t.id).filter(s=>s.arrive===d).forEach(add);
+    return out; }
   // One day's items in the order they happened. Times win when known. Otherwise an item goes with
   // its city: after the leg that brings you there, before the leg that takes you on. Items with no
   // city go last. Inside a stretch: by time, then by when they were logged that day.
@@ -2051,12 +2073,14 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
     const live=t.startDate<=today&&today<=t.endDate;
     let html='';
     for(let i=0;i<n;i++){ const d=addDays(t.startDate,i);
-      const cities=[...new Set(stops.filter(s=>s.arrive&&s.arrive<=d&&d<=(s.depart||s.arrive)).map(s=>s.city))];
+      let cities=dayCities(t, d);
       const legs=tripLegs(t.id).filter(l=>l.date===d), acts=S.places.filter(p=>p.tripId===t.id&&p.date===d), exps=S.expenses.filter(e=>e.tripId===t.id&&e.date===d);
       // in the order you were there: first timed thing done in each city, then the legs' order
       const route=legs.length?[(stopOf(legs[0].fromId)||{}).city].concat(legs.map(l=>(stopOf(l.toId)||{}).city)).map(x=>norm(x||'')):[];
       const firstT=c=>{ const ts=acts.concat(exps).filter(x=>hhmm(x)&&norm((stopOf(x.stopId)||{}).city||x.city||'')===norm(c)).map(hhmm).sort(); return ts[0]||''; };
+      const wake=cities[0]===((morningStop(t.id,d)||{}).city)?cities.shift():null;
       cities.sort((a,b)=>{ const x=firstT(a), y=firstT(b); if(x&&y) return x.localeCompare(y); const i=route.indexOf(norm(a)), j=route.indexOf(norm(b)); return (i<0?99:i)-(j<0?99:j); });
+      if(wake) cities.unshift(wake);
       const folded=live&&d<today&&!openDays.has(d), nThings=acts.length+exps.length, km=d3.sum(legs,l=>+l.km||0);
       const stp=tripSteps(t)[d];
       const sum=[nThings?nThings+(nThings===1?' thing':' things'):'', stp?'👟 '+(+stp).toLocaleString():'', km?(legs.some(l=>l.kmEstimated)?'≈':'')+fmtKm(km)+' km':''].filter(Boolean).join(' · ')||'nothing logged';
