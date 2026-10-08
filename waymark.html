@@ -256,6 +256,11 @@
   .steps-grid label.on{background:var(--accent-soft);}
   .steps-grid span{flex:1;}
   .steps-grid input{width:120px;text-align:right;border:1px solid var(--line);background:var(--surface-2);border-radius:8px;padding:8px;font-size:16px;font-family:'IBM Plex Mono',monospace;}
+  .active-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;margin-top:-8px;}
+  .active-row .cell{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:8px 12px;}
+  .active-row .k{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-faint);font-weight:700;}
+  .active-row .v{font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:22px;line-height:1.15;}
+  .active-row small{font-size:13px;}
   .steps-tag{border:none;background:var(--surface-2);border-radius:999px;padding:1px 8px;font-size:12px;font-weight:600;color:var(--ink-soft);cursor:pointer;}
   .day-menu{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:8px;}
   .day-menu .btn{padding:14px 8px;justify-content:flex-start;}
@@ -732,6 +737,7 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
       + '<div class="cell"><div class="k">Days</div><div class="v">'+st.days+'</div></div>'
       + '<div class="cell"><div class="k">Cities</div><div class="v">'+st.cities+'</div></div>'
       + '<div class="cell"><div class="k">Spent</div><div class="v" style="font-size:'+(money.length>1?'18px':'26px')+'">'+(money.length?money.map(([c,a])=>fmtMoney(a,c)).join('<br>'):'—')+'</div></div></div>'
+      + activeHtml(t)
       + (()=>{ const nMiss=missingLegs(t.id).length;
           return '<div class="sec-tabs" id="secTabs">'+TRIP_SECS.map(([k,l])=>'<button type="button" data-sec="'+k+'" class="'+(tripSec()===k?'on':'')+'">'+l
             +(k==='route'&&nMiss?'<i class="sec-dot" aria-label="'+nMiss+' drives missing"></i>':'')+'</button>').join('')+'</div>'; })()
@@ -1204,6 +1210,9 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
         + '<div id="pFound"></div><div class="hint" id="pPos">'+(p&&p.track&&p.track.length?'📍 Route on the map · '+statsLine(p):pos?'📍 Pinned on the map':'')+'</div></div>'
       + '<div class="field"><label>Status</label><div class="row"><button type="button" class="chip '+(status==='done'?'on':'')+'" data-st="done">Been</button><button type="button" class="chip '+(status==='want'?'on':'')+'" data-st="want">Want to go</button></div></div>'
       + '<div class="field"><label>Rating</label><div class="rating" id="rating">'+[1,2,3,4,5].map(i=>'<button type="button" data-r="'+i+'" aria-label="'+i+' stars" class="'+(i<=rating?'on':'')+'">★</button>').join('')+'</div></div>'
+      + (()=>{ const x=p||(pre&&pre.extra)||{}, sp=SPORTS.has(p?p.category:(pre&&pre.category)||'');
+          return '<div class="grid2" id="pSportF"'+(sp?'':' hidden')+'><div class="field"><label for="pKm">Distance km</label><input id="pKm" inputmode="decimal" placeholder="e.g. 8.4" value="'+(x.distanceKm?esc(x.distanceKm):'')+'"></div>'
+            + '<div class="field"><label for="pDur">Time (h:mm)</label><input id="pDur" inputmode="numeric" placeholder="e.g. 0:45" value="'+(x.movingS?Math.floor(x.movingS/3600)+':'+pad2(Math.round(x.movingS%3600/60)):'')+'"></div></div>'; })()
       + '<div class="grid3"><div class="field"><label for="pCost">Price (optional)</label><input id="pCost" inputmode="decimal" value="'+esc(p&&p.cost?p.cost:'')+'"></div><div class="field"><label for="pCur">Currency</label>'+curSelect('pCur', p?p.currency:trip.currency)+'</div></div>'
       + '<div class="field" id="pPaidF"'+(p&&+p.cost?'':' hidden')+'><label for="pPaid">Paid by</label><input id="pPaid" list="pPayers" autocomplete="off" value="'+esc(p&&p.paidBy||lastPayer(trip.id))+'"><datalist id="pPayers">'+payers(trip.id).map(n=>'<option value="'+esc(n)+'">').join('')+'</datalist></div>'
       + '<label class="row" style="gap:8px;font-size:14px;cursor:pointer"><input type="checkbox" id="pPriv" style="width:20px;height:20px"'+(p&&p.private?' checked':'')+'> 🔒 Keep off shares <span class="faint">(stays in your log, never on images or videos)</span></label>'
@@ -1302,6 +1311,7 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
         $('#pPos').textContent='📍 Pinned on the map'; });
       // a meal: time of day picks breakfast/lunch/dinner until the type is chosen by hand
       let catTouched=!!p;
+      const sportF=()=>{ const f=$('#pSportF'); if(f) f.hidden=!SPORTS.has(val('pCat')); }; $('#pCat').addEventListener('change', sportF);
       $('#pCat').onchange=()=>{ catTouched=true; $('#pTitle').textContent=(p?'Edit ':'Add ')+(isMeal(val('pCat'))?'a meal':'an activity').replace(/^a(n)? /, p?'':'$&'); };
       $('#pTime').addEventListener('change',()=>{ if(!catTouched&&isMeal(val('pCat'))&&val('pTime')) $('#pCat').value=mealFor(val('pTime'),val('pName')); });
       $('#pName').addEventListener('change',()=>{ if(!catTouched&&isMeal(val('pCat'))) $('#pCat').value=mealFor(val('pTime'),val('pName')); });
@@ -1332,7 +1342,9 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
         // a position Claude guessed for another name is stale; a photo's GPS stays
         const keep=pos&&(pos.name==null||pos.name===name);
         const loc=val('pLoc').trim();
-        const data=Object.assign({}, pre&&pre.extra||{}, {tripId:trip.id, stopId:st.id, name, address:loc, category:val('pCat'), date, time:val('pTime'), private:$('#pPriv').checked, status, rating, cost:isFinite(c)?c:0, paidBy:isFinite(c)&&c>0?val('pPaid').trim():'', currency:val('pCur'), notes:val('pNotes').trim(), photoIds, updatedAt:now()});
+        const sport=SPORTS.has(val('pCat')), kmIn=parseFloat(val('pKm').replace(',','.')), dm=val('pDur').trim().match(/^(\d+)(?:[:h.](\d{1,2}))?$/);
+        const sportData=sport?{distanceKm:isFinite(kmIn)&&kmIn>0?Math.round(kmIn*100)/100:null, movingS:dm?(dm[2]!=null?(+dm[1])*3600+(+dm[2])*60:(+dm[1])*60):null}:{};
+        const data=Object.assign({}, pre&&pre.extra||{}, sportData, {tripId:trip.id, stopId:st.id, name, address:loc, category:val('pCat'), date, time:val('pTime'), private:$('#pPriv').checked, status, rating, cost:isFinite(c)?c:0, paidBy:isFinite(c)&&c>0?val('pPaid').trim():'', currency:val('pCur'), notes:val('pNotes').trim(), photoIds, updatedAt:now()});
         if(keep){ data.lat=pos.lat; data.lon=pos.lon; }
         let id=p&&p.id;
         if(p){ if(!keep&&p.lat!=null){ data.lat=null; data.lon=null; } if(p.date!==date) data.dayPos=null; await patch('places', p.id, data); }
@@ -1692,6 +1704,14 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
     });
   }
   // a recorded drive's road as [lon,lat] points (null for a plain city-to-city leg)
+  // On-foot / bike kilometres per sport for a trip (each traveller's own mix shows: runners see Run, cyclists Ride…)
+  const SPORTS=new Set(['run','walk','hike','ride']);
+  function activeHtml(t){
+    const by={}; S.places.filter(p=>p.tripId===t.id&&p.status!=='want'&&SPORTS.has(p.category)).forEach(p=>{ const b=by[p.category]=by[p.category]||{km:0,n:0,s:0}; b.n++; b.km+=+p.distanceKm||0; b.s+=+p.movingS||0; });
+    const ks=['run','ride','hike','walk'].filter(k=>by[k]); if(!ks.length) return '';
+    return '<div class="active-row">'+ks.map(k=>{ const b=by[k];
+      return '<div class="cell"><div class="k">'+catIcon(k)+' '+CAT_LABEL[k]+'</div><div class="v mono">'+(b.km?(b.km<100?b.km.toFixed(1):fmtKm(Math.round(b.km))):'—')+'<small> km</small></div>'
+        + '<div class="faint">'+b.n+' '+(k==='run'?'run':k==='ride'?'ride':k==='hike'?'hike':'walk')+(b.n===1?'':'s')+(b.s?' · '+fmtDur(b.s):'')+'</div></div>'; }).join('')+'</div>'; }
   const legTrack=l=>Array.isArray(l.track)&&l.track.length>1?l.track.map(q=>[q[1],q[0]]):null;
   function parseGpx(text){
     const doc=new DOMParser().parseFromString(text,'application/xml');
