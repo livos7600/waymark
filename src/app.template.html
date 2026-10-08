@@ -2502,6 +2502,13 @@ const WORLD = __WORLD__;
     const inCity=new Set(stops.map(s=>s.id));
     const all=S.places.filter(p=>p.tripId===t.id&&p.date&&p.date>=from&&p.date<=to&&(!city||inCity.has(p.stopId)||norm((stopOf(p.stopId)||{}).city)===city)), acts=[];
     for(let d=from; d<=to; d=addDays(d,1)) dayOrder(d, legs.filter(l=>l.date===d), all.filter(p=>p.date===d), []).forEach(({k,x})=>{ if(k==='act') acts.push(x); });
+    // the towns of the slice from what happened in it (where you woke up, legs, activities, stays), not stored stop
+    // date ranges, which old edits can leave stretched; one stop per town
+    if(!city){ const keep=new Map(), add=x=>{ if(x&&!x.home&&x.lat!=null&&!keep.has(cityKey(x.city))) keep.set(cityKey(x.city), x); };
+      add(morningStop(t.id, from)); legs.forEach(l=>{ add(stopOf(l.fromId)); add(stopOf(l.toId)); }); all.forEach(p=>add(stopOf(p.stopId)));
+      S.expenses.filter(e=>e.tripId===t.id&&e.date>=from&&e.date<=to).forEach(e=>add(stopOf(e.stopId)));
+      tripStays(t.id).filter(x=>x.checkIn<=to&&(x.checkOut||x.checkIn)>from).forEach(x=>add(stopOf(x.stopId)));
+      if(keep.size) stops=[...keep.values()]; }
     if(hide) for(let i=acts.length-1;i>=0;i--) if(hide[acts[i].id]) acts.splice(i,1);
     acts.sort((a,b)=>(a.status==='done'?0:1)-(b.status==='done'?0:1)); // stable: plans go last, the rest stay in trip order
     // photos: each activity's, in trip order, then the cities' own photos
@@ -2587,11 +2594,15 @@ const WORLD = __WORLD__;
     const footH=o.showStats?(H<=1100?150:190):0, bottom=H-footH-(o.showStats?30:60);
     // middle: photos, map, activities share what is left
     const pics=(await Promise.all(o.photoIds.slice(0,4).map(id=>sharePic(id,o))));
+    // a day in one town has nothing to trace: drop the map and give the space to the photos
+    const towns=new Set(d.stops.map(s=>cityKey(s.city)).concat(d.acts.map(p=>cityKey((stopOf(p.stopId)||{}).city||'')).filter(Boolean)));
+    const oneTown=!d.legs.length&&!(d.hops||[]).length&&towns.size<=1&&!d.acts.some(p=>Array.isArray(p.track)&&p.track.length>1);
+    const showMap=o.showMap&&!(oneTown&&pics.some(Boolean));
     const nA=o.showActs?Math.min(d.acts.length, H>=1900?6:H>=1300?4:3):0;
     const actH=nA?nA*56+16:0;
     const M=bottom-y-(actH?actH+24:0);
-    const picH=pics.length?(o.showMap?Math.round(M*(H>=1900?.5:.44)):M):0;
-    const mapH=o.showMap?M-(picH?picH+24:0):0;
+    const picH=pics.length?(showMap?Math.round(M*(H>=1900?.5:.44)):M):0;
+    const mapH=showMap?M-(picH?picH+24:0):0;
     if(pics.length){ const gap=14, w=W-2*X, n=pics.length;
       if(n===1) drawCover(g,pics[0],X,y,w,picH,22);
       else if(n===2){ const cw=(w-gap)/2; pics.forEach((im,i)=>drawCover(g,im,X+i*(cw+gap),y,cw,picH,22)); }
@@ -2599,7 +2610,7 @@ const WORLD = __WORLD__;
       else { const cw=(w-gap)/2, ch=(picH-gap)/2; pics.forEach((im,i)=>drawCover(g,im,X+(i%2)*(cw+gap),y+Math.floor(i/2)*(ch+gap),cw,ch,22)); }
       y+=picH+24;
     }
-    if(o.showMap&&mapH>120){
+    if(showMap&&mapH>120){
       const box=[X,y,W-2*X,mapH];
       const pts=d.stops.filter(s=>s.lat!=null).map(s=>[s.lon,s.lat]).concat(d.acts.filter(p=>p.lat!=null).map(p=>[p.lon,p.lat]), ...(d.hops||[]).map(h=>[[h.a.lon,h.a.lat]]));
       const proj=d3.geoMercator();
@@ -3055,7 +3066,9 @@ const WORLD = __WORLD__;
         catch(e){ if(e&&e.code!=='declined') $('#shareHint').textContent='Couldn\'t save the image. Long‑press the preview to save it instead.'; }
         finally{ btn.disabled=false; } };
       const mk=$('#mkVid');
-      if(mk) mk.onclick=async()=>{ dropVideo(); stopListen(); const tok=vidTok; mk.disabled=true; $('#shareHint').textContent='';
+      // while it builds, the same button stops it and goes back to the image
+      if(mk) mk.onclick=async()=>{ if(mk.dataset.rec){ delete mk.dataset.rec; $('#shareHint').textContent='Video stopped.'; redraw(); return; }
+        dropVideo(); stopListen(); const tok=vidTok; mk.dataset.rec='1'; mk.textContent='■ Stop'; $('#shareHint').textContent='';
         const alive=()=>tok===vidTok&&sheet.isConnected;
         // the audio context has to start inside the tap
         let actx=null; if(music.kind!=='none'){ try{ actx=new (window.AudioContext||window.webkitAudioContext)(); actx.resume(); }catch(e){ actx=null; } }
@@ -3066,14 +3079,14 @@ const WORLD = __WORLD__;
             if(buf) audio={ctx:actx, buf, start:music.kind==='file'?music.start:0, vol:music.vol, fade:music.fade}; }
           const cv=document.createElement('canvas'); cv.className='share-preview'; cv.style.cssText='max-height:46vh;width:auto;max-width:100%';
           $('#cardBox').innerHTML=''; $('#cardBox').appendChild(cv);
-          const vb=await recordRouteVideo(plan, cv, tau=>{ if(alive()) mk.textContent='Recording '+Math.min(100,Math.round(tau/plan.T*100))+'%'; }, alive, audio);
+          const vb=await recordRouteVideo(plan, cv, tau=>{ if(alive()) mk.textContent='■ Stop · '+Math.min(100,Math.round(tau/plan.T*100))+'%'; }, alive, audio);
           if(!vb||!alive()) return;
           vidBlob=vb; vidUrl=URL.createObjectURL(vb);
           $('#cardBox').innerHTML='<video class="share-preview" style="max-height:46vh;width:auto;max-width:100%" src="'+vidUrl+'" controls playsinline muted loop autoplay></video>';
           $('#saveVid').hidden=!downloads; mk.textContent='🎬 Again';
           $('#shareHint').textContent=Math.round(plan.T)+' s video'+(audio?' with music (unmute the player to hear it)':'')+(/mp4/.test(vb.type)?'':' (WebM)')+'. Change any option to go back to the image.';
         }catch(e){ if(alive()) $('#shareHint').textContent='Couldn\'t record a video here: '+((e&&e.message)||e); }
-        finally{ if(tok===vidTok) mk.disabled=false; if(actx) actx.close().catch(()=>{}); } };
+        finally{ if(tok===vidTok){ delete mk.dataset.rec; mk.disabled=false; } if(actx) actx.close().catch(()=>{}); } };
       // ----- editor: music, pace, scenes, photo edits
       const ed=$('#shEd');
       let listen=null; function stopListen(){ if(listen){ try{ listen.src.stop(); }catch(e){} listen.ctx.close().catch(()=>{}); listen=null; } const b=$('#edListen'); if(b) b.textContent='▶ Listen'; }
