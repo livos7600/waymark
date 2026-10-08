@@ -517,7 +517,7 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
   }
   function schedule(){ if(pending) return; pending=true; requestAnimationFrame(()=>{ pending=false; render(); }); }
   // where you were on each screen, so Back lands there again instead of at the top
-  const scrollMem={}, viewKey=()=>R.tab+'|'+(R.tripId||'')+'|'+(R.stopId||'')+(R.tripId&&!R.stopId?'|'+tripSec():''), depth=()=>R.stopId?2:R.tripId?1:0;
+  const scrollMem={}, viewKey=()=>R.tab+'|'+(R.tripId||'')+'|'+(R.stopId||'')+'|'+(R.country||'')+(R.tripId&&!R.stopId?'|'+tripSec():''), depth=()=>R.stopId?2:(R.tripId||R.country)?1:0;
   function go(next){ const from=depth(); scrollMem[viewKey()]=window.scrollY; Object.assign(R, next);
     render(); const y=depth()<from?scrollMem[viewKey()]:0; window.scrollTo(0, y||0); if(y) requestAnimationFrame(()=>window.scrollTo(0,y));
     else if(depth()===1&&from===0) requestAnimationFrame(toToday); }
@@ -540,7 +540,7 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
   function renderTabs(){
     const tabs=[['trips','Trips',ICON.trips],['world','My world',ICON.world],['discover','Top 10',ICON.spark]];
     $('#tabs').innerHTML = tabs.map(([k,l,i])=>'<button type="button" data-tab="'+k+'" class="'+(R.tab===k?'on':'')+'" aria-current="'+(R.tab===k?'page':'false')+'">'+i+'<span>'+l+'</span></button>').join('');
-    $('#tabs').querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>go({tab:b.dataset.tab, tripId:null, stopId:null}));
+    $('#tabs').querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>go({tab:b.dataset.tab, tripId:null, stopId:null, country:null}));
   }
   function setTop(title, opts){
     opts=opts||{};
@@ -555,7 +555,7 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
     renderTabs();
     if(!ready.db){ return; }
     if(R.tab==='trips'){ if(R.stopId) return renderCity(); if(R.tripId) return renderTrip(); return renderTrips(); }
-    if(R.tab==='world') return renderWorld();
+    if(R.tab==='world') return R.country?renderCountry():renderWorld();
     if(R.tab==='discover') return renderDiscover();
   }
 
@@ -570,7 +570,12 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
     const acts=(opts.places||[]).filter(p=>p.lat!=null&&p.lon!=null), sleeps=(opts.stays||[]).filter(x=>x.lat!=null&&x.lon!=null);
     const visited=new Set(opts.visitedN3||[]);
     let proj;
-    if(world) proj=d3.geoNaturalEarth1().fitExtent([[6,6],[W-6,H-6]],{type:'Sphere'});
+    if(world&&opts.focus&&opts.focus.length){ // one country: fit its cities, not the whole world
+      proj=d3.geoMercator();
+      if(opts.focus.length>1) proj.fitExtent([[80,100],[W-80,H-40]],{type:'MultiPoint',coordinates:opts.focus});
+      else proj.scale(3000).center(opts.focus[0]).translate([W/2,H/2+20]);
+      if(proj.scale()>12000){ const c=[d3.mean(opts.focus,p=>p[0]),d3.mean(opts.focus,p=>p[1])]; proj.scale(12000).center(c).translate([W/2,H/2+20]); } }
+    else if(world) proj=d3.geoNaturalEarth1().fitExtent([[6,6],[W-6,H-6]],{type:'Sphere'});
     else {
       const away=stops.filter(s=>!s.home);
       const pts=(away.length?away:stops).map(s=>[s.lon,s.lat]).concat(acts.map(p=>[p.lon,p.lat]));
@@ -630,7 +635,10 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
       stops.forEach(s=>{ const p=proj([s.lon,s.lat]); if(!p) return; items['s:'+s.id]={type:'stop', s};
         pin(p[0],p[1],'s:'+s.id,m=>{ m.append('circle').attr('r',12).attr('fill','transparent'); m.append('circle').attr('r',3.5).attr('fill','var(--surface)').attr('stroke','var(--ink)').attr('stroke-width',1.4); }); });
       // one photo pin per trip (its cover photo, labelled with the month), like a travel scrapbook
-      (opts.tripPins||[]).forEach((tp,i)=>{ const p=proj([tp.lon,tp.lat]); if(!p) return; items['t:'+tp.id]={type:'trip', tp};
+      const placed=[];
+      (opts.tripPins||[]).forEach((tp,i)=>{ const p0=proj([tp.lon,tp.lat]); if(!p0) return; items['t:'+tp.id]={type:'trip', tp};
+        // neighbours (Spain and France) would hide each other: slide sideways until the photo is clear
+        const p=[p0[0],p0[1]]; for(let k=0;k<8&&placed.some(q=>Math.abs(q[0]-p[0])<66&&Math.abs(q[1]-p[1])<70);k++) p[0]+=(k%2?-1:1)*66*(k+1); placed.push(p);
         pin(p[0],p[1],'t:'+tp.id,m=>{ const cid='tpc'+i;
           m.append('clipPath').attr('id',cid).append('rect').attr('x',-27).attr('y',-66).attr('width',54).attr('height',54).attr('rx',9);
           m.append('rect').attr('x',-31).attr('y',-70).attr('width',62).attr('height',62).attr('rx',12).attr('fill','#fff').attr('stroke','rgba(0,0,0,.18)');
@@ -692,7 +700,7 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
       let html='', act=null;
       if(it.type==='trip'){ const tp=it.tp;
         html=(tp.photo?'<img alt="" src="/_blob/'+tp.photo+'">':'')+'<div style="flex:1;min-width:0"><b>'+esc(tp.name)+'</b><div class="faint">'+esc(tp.when)+'</div></div>';
-        act=()=>go({tab:'trips', tripId:tp.id, stopId:null});
+        act=tp.open||(()=>go({tab:'trips', tripId:tp.id, stopId:null}));
       } else if(it.type==='stop'){ const s=it.s, visits=it.visits||[s]; const ids=visits.map(v=>v.id);
         const np=S.places.filter(p=>ids.includes(p.stopId)).length, t=tripOf(s.tripId);
         const ph=[].concat(...visits.map(v=>v.photoIds||[]))[0];
@@ -926,18 +934,44 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
       const c=st.slice().sort((a,b)=>score(b)-score(a))[0];
       return {id:t.id, name:t.name, lat:c.lat, lon:c.lon, photo:tripCover(t.id), label:fmtDate(t.startDate,{month:'short',year:'numeric'}),
         when:fmtDate(t.startDate,{month:'short',day:'numeric'})+' – '+fmtDate(t.endDate,{month:'short',day:'numeric',year:'numeric'})}; }).filter(Boolean); }
-  // "Where I've been": a passport stamp per city, newest first; shape and ink picked from the name so a city keeps its stamp
+  // Places you've been, grouped: countries (for the world page) and the cities inside one country
+  function placeCover(stopIds){ const ids=new Set(stopIds);
+    const ps=S.places.filter(p=>ids.has(p.stopId)&&(p.photoIds||[]).length&&!p.private).sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+    return ps.length?ps[0].photoIds[0]:(S.stops.find(x=>ids.has(x.id)&&(x.photoIds||[]).length)||{photoIds:['']}).photoIds[0]; }
+  function beenCities(a2){ const by=new Map();
+    S.stops.filter(s=>!s.home&&s.city&&s.arrive&&s.arrive<=todayStr()&&(!a2||s.countryA2===a2)).forEach(s=>{ const k=cityKey(s.city)+'|'+(s.countryA2||'');
+      const v=by.get(k)||{s, ids:[], trips:new Set(), first:s.arrive, last:s.arrive}; v.ids.push(s.id); v.trips.add(s.tripId);
+      if(s.arrive<v.first) v.first=s.arrive; if(s.arrive>=v.last){ v.last=s.arrive; v.s=s; } by.set(k,v); });
+    return [...by.values()].sort((a,b)=>b.last.localeCompare(a.last)); }
+  function beenCountries(){ const by=new Map();
+    beenCities().forEach(c=>{ const a2=c.s.countryA2||'?'; const v=by.get(a2)||{a2, name:c.s.country||a2, n3:c.s.countryN3, cities:[], ids:[], trips:new Set(), first:c.first, last:c.last};
+      v.cities.push(c); v.ids.push(...c.ids); c.trips.forEach(t=>v.trips.add(t)); if(c.first<v.first) v.first=c.first; if(c.last>v.last) v.last=c.last; by.set(a2,v); });
+    return [...by.values()].sort((a,b)=>b.last.localeCompare(a.last)); }
+  const busiest=cs=>cs.slice().sort((a,b)=>S.places.filter(p=>b.ids.includes(p.stopId)).length-S.places.filter(p=>a.ids.includes(p.stopId)).length)[0].s;
+  // passport stamps: shape and ink picked from the name so a place always keeps its stamp
   const STAMP_INK=['#D9822B','#C2412D','#4C9A2A','#2F6FED','#8E55C9','#0E9BAD'];
-  function stampsHtml(){
-    const by=new Map(); S.stops.filter(s=>!s.home&&s.city).forEach(s=>{ const k=cityKey(s.city)+'|'+(s.countryA2||''); const v=by.get(k)||{s, trips:new Set(), first:s.arrive||'', last:s.arrive||''};
-      v.trips.add(s.tripId); if(s.arrive&&(!v.first||s.arrive<v.first)) v.first=s.arrive; if(s.arrive&&s.arrive>v.last){ v.last=s.arrive; v.s=s; } by.set(k,v); });
-    const list=[...by.values()].filter(v=>v.first&&v.first<=todayStr()).sort((a,b)=>b.last.localeCompare(a.last));
-    if(!list.length) return '';
+  function stampRow(title, items){ if(!items.length) return '';
     const h=x=>[...x].reduce((a,c)=>(a*31+c.charCodeAt(0))>>>0,7);
-    return '<div class="sec-title"><h2>Where I\'ve been</h2><span class="faint">'+list.length+' place'+(list.length===1?'':'s')+'</span></div><div class="stamps">'
-      + list.map(v=>{ const n=h(v.s.city), ink=STAMP_INK[n%STAMP_INK.length], shape=['rect','round','tilt'][n%3], cat=topCat(v.s);
-        return '<button type="button" class="stamp" data-stamp="'+v.s.id+'"><div class="st-'+shape+'" style="--ink:'+ink+'"><div class="st-city">'+esc(v.s.city)+'</div><div class="st-ico">'+cat+'</div><div class="st-cc">'+esc(v.s.countryA2||'')+'</div></div>'
-          + '<div class="st-name">'+esc(v.s.city)+(v.s.country?', '+esc(v.s.country):'')+'</div><div class="faint">'+(v.trips.size>1?v.trips.size+' trips':fmtDate(v.first,{month:'long',year:'numeric'}))+'</div></button>'; }).join('')+'</div>'; }
+    return '<div class="sec-title"><h2>'+title+'</h2><span class="faint">'+items.length+'</span></div><div class="stamps">'
+      + items.map(it=>{ const n=h(it.title), ink=STAMP_INK[n%STAMP_INK.length], shape=['rect','round','tilt'][n%3];
+        return '<button type="button" class="stamp" '+it.attr+'><div class="st-'+shape+'" style="--ink:'+ink+'"><div class="st-city">'+esc(it.title)+'</div><div class="st-ico">'+it.icon+'</div><div class="st-cc">'+esc(it.cc||'')+'</div></div>'
+          + '<div class="st-name">'+esc(it.name)+'</div><div class="faint">'+esc(it.sub)+'</div></button>'; }).join('')+'</div>'; }
+  const whenTxt=v=>v.trips.size>1?v.trips.size+' trips':fmtDate(v.first,{month:'long',year:'numeric'});
+  function renderCountry(){
+    const v=beenCountries().find(x=>x.a2===R.country); if(!v){ go({country:null}); return; }
+    setTop(flag(v.a2)+' '+v.name, {back:()=>go({country:null})});
+    const nAct=S.places.filter(p=>v.ids.includes(p.stopId)&&p.status!=='want').length, ph=S.places.filter(p=>v.ids.includes(p.stopId)).reduce((a,p)=>a+(p.photoIds||[]).length,0);
+    main.innerHTML='<div class="pass"><div class="cell"><div class="k">Cities</div><div class="v">'+v.cities.length+'</div></div><div class="cell"><div class="k">Trips</div><div class="v">'+v.trips.size+'</div></div>'
+      + '<div class="cell"><div class="k">Things done</div><div class="v">'+nAct+'</div></div><div class="cell"><div class="k">Photos</div><div class="v">'+ph+'</div></div></div>'
+      + '<div class="map-wrap" id="ctryMap"></div>'
+      + stampRow('Cities', v.cities.map(c=>({title:c.s.city, icon:topCat(c.s), cc:c.s.countryA2, name:c.s.city, sub:whenTxt(c), attr:'data-stamp="'+c.s.id+'"'})))
+      + '<div class="card">'+v.cities.map(c=>{ const n=S.places.filter(p=>c.ids.includes(p.stopId)).length, cov=placeCover(c.ids);
+          return '<div class="budget-row" data-stamp="'+c.s.id+'" style="cursor:pointer;align-items:center;gap:10px">'+(cov?'<img alt="" src="/_blob/'+cov+'" style="width:40px;height:40px;border-radius:8px;object-fit:cover">':'<span style="width:40px;text-align:center">'+topCat(c.s)+'</span>')
+            + '<span style="flex:1"><b>'+esc(c.s.city)+'</b><br><span class="faint">'+whenTxt(c)+' · '+n+' thing'+(n===1?'':'s')+'</span></span><span class="faint">›</span></div>'; }).join('')+'</div>';
+    const pins=v.cities.map(c=>({id:'c'+c.s.id, name:c.s.city, lat:c.s.lat, lon:c.s.lon, photo:placeCover(c.ids), label:c.s.city, when:whenTxt(c), open:()=>go({tab:'trips', tripId:c.s.tripId, stopId:c.s.id, placeCat:'all', country:null})})).filter(x=>x.lat!=null);
+    drawMap($('#ctryMap'), {key:'country:'+v.a2, world:true, stops:[], legs:[], tripPins:pins, focus:pins.map(x=>[x.lon,x.lat]), visitedN3:[v.n3], width:720, height:460, label:'Map of your cities in '+v.name});
+    main.querySelectorAll('[data-stamp]').forEach(b=>b.onclick=()=>{ const s=stopOf(b.dataset.stamp); if(s) go({tab:'trips', tripId:s.tripId, stopId:s.id, placeCat:'all', country:null}); });
+  }
   // the stamp's picture: what you did most there
   function topCat(s){ const ids=S.stops.filter(x=>cityKey(x.city)===cityKey(s.city)).map(x=>x.id), c={};
     S.places.filter(p=>ids.includes(p.stopId)).forEach(p=>{ const k=MEAL_KEYS.has(p.category)?'dinner':p.category; c[k]=(c[k]||0)+1; });
@@ -954,13 +988,14 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
       '<div class="pass"><div class="cell"><div class="k">Countries</div><div class="v">'+visited.size+'</div></div><div class="cell"><div class="k">Cities</div><div class="v">'+cities.size+'</div></div>'
       + '<div class="cell"><div class="k">Trips</div><div class="v">'+S.trips.length+'</div></div><div class="cell"><div class="k">Distance</div><div class="v mono" style="font-size:22px">'+fmtKm(km)+' km</div></div></div>'
       + '<div><div class="map-wrap" id="worldMap"></div><div style="margin-top:8px" class="between">'+legendHtml(Object.keys(byMode).length?Object.keys(byMode):['plane','car'])+'<span class="faint">'+pct+'% of 195 countries · '+(km/40075).toFixed(2)+'× around Earth</span></div></div>'
-      + stampsHtml()
+      + stampRow('Where I\'ve been', beenCountries().map(v=>({title:v.name, icon:flag(v.a2), cc:v.a2, name:v.cities.length+' cit'+(v.cities.length===1?'y':'ies'), sub:whenTxt(v), attr:'data-country="'+v.a2+'"'})))
       + '<div class="sec-title"><h2>By mode</h2></div><div class="card">'+(Object.keys(byMode).length?Object.entries(byMode).sort((a,b)=>b[1]-a[1]).map(([m,k])=>'<div class="budget-row"><span><i class="dot" style="display:inline-block;background:'+MODES[m].color+';margin-right:8px"></i>'+MODES[m].label+'</span><span class="amt">'+fmtKm(k)+' km</span></div>').join(''):'<div class="budget-row faint">No legs yet</div>')+'</div>'
       + '<div class="sec-title"><h2>Countries</h2></div>'
-      + (visited.size?'<div class="countries">'+[...visited.values()].sort((a,b)=>a.name.localeCompare(b.name)).map(v=>'<div class="card country"><span class="flag">'+flag(v.a2)+'</span><div><div>'+esc(v.name)+'</div><div class="faint">'+v.cities.size+' cit'+(v.cities.size===1?'y':'ies')+'</div></div></div>').join('')+'</div>':'<div class="faint">Countries fill in as you add trips.</div>');
-    drawMap($('#worldMap'), {key:'world', world:true, stops, legs, tripPins:tripPins(), visitedN3:[...visited.values()].map(v=>v.n3), width:720, height:380, label:'World map of your travels',
+      + (visited.size?'<div class="countries">'+[...visited.values()].sort((a,b)=>a.name.localeCompare(b.name)).map(v=>'<div class="card country" data-country="'+v.a2+'" style="cursor:pointer"><span class="flag">'+flag(v.a2)+'</span><div><div>'+esc(v.name)+'</div><div class="faint">'+v.cities.size+' cit'+(v.cities.size===1?'y':'ies')+'</div></div></div>').join('')+'</div>':'<div class="faint">Countries fill in as you add trips.</div>');
+    drawMap($('#worldMap'), {key:'world', world:true, stops, legs, tripPins:beenCountries().map(v=>{ const c=busiest(v.cities); return {id:'k'+v.a2, name:flag(v.a2)+' '+v.name, lat:c.lat, lon:c.lon, photo:placeCover(v.ids), label:v.name,
+        when:v.cities.length+' cit'+(v.cities.length===1?'y':'ies')+' · '+whenTxt(v), open:()=>go({country:v.a2})}; }), visitedN3:[...visited.values()].map(v=>v.n3), width:720, height:380, label:'World map of your travels',
       onStop:s=>go({tab:'trips', tripId:s.tripId, stopId:s.id, placeCat:'all'})});
-    main.querySelectorAll('[data-stamp]').forEach(b=>b.onclick=()=>{ const s=stopOf(b.dataset.stamp); if(s) go({tab:'trips', tripId:s.tripId, stopId:s.id, placeCat:'all'}); });
+    main.querySelectorAll('[data-country]').forEach(b=>b.onclick=()=>go({country:b.dataset.country}));
   }
 
   // ---------- discover ----------
