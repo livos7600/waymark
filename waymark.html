@@ -804,7 +804,7 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
       + (legs.length?'<div class="card legs">'+legs.map(l=>{
           const a=stopOf(l.fromId)||{}, b=stopOf(l.toId)||{};
           return '<div class="leg" data-leg="'+l.id+'"><div class="mode-badge" style="background:'+(MODES[l.mode]||MODES.car).color+'">'+modeIcon(l.mode)+'</div>'
-            + '<div><div class="route">'+esc(a.city||'?')+' → '+esc(b.city||'?')+'</div><div class="meta">'+(legTrack(l)?'📍 ':'')+fmtDate(l.date,{weekday:'short',month:'short',day:'numeric'})+(l.durationS?' · '+fmtDur(l.durationS):'')+(l.cost?' · '+fmtMoney(l.cost,l.currency):'')+(l.notes?' · '+esc(l.notes):'')+'</div></div>'
+            + '<div><div class="route">'+esc(a.city||'?')+' → '+esc(b.city||'?')+'</div><div class="meta">'+(legTrack(l)?'📍 ':'')+fmtDate(l.date,{weekday:'short',month:'short',day:'numeric'})+(hhmm(l)?' · '+hhmm(l)+(l.arrTime?' → '+l.arrTime:''):'')+(l.durationS?' · '+fmtDur(l.durationS):'')+(l.cost?' · '+fmtMoney(l.cost,l.currency):'')+(l.notes?' · '+esc(l.notes):'')+'</div></div>'
             + '<div class="km">'+(l.kmEstimated?'≈':'')+fmtKm(l.km||0)+' km</div></div>';
         }).join('')+'</div>':'<div class="card empty"><p>Add your first flight, drive or train.</p></div>')+'</section>'
       + '<section data-sec="cities"'+(tripSec()==='cities'?'':' hidden')+'><div class="sec-title"><h2>Cities</h2><span class="faint">Tap a city to log places & photos</span></div>'
@@ -1253,8 +1253,10 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
       + '<div class="row"><label class="btn small" for="lGpx">📍 '+(l&&l.track?'Replace GPS file':'Load GPS file (.gpx)')+'</label><input id="lGpx" type="file" hidden><span class="faint" id="lRec">'+recHint()+'</span></div>'
       + '<div class="grid2"><div class="field"><label for="lFrom">From</label><input id="lFrom" list="kc" value="'+esc(defaultFrom)+'" placeholder="City"></div><div class="field"><label for="lTo">To</label><input id="lTo" list="kc" value="'+esc(b?b.city:(rec&&rec.to)||'')+'" placeholder="City"></div></div>'
       + '<datalist id="kc">'+known.map(c=>'<option value="'+esc(c)+'">').join('')+'</datalist>'
-      + '<div class="grid2"><div class="field"><label for="lDate">Date</label><input id="lDate" type="date" value="'+esc(l?l.date:dDate)+'"></div>'
-      + '<div class="field"><label for="lTime">Time (optional)</label><input id="lTime" type="time" value="'+esc(rec&&rec.time?rec.time:l?hhmm(l):'')+'"></div></div>'
+      + '<div class="field"><label for="lDate">Date</label><input id="lDate" type="date" value="'+esc(l?l.date:dDate)+'"></div>'
+      + '<div class="grid2"><div class="field"><label for="lTime">Departs (optional)</label><input id="lTime" type="time" value="'+esc(rec&&rec.time?rec.time:l?hhmm(l):'')+'"></div>'
+      + '<div class="field"><label for="lArr">Arrives (optional)</label><input id="lArr" type="time" value="'+esc(rec&&rec.time&&rec.durationS?addHM(rec.time,rec.durationS):l?(l.arrTime||(hhmm(l)&&l.durationS?addHM(hhmm(l),l.durationS):'')):'')+'"></div></div>'
+      + '<div class="hint" id="lDurH"></div>'
       + '<div class="field"><label for="lKm">Distance km (optional)</label><input id="lKm" inputmode="numeric" value="'+esc(rec&&rec.km?rec.km:l&&!l.kmEstimated?l.km:'')+'" placeholder="'+(l&&l.kmEstimated?'≈'+fmtKm(l.km):'Auto')+'"></div>'
       + '<div class="grid3"><div class="field"><label for="lCost">Cost (optional)</label><input id="lCost" inputmode="decimal" value="'+esc(l&&l.cost?l.cost:'')+'"></div><div class="field"><label for="lCur">Currency</label>'+curSelect('lCur', l?l.currency:trip.currency)+'</div></div>'
       + '<div class="field" id="lPaidF"'+(l&&+l.cost?'':' hidden')+'><label for="lPaid">Paid by</label><input id="lPaid" list="lPayers" autocomplete="off" value="'+esc(l&&l.paidBy||lastPayer(trip.id))+'"><datalist id="lPayers">'+payers(trip.id).map(n=>'<option value="'+esc(n)+'">').join('')+'</datalist></div>'
@@ -1266,10 +1268,14 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
       $('#xCancel').onclick=closeSheet;
       $('#modes').querySelectorAll('[data-mode]').forEach(btn=>btn.onclick=()=>{ mode=btn.dataset.mode; $('#modes').querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===btn)); });
       $('#lCost').addEventListener('input',()=>{ $('#lPaidF').hidden=!(parseFloat(val('lCost').replace(',','.'))>0); });
+      // how long it took, from the two times (an arrival "earlier" than the departure is the next day)
+      const legMins=()=>{ const a=val('lTime'), b=val('lArr'); if(!a||!b) return null; let m=(+b.slice(0,2)*60+ +b.slice(3))-(+a.slice(0,2)*60+ +a.slice(3)); if(m<0) m+=1440; return m; };
+      const showDur=()=>{ const m=legMins(), h=$('#lDurH'); h.textContent=m!=null?'⏱ '+fmtDur(m*60)+' on the way':(rec&&rec.durationS?'⏱ '+fmtDur(rec.durationS)+' recorded':''); };
+      ['lTime','lArr'].forEach(id=>$('#'+id).addEventListener('input',showDur)); showDur();
       const bindNoTrk=()=>{ const x=$('#lNoTrk'); if(x) x.onclick=()=>{ dropTrack=true; $('#lRec').textContent='Recorded route will be removed'; }; }; bindNoTrk();
       const gf=$('#lGpx'); gf.onchange=async()=>{ const f=gf.files&&gf.files[0]; gf.value=''; if(!f) return;
         try{ const r=await readDrive(trip, f); rec=r; dropTrack=false;
-          $('#lKm').value=r.km||''; if(r.time) $('#lTime').value=r.time; if(r.date) $('#lDate').value=r.date;
+          $('#lKm').value=r.km||''; if(r.time) $('#lTime').value=r.time; if(r.date) $('#lDate').value=r.date; if(r.time&&r.durationS) $('#lArr').value=addHM(r.time,r.durationS); showDur();
           if(r.from&&!val('lFrom').trim()) $('#lFrom').value=r.from; if(r.to&&!val('lTo').trim()) $('#lTo').value=r.to;
           $('#lRec').innerHTML=recHint(); }
         catch(e){ toast(e.message||'Couldn\'t read that file'); } };
@@ -1286,9 +1292,10 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
           const straight=haversine(A,B);
           const km = isFinite(kmIn)&&kmIn>0 ? kmIn : Math.round(straight*(ROAD_FACTOR[mode]||1.2));
           const costIn=parseFloat(val('lCost').replace(',','.'));
-          const data={tripId:trip.id, mode, fromId:A.id, toId:B.id, date, time:val('lTime'), km, kmEstimated:!(isFinite(kmIn)&&kmIn>0)&&mode!=='plane',
+          const mins=legMins();
+          const data={tripId:trip.id, mode, fromId:A.id, toId:B.id, date, time:val('lTime'), arrTime:val('lArr'), ...(mins!=null?{durationS:mins*60}:{}), km, kmEstimated:!(isFinite(kmIn)&&kmIn>0)&&mode!=='plane',
             cost:isFinite(costIn)?costIn:0, currency:val('lCur'), paidBy:isFinite(costIn)&&costIn>0?(val('lPaid').trim()||lastPayer(trip.id)):'', notes:val('lNotes').trim(), updatedAt:now()};
-          if(rec&&rec.track){ data.track=rec.track; data.durationS=rec.durationS||null; if(isFinite(kmIn)&&kmIn>0) data.kmEstimated=false; }
+          if(rec&&rec.track){ data.track=rec.track; data.durationS=mins!=null?mins*60:(rec.durationS||null); if(isFinite(kmIn)&&kmIn>0) data.kmEstimated=false; }
           else if(dropTrack){ data.track=null; data.durationS=null; }
           if(l&&l.date!==date) data.dayPos=null;
           if(l) await patch('legs', l.id, data); else await put('legs', null, Object.assign({order:Date.now(), createdAt:now()}, data));
@@ -1874,6 +1881,7 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
     return '<div class="active-row">'+ks.map(k=>{ const b=by[k];
       return '<div class="cell"><div class="k">'+catIcon(k)+' '+CAT_LABEL[k]+'</div><div class="v mono">'+(b.km?(b.km<100?b.km.toFixed(1):fmtKm(Math.round(b.km))):'—')+'<small> km</small></div>'
         + '<div class="faint">'+b.n+' '+(k==='run'?'run':k==='ride'?'ride':k==='hike'?'hike':'walk')+(b.n===1?'':'s')+(b.s?' · '+fmtDur(b.s):'')+'</div></div>'; }).join('')+'</div>'; }
+  const addHM=(hm,sec)=>{ const m=(+hm.slice(0,2)*60+ +hm.slice(3)+Math.round((+sec||0)/60))%1440; return pad2(Math.floor(m/60))+':'+pad2(m%60); };
   const legTrack=l=>Array.isArray(l.track)&&l.track.length>1?l.track.map(q=>[q[1],q[0]]):null;
   function parseGpx(text){
     const doc=new DOMParser().parseFromString(text,'application/xml');
@@ -1976,7 +1984,7 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
       form.onsubmit=async e=>{ e.preventDefault(); const pick=[...form.querySelectorAll('[data-tl]')].filter(c=>c.checked).map(c=>rows[+c.dataset.tl]); if(!pick.length){ closeSheet(); return; }
         const btn=$('#tlGo'); btn.disabled=true; btn.textContent='Adding…'; let n=0;
         try{ for(const d of pick){
-            const data={mode:d.mode, date:d.date, time:d.time, km:d.km, kmEstimated:false, durationS:d.dur, track:thinTrack(d.path), updatedAt:now()};
+            const data={mode:d.mode, date:d.date, time:d.time, arrTime:d.dur?addHM(d.time,d.dur):'', km:d.km, kmEstimated:false, durationS:d.dur, track:thinTrack(d.path), updatedAt:now()};
             if(d.same) await patch('legs', d.same.id, data);
             else { const A=await ensureStop(t, d.from, null, d.date), B=await ensureStop(t, d.to, d.date, null);
               await put('legs', null, Object.assign({tripId:t.id, fromId:A.id, toId:B.id, cost:0, currency:t.currency||'EUR', notes:'', order:Date.now(), createdAt:now()}, data)); }
