@@ -192,7 +192,7 @@
   /* sheet */
   .backdrop{position:fixed;inset:0;z-index:50;background:rgba(10,15,20,.55);display:flex;align-items:flex-end;justify-content:center;}
   @media (min-width:640px){ .backdrop{align-items:center;} }
-  .sheet{background:var(--surface);width:100%;max-width:560px;max-height:92vh;overflow-y:auto;border-radius:18px 18px 0 0;
+  .sheet{background:var(--surface);width:100%;max-width:560px;max-height:92vh;max-height:92%;overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;border-radius:18px 18px 0 0;
     padding:18px 18px calc(18px + env(safe-area-inset-bottom,0px));display:flex;flex-direction:column;gap:12px;}
   @media (min-width:640px){ .sheet{border-radius:18px;} }
   .sheet h2{font-size:24px;font-weight:700;}
@@ -1181,12 +1181,20 @@ const WORLD = __WORLD__;
   // ---------- sheets ----------
   function openSheet(html, bind){
     layer.innerHTML='<div class="backdrop" id="bd"><form class="sheet" id="sheet" novalidate>'+html+'</form></div>';
-    const bd=$('#bd'); bd.onclick=e=>{ if(e.target===bd) closeSheet(); };
+    const bd=$('#bd'), sh=$('#sheet'); bd.onclick=e=>{ if(e.target===bd) closeSheet(); };
     document.addEventListener('keydown', escClose);
-    bind($('#sheet'));
+    // the phone keyboard: keep the sheet above it, scrollable, and easy to put away
+    sh.addEventListener('submit', e=>{ if(!sh.onsubmit) e.preventDefault(); }); // a sheet without a Save never reloads the page on Enter
+    sh.addEventListener('keydown', e=>{ const x=e.target; if(e.key==='Enter'&&x.tagName==='INPUT'&&!sh.onsubmit){ e.preventDefault(); x.blur(); } });
+    const typing=el=>el&&/^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName)&&!/^(checkbox|radio|range|file|button)$/.test(el.type||'');
+    sh.addEventListener('touchstart', e=>{ const a=document.activeElement; if(typing(a)&&!typing(e.target)&&!(e.target.closest&&e.target.closest('label'))) a.blur(); }, {passive:true});
+    fitSheet(); bind(sh);
   }
+  const vv=window.visualViewport;
+  function fitSheet(){ const bd=$('#bd'); if(!bd||!vv) return; bd.style.top=vv.offsetTop+'px'; bd.style.height=vv.height+'px'; bd.style.bottom='auto'; }
+  if(vv){ vv.addEventListener('resize', fitSheet); vv.addEventListener('scroll', fitSheet); }
   function escClose(e){ if(e.key==='Escape') closeSheet(); }
-  function closeSheet(){ layer.innerHTML=''; document.removeEventListener('keydown', escClose); }
+  function closeSheet(){ const a=document.activeElement; if(a&&a.blur) a.blur(); layer.innerHTML=''; document.removeEventListener('keydown', escClose); }
   const val = id => ($('#'+id)||{}).value||'';
   function curSelect(id, cur){ return '<select id="'+id+'">'+CURRENCIES.map(c=>'<option'+(c===cur?' selected':'')+'>'+c+'</option>').join('')+'</select>'; }
   function confirmDelete(form, label, onYes){
