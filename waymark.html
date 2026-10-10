@@ -275,7 +275,7 @@
   .st-ico{font-size:30px;line-height:1.1;}
   .st-cc{font-family:'IBM Plex Mono',monospace;font-weight:600;font-size:12px;letter-spacing:.1em;}
   .st-name{font-size:13.5px;font-weight:600;color:var(--ink-soft);}
-  .active-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;margin-top:-8px;}
+  .active-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(100px,1fr));gap:8px;margin-top:-8px;}
   .active-row .cell{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:8px 12px;}
   .active-row .k{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-faint);font-weight:700;}
   .active-row .v{font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:22px;line-height:1.15;}
@@ -832,6 +832,7 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
     drawMap($('#tripMap'), {key:'trip:'+t.id, stops, legs, places:tripPlaces, stays:tripStays(t.id), onStay:x=>staySheet(x, {trip:t}), visitedN3, height:520, label:'Route map for '+t.name,
       onStop:s=>go({stopId:s.id, placeCat:'all'}), onPlace:p=>placeSheet(stopOf(p.stopId), p, {trip:t})});
     bindTodo(t);
+    const sk=$('#stepsKpi'); if(sk) sk.onclick=()=>stepsSheet(t, todayStr()>=t.startDate&&todayStr()<=t.endDate?todayStr():t.endDate);
     $('#addAct').onclick=()=>placeSheet(null, null, {trip:t, date:(todayStr()>=t.startDate&&todayStr()<=t.endDate)?todayStr():t.startDate});
     const fs0=$('#fromStrava'); if(fs0) fs0.onclick=()=>stravaSheet(t);
     const gx0=$('#gpxIn'); gx0.onchange=()=>{ const f=gx0.files&&gx0.files[0]; gx0.value=''; if(f) gpxImport(t, f); };
@@ -1894,8 +1895,12 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
   const SPORTS=new Set(['run','walk','hike','ride']);
   function activeHtml(t){
     const by={}; S.places.filter(p=>p.tripId===t.id&&p.status!=='want'&&SPORTS.has(p.category)).forEach(p=>{ const b=by[p.category]=by[p.category]||{km:0,n:0,s:0}; b.n++; b.km+=+p.distanceKm||0; b.s+=+p.movingS||0; });
-    const ks=['run','ride','hike','walk'].filter(k=>by[k]); if(!ks.length) return '';
-    return '<div class="active-row">'+ks.map(k=>{ const b=by[k];
+    const ks=['run','ride','hike','walk'].filter(k=>by[k]);
+    const sv=Object.entries(tripSteps(t)).filter(([k,n])=>k>=t.startDate&&k<=t.endDate&&+n>0).map(x=>+x[1]), tot=sv.reduce((a,b)=>a+b,0);
+    if(!ks.length&&!sv.length) return '';
+    // steps first: total, daily average, rough distance (≈0.75 m a step)
+    return '<div class="active-row">'+(sv.length?'<div class="cell" id="stepsKpi" style="cursor:pointer"><div class="k">👟 Steps</div><div class="v mono">'+(tot>=10000?Math.round(tot/1000).toLocaleString()+'<small>k</small>':tot.toLocaleString())+'</div>'
+        + '<div class="faint">'+Math.round(tot/sv.length).toLocaleString()+' a day<br>≈'+fmtKm(Math.round(tot*0.00075))+' km on foot</div></div>':'')+ks.map(k=>{ const b=by[k];
       return '<div class="cell"><div class="k">'+catIcon(k)+' '+CAT_LABEL[k]+'</div><div class="v mono">'+(b.km?(b.km<100?b.km.toFixed(1):fmtKm(Math.round(b.km))):'—')+'<small> km</small></div>'
         + '<div class="faint">'+b.n+' '+(k==='run'?'run':k==='ride'?'ride':k==='hike'?'hike':'walk')+(b.n===1?'':'s')+(b.s?' · '+fmtDur(b.s):'')+'</div></div>'; }).join('')+'</div>'; }
   const addHM=(hm,sec)=>{ const m=(+hm.slice(0,2)*60+ +hm.slice(3)+Math.round((+sec||0)/60))%1440; return pad2(Math.floor(m/60))+':'+pad2(m%60); };
