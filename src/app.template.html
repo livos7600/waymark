@@ -3172,6 +3172,20 @@ const WORLD = __WORLD__;
     epic:{label:'🎬 Epic', bpm:96, key:50, prog:[[0,3,7],[-4,0,3],[3,7,10],[-2,2,5]], step:4, drums:'big'},
   };
   const tuneCache=new Map();
+  // let page-made sound play with the ringer off (Safari 16.4+ / iOS 17)
+  function playbackSession(){ try{ if(navigator.audioSession) navigator.audioSession.type='playback'; }catch(e){} }
+  const SILENT_WAV='data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAIA+AAACABAAZGF0YQAAAAA=';
+  // a 16-bit stereo WAV of secs from buf starting at start, scaled by vol, with a short fade at the end
+  function wavBlob(buf, start, secs, vol){
+    const sr=buf.sampleRate, from=Math.min(buf.length, Math.floor((start||0)*sr)), n=Math.max(0, Math.min(buf.length-from, Math.floor(secs*sr))), ch=2;
+    const out=new DataView(new ArrayBuffer(44+n*ch*2)), str=(o,t)=>{ for(let i=0;i<t.length;i++) out.setUint8(o+i,t.charCodeAt(i)); };
+    str(0,'RIFF'); out.setUint32(4,36+n*ch*2,true); str(8,'WAVE'); str(12,'fmt '); out.setUint32(16,16,true); out.setUint16(20,1,true); out.setUint16(22,ch,true);
+    out.setUint32(24,sr,true); out.setUint32(28,sr*ch*2,true); out.setUint16(32,ch*2,true); out.setUint16(34,16,true); str(36,'data'); out.setUint32(40,n*ch*2,true);
+    const L=buf.getChannelData(0), R=buf.numberOfChannels>1?buf.getChannelData(1):L, v=vol==null?1:vol, fade=Math.min(n, sr*1.5);
+    for(let i=0;i<n;i++){ const g=v*(i>n-fade?(n-i)/fade:1);
+      out.setInt16(44+i*4, Math.max(-1,Math.min(1,L[from+i]*g))*32767, true); out.setInt16(46+i*4, Math.max(-1,Math.min(1,R[from+i]*g))*32767, true); }
+    return new Blob([out.buffer],{type:'audio/wav'});
+  }
   async function makeTune(kind, secs){
     const T=TUNES[kind]; if(!T) return null; secs=Math.max(8,Math.ceil(secs));
     const key=kind+'|'+secs; if(tuneCache.has(key)) return tuneCache.get(key);
@@ -3345,7 +3359,7 @@ const WORLD = __WORLD__;
         dropVideo(); stopListen(); const tok=vidTok; mk.dataset.rec='1'; mk.textContent='■ Stop'; $('#shareHint').textContent='';
         const alive=()=>tok===vidTok&&sheet.isConnected;
         // the audio context has to start inside the tap
-        let actx=null; if(music.kind!=='none'){ try{ actx=new (window.AudioContext||window.webkitAudioContext)(); actx.resume(); }catch(e){ actx=null; } }
+        let actx=null; if(music.kind!=='none'){ playbackSession(); try{ actx=new (window.AudioContext||window.webkitAudioContext)(); actx.resume(); }catch(e){ actx=null; } }
         try{
           const plan=await routeVideoPlan(t, JSON.parse(JSON.stringify(o))); if(!alive()) return;
           let audio=null;
@@ -3363,7 +3377,8 @@ const WORLD = __WORLD__;
         finally{ if(tok===vidTok){ delete mk.dataset.rec; mk.disabled=false; } if(actx) actx.close().catch(()=>{}); } };
       // ----- editor: music, pace, scenes, photo edits
       const ed=$('#shEd');
-      let listen=null; function stopListen(){ if(listen){ try{ listen.src.stop(); }catch(e){} listen.ctx.close().catch(()=>{}); listen=null; } const b=$('#edListen'); if(b) b.textContent='▶ Listen'; }
+      // the preview plays as a plain <audio> clip (a WAV made from the tune): iPhones mute page-made (Web Audio) sound when the ringer is off, not media
+      let listen=null; function stopListen(){ if(listen){ try{ listen.el.pause(); }catch(e){} if(listen.url) URL.revokeObjectURL(listen.url); listen=null; } const b=$('#edListen'); if(b) b.textContent='▶ Listen'; }
       const mm=sec=>Math.floor(sec/60)+':'+pad2(Math.floor(sec%60));
       const drawMusic=()=>{ if(!ed) return; ed.querySelectorAll('[data-mu]').forEach(b=>b.classList.toggle('on',b.dataset.mu===music.kind));
         $('#edMuOpts').hidden=music.kind==='none'; $('#edMuOpts').style.display=music.kind==='none'?'none':'flex';
@@ -3407,15 +3422,20 @@ const WORLD = __WORLD__;
           catch(e){ $('#edSongName').textContent='Couldn\'t open that file. Try an MP3 or M4A saved on your phone.'; } };
         $('#edStart').oninput=()=>{ music.start=+$('#edStart').value; $('#edStartV').textContent=mm(music.start); };
         $('#edStart').onchange=()=>{ changed(); if(listen){ stopListen(); $('#edListen').click(); } };
-        $('#edVol').oninput=()=>{ music.vol=+$('#edVol').value/100; $('#edVolV').textContent=$('#edVol').value+'%'; if(listen) listen.gain.gain.value=music.vol; };
-        $('#edVol').onchange=changed;
+        $('#edVol').oninput=()=>{ music.vol=+$('#edVol').value/100; $('#edVolV').textContent=$('#edVol').value+'%'; };
+        $('#edVol').onchange=()=>{ changed(); if(listen){ stopListen(); $('#edListen').click(); } }; // iPhones ignore a clip's volume, so it's baked into the clip
         $('#edFade').onclick=()=>{ music.fade=!music.fade; drawMusic(); changed(); };
         $('#edListen').onclick=async()=>{ if(listen){ stopListen(); return; } const b=$('#edListen');
-          const ctx=new (window.AudioContext||window.webkitAudioContext)(); ctx.resume(); listen={ctx, src:{stop(){}}, gain:ctx.createGain()};
-          b.textContent='…'; const mine=listen;
-          const buf=music.kind==='file'?music.buf:await makeTune(music.kind, 20); if(listen!==mine||!buf) return;
-          const src=ctx.createBufferSource(); src.buffer=buf; mine.gain.gain.value=music.vol; src.connect(mine.gain); mine.gain.connect(ctx.destination);
-          src.start(0, music.kind==='file'?music.start:0, 20); src.onended=()=>{ if(listen===mine) stopListen(); }; mine.src=src; b.textContent='■ Stop'; };
+          playbackSession();
+          // unlock the clip inside the tap (iPhones only let a tap start sound); the real sound is swapped in once it's ready
+          const el=new Audio(); el.setAttribute('playsinline',''); el.src=SILENT_WAV; el.play().catch(()=>{});
+          listen={el, url:null}; const mine=listen; b.textContent='…';
+          try{ const buf=music.kind==='file'?music.buf:await makeTune(music.kind, 20); if(listen!==mine) return;
+            if(!buf){ stopListen(); return; }
+            mine.url=URL.createObjectURL(wavBlob(buf, music.kind==='file'?music.start:0, 20, music.vol));
+            el.src=mine.url; el.onended=()=>{ if(listen===mine) stopListen(); };
+            await el.play(); if(listen===mine) b.textContent='■ Stop'; }
+          catch(e){ if(listen===mine){ stopListen(); toast('Couldn\'t play it here. Check that your phone isn\'t on silent and the volume is up.'); } } };
         ed.querySelectorAll('[data-pace]').forEach(b=>b.onclick=()=>{ o.edit.pace=+b.dataset.pace; ed.querySelectorAll('[data-pace]').forEach(x=>x.classList.toggle('on',x===b)); changed(); });
         new MutationObserver(()=>{ if(!sheet.isConnected) stopListen(); }).observe(document.getElementById('layer'),{childList:true});
       }
