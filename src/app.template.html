@@ -1209,8 +1209,9 @@ const WORLD = __WORLD__;
     const legs=tripLegs(tid), cityOf=id=>norm((stopOf(id)||{}).city), out=[], seen=new Set();
     for(let i=1;i<seq.length;i++){ const A=seq[i-1], B=seq[i], bc=norm(B.s.city);
       // follow legs already logged from A (e.g. Pilat → Messanges) before deciding what's missing
-      let cur=A.s, covered=false;
-      for(let g=0; g<6; g++){ const l=legs.find(l=>cityOf(l.fromId)===norm(cur.city)&&l.date>=A.d&&l.date<=B.d);
+      // only legs that had left by B's time: a drive later that day doesn't explain where you were at 14:29
+      let cur=A.s, covered=false; const bt=B.t.slice(11), before=l=>!(l.date===B.d&&legTime(l)&&legTime(l)>bt);
+      for(let g=0; g<6; g++){ const l=legs.find(l=>cityOf(l.fromId)===norm(cur.city)&&l.date>=A.d&&l.date<=B.d&&before(l));
         if(!l) break; if(cityOf(l.toId)===bc){ covered=true; break; } cur=stopOf(l.toId)||cur; if(!cur.lat) break; }
       // or the route already reaches B that day from anywhere (Pilat → Messanges covers Arcachon → Messanges)
       if(!covered) covered=legs.some(l=>cityOf(l.toId)===bc&&l.date>=A.d&&l.date<=B.d);
@@ -1218,7 +1219,7 @@ const WORLD = __WORLD__;
       // the actual pins say you barely moved (laundry in a Bayonne suburb, run in Bayonne next morning)
       if(cur===A.s&&A.p&&B.p&&haversine(A.p,B.p)<3) continue;
       const k=norm(cur.city)+'>'+bc; if(seen.has(k)) continue; seen.add(k);
-      const d=haversine(cur,B.s); if(d<2) continue;
+      const d=haversine(cur,B.s); if(d<10) continue; // a village next to where you were (a yard sale in Ramous from Puyoô) isn't a drive to log
       out.push({a:cur, b:B.s, date:B.d, km:Math.round(d*ROAD_FACTOR.car)}); }
     return out;
   }
