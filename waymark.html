@@ -215,7 +215,7 @@
   .rv input:not([type=checkbox]),.rv select{width:100%;min-width:0;border:1px solid var(--line);background:var(--surface-2);border-radius:10px;padding:10px;font-size:16px;}
   .rv .grid2>*{min-width:0;}
   .hero-add{display:flex;flex-direction:column;gap:8px;}
-  .hero-btn{font-size:18px;padding:16px;border-radius:14px;}
+  .hero-btn{font-size:20px;padding:0 14px;border-radius:12px;flex-shrink:0;display:flex;align-items:center;}
   .qa{display:flex;gap:6px;}
   .todo-row{display:flex;gap:10px;align-items:center;padding:10px 0;border-bottom:1px solid var(--line);}
   .todo-row:last-child{border-bottom:0;}
@@ -782,14 +782,15 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
     main.innerHTML =
       '<div class="faint">'+fmtDate(t.startDate,{weekday:'short',month:'short',day:'numeric'})+' – '+fmtDate(t.endDate,{weekday:'short',month:'short',day:'numeric',year:'numeric'})+(t.notes?' · '+esc(t.notes):'')+'</div>'
       + ((t.people||[]).length?'<div class="faint" style="margin-top:-10px">👥 '+t.people.length+' '+(t.people.length===1?'traveller':'travellers')+': '+esc(t.people.map(x=>x.name||x.email||'?').join(', '))+'</div>':'')
-      + '<div class="hero-add">'+(assets||(sample&&sampleImages)?'<label class="btn primary hero-btn" for="heroPhotos">📷 Add photos</label><input id="heroPhotos" type="file" accept="image/*" multiple hidden>':'')
-        + (sample?'<div class="qa"><input id="qaText" autocomplete="off" enterkeyhint="send" placeholder="🎤 Say or type: dinner 45€ at Chez Pierre, Alex paid"><button class="btn" type="button" id="qaGo">Add</button></div>':'')
-        + '<div class="faint">Photos become activities, meals, receipts or stays on the right day. Tap 🎤 on your keyboard to speak.</div></div>'
       + '<div class="pass"><div class="cell"><div class="k">Distance</div><div class="v mono">'+fmtKm(st.km)+'<small style="font-size:14px"> km</small></div></div>'
       + '<div class="cell"><div class="k">Days</div><div class="v">'+st.days+'</div></div>'
       + '<div class="cell"><div class="k">Cities</div><div class="v">'+st.cities+'</div></div>'
       + '<div class="cell"><div class="k">Spent</div><div class="v" style="font-size:'+(money.length>1?'18px':'26px')+'">'+(money.length?money.map(([c,a])=>fmtMoney(a,c)).join('<br>'):'—')+'</div></div></div>'
       + activeHtml(t)
+      // one compact add bar under the numbers: 📷 photos · say or type · Add
+      + '<div class="hero-add"><div class="qa">'+(assets||(sample&&sampleImages)?'<label class="btn primary hero-btn" for="heroPhotos" aria-label="Add photos">📷</label><input id="heroPhotos" type="file" accept="image/*" multiple hidden>':'')
+        + (sample?'<input id="qaText" autocomplete="off" enterkeyhint="send" placeholder="🎤 dinner 45€ at Chez Pierre, Alex paid"><button class="btn" type="button" id="qaGo">Add</button>':'')+'</div>'
+        + '<div class="faint" style="font-size:12.5px">📷 Photos or 🎤 a sentence become activities, meals, receipts or stays on the right day.</div></div>'
       + (()=>{ const nMiss=missingLegs(t.id).length;
           return '<div class="sec-tabs" id="secTabs">'+TRIP_SECS.map(([k,l])=>'<button type="button" data-sec="'+k+'" class="'+(tripSec()===k?'on':'')+'">'+l
             +(k==='route'&&nMiss?'<i class="sec-dot" aria-label="'+nMiss+' drives missing"></i>':'')+'</button>').join('')+'</div>'; })()
