@@ -217,6 +217,13 @@
   .hero-add{display:flex;flex-direction:column;gap:8px;}
   .hero-btn{font-size:18px;padding:16px;border-radius:14px;}
   .qa{display:flex;gap:6px;}
+  .todo-row{display:flex;gap:10px;align-items:center;padding:10px 0;border-bottom:1px solid var(--line);}
+  .todo-row:last-child{border-bottom:0;}
+  .todo-ck{width:28px;height:28px;border-radius:50%;border:2px solid var(--accent);background:none;flex-shrink:0;cursor:pointer;color:#fff;font-size:15px;font-weight:700;padding:0;}
+  .todo-ck.on{background:var(--accent);}
+  .todo-row .tx{flex:1;min-width:0;cursor:pointer;}
+  .todo-row img{width:40px;height:40px;border-radius:8px;object-fit:cover;flex-shrink:0;}
+  .todo-row.done .nm{text-decoration:line-through;color:var(--ink-soft);}
   .qa input{flex:1;min-width:0;border:1px solid var(--line);background:var(--surface);border-radius:12px;padding:12px;font-size:16px;}
   details.more-add>summary{cursor:pointer;color:var(--ink-soft);font-size:14px;font-weight:600;list-style:none;}
   details.more-add>summary::-webkit-details-marker{display:none;}
@@ -525,7 +532,7 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
   function toToday(){ if(!R.tripId||R.stopId||tripSec()!=='days') return; const el=main.querySelector('.day.today'), bar=$('#secTabs'); if(!el||!bar) return;
     window.scrollTo(0, Math.max(0, el.getBoundingClientRect().top+window.scrollY-topH()-bar.offsetHeight-8)); }
   // trip page sections: one at a time under a sticky bar (the last one you opened is remembered)
-  const TRIP_SECS=[['days','Days'],['map','Map'],['route','Route'],['cities','Cities'],['budget','Budget']];
+  const TRIP_SECS=[['days','Days'],['todo','To do'],['map','Map'],['route','Route'],['cities','Cities'],['budget','Budget']];
   function tripSec(){ if(!R.sec){ try{ R.sec=localStorage.getItem('wm.sec')||''; }catch(e){} } return TRIP_SECS.some(x=>x[0]===R.sec)?R.sec:'days'; }
   function showSec(k){ if(k===tripSec()){ const bar=$('#secTabs'); if(bar) window.scrollTo({top:Math.max(0,bar.offsetTop-topH()), behavior:'smooth'}); return; }
     scrollMem[viewKey()]=window.scrollY; R.sec=k; try{ localStorage.setItem('wm.sec',k); }catch(e){}
@@ -795,6 +802,7 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
       + (()=>{ const v=Object.entries(tripSteps(t)).filter(([k,n])=>k>=t.startDate&&k<=t.endDate&&+n>0).map(x=>+x[1]); if(!v.length) return '';
           const tot=v.reduce((a,b)=>a+b,0); return '<div class="faint">👟 '+tot.toLocaleString()+' steps over '+v.length+' day'+(v.length===1?'':'s')+' · '+Math.round(tot/v.length).toLocaleString()+' a day</div>'; })()
       + daysHtml(t)+'</section>'
+      + '<section data-sec="todo"'+(tripSec()==='todo'?'':' hidden')+'>'+todoHtml(t)+'</section>'
       + '<section data-sec="route"'+(tripSec()==='route'?'':' hidden')+'><div class="sec-title"><h2>Route</h2><div class="row" style="flex-wrap:nowrap"><label class="btn small ghost" for="gtlIn2">🗺️ Timeline</label><input id="gtlIn2" type="file" hidden><button class="btn small" id="addLeg">'+ICON.plus+' Leg</button></div></div>'
       + dupLegs(legs).map(([keep,extra])=>'<div class="confirm"><span>↻ '+esc((stopOf(extra.fromId)||{}).city||'?')+' → '+esc((stopOf(extra.toId)||{}).city||'?')+' is in the route twice on '+fmtDate(extra.date,{month:'short',day:'numeric'})+(+keep.cost&&+extra.cost?' ('+fmtMoney(+keep.cost,keep.currency)+' and '+fmtMoney(+extra.cost,extra.currency)+')':'')+'.</span><div class="row"><button type="button" class="btn small primary" data-dupkeep="'+keep.id+'" data-dupdel="'+extra.id+'">Merge into one drive</button><span class="faint">'+(+keep.cost&&+extra.cost?'Costs are added up, notes kept.':'Keeps the time, cost and notes.')+'</span></div></div>').join('')
       + (()=>{ const ms=missingLegs(t.id); if(!ms.length) return '';
@@ -823,6 +831,7 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
     main.querySelectorAll('#secTabs [data-sec]').forEach(b=>b.onclick=()=>showSec(b.dataset.sec));
     drawMap($('#tripMap'), {key:'trip:'+t.id, stops, legs, places:tripPlaces, stays:tripStays(t.id), onStay:x=>staySheet(x, {trip:t}), visitedN3, height:520, label:'Route map for '+t.name,
       onStop:s=>go({stopId:s.id, placeCat:'all'}), onPlace:p=>placeSheet(stopOf(p.stopId), p, {trip:t})});
+    bindTodo(t);
     $('#addAct').onclick=()=>placeSheet(null, null, {trip:t, date:(todayStr()>=t.startDate&&todayStr()<=t.endDate)?todayStr():t.startDate});
     const fs0=$('#fromStrava'); if(fs0) fs0.onclick=()=>stravaSheet(t);
     const gx0=$('#gpxIn'); gx0.onchange=()=>{ const f=gx0.files&&gx0.files[0]; gx0.value=''; if(f) gpxImport(t, f); };
@@ -1361,10 +1370,10 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
     if(!tStops.length){ toast('Add a leg first so the trip has a city.'); return; }
     const cityNames=[...new Set(tStops.map(s=>s.city))];
     const pre=opts.prefill||null;
-    const date0=p?p.date||'':((pre&&pre.date)||opts.date||(stop&&stop.arrive)||todayStr());
+    const date0=p?p.date||'':opts.todo?'':((pre&&pre.date)||opts.date||(stop&&stop.arrive)||todayStr());
     const cur=(p&&stopOf(p.stopId))||stop||stopOnDate(trip.id,date0)||tStops[0];
     const canRead=!!(sample&&sampleImages);
-    let rating=p?p.rating||0:0, status=p?p.status||'done':(date0&&date0>todayStr()?'want':'done'), photoIds=p?(p.photoIds||[]).slice():[];
+    let rating=p?p.rating||0:0, status=p?p.status||'done':(opts.todo||date0&&date0>todayStr()?'want':'done'), photoIds=p?(p.photoIds||[]).slice():[];
     let picked=[], uploading=false, reading=false, cityTouched=!!stop||!!p, statusTouched=!!p;
     let pos=p&&p.lat!=null?{lat:p.lat, lon:p.lon, name:p.name}:(pre&&pre.lat!=null?{lat:pre.lat, lon:pre.lon}:null);
     if(!p&&pre&&pre.photoIds) photoIds=pre.photoIds.slice();
@@ -1375,8 +1384,8 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
         + '<div class="hint" id="pUp">'+(canRead&&!p?'Start with a photo: Claude reads where and when it was taken and what it shows.':'')+'</div></div>':'')
       + '<div class="field"><label for="pName">What</label><input id="pName" value="'+esc(p?p.name:'')+'" placeholder="'+(pre&&isMeal(pre.category)?'e.g. Chez Pierre, oysters at the market':'e.g. Dune du Pilat, surf lesson, Guggenheim')+'"></div>'
       + '<div class="grid2"><div class="field"><label for="pDate">Date</label><input id="pDate" type="date" value="'+esc(date0)+'"></div>'
-      + '<div class="field"><label for="pTime">Time (optional)</label><input id="pTime" type="time" value="'+esc(p?hhmm(p):((pre&&pre.time)||(date0===todayStr()?nowHM():'')))+'"></div></div>'
-      + '<div class="grid2"><div class="field"><label for="pCity">City</label><input id="pCity" list="pCities" autocomplete="off" placeholder="From the photo, or type" value="'+esc(p?((stopOf(p.stopId)||{}).city||''):stop?stop.city:'')+'"><datalist id="pCities">'+cityNames.map(c=>'<option value="'+esc(c)+'">').join('')+'</datalist></div>'
+      + '<div class="field"><label for="pTime">Time (optional)</label><input id="pTime" type="time" value="'+esc(p?hhmm(p):((pre&&pre.time)||(date0===todayStr()&&!opts.todo?nowHM():'')))+'"></div></div>'
+      + '<div class="grid2"><div class="field"><label for="pCity">City</label><input id="pCity" list="pCities" autocomplete="off" placeholder="From the photo, or type" value="'+esc(p?((stopOf(p.stopId)||{}).city||p.city||''):stop?stop.city:'')+'"><datalist id="pCities">'+cityNames.map(c=>'<option value="'+esc(c)+'">').join('')+'</datalist></div>'
       + '<div class="field"><label for="pCat">Type</label><select id="pCat">'+catOptions(p?p.category:(pre&&pre.category)||'attraction')+'</select></div></div>'
       + '<div class="field"><label for="pLoc">Location</label><div style="display:flex;gap:6px"><input id="pLoc" autocomplete="off" value="'+esc(p&&p.address||'')+'" placeholder="Filled from the photo, or type a place or address" style="flex:1;min-width:0">'
         + '<button type="button" class="btn small" id="pFind" aria-label="Find this place">🔎 Find</button><button type="button" class="btn small ghost" id="pClr" aria-label="Remove the location">✕</button></div>'
@@ -1505,7 +1514,9 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
         const name=val('pName').trim(); if(!name){ const er=$('#fErr'); er.hidden=false; er.textContent='Say what it was (a name is enough).'; return; }
         const date=val('pDate'); let city=val('pCity').trim(), st;
         const same=city?tStops.filter(s=>sameCity(s.city,city)):[];
+        let wantCity='';
         if(same.length) st=same.find(s=>date&&s.arrive<=date&&date<=(s.depart||s.arrive))||same[0];
+        else if(status==='want'&&!date){ wantCity=city; st={id:'', city}; } // a to-do: no day yet, so no stop yet (made when it's ticked)
         else if(city){ // a city the trip hasn't had yet (from the photo or typed): add it
           try{ $('#pSave').disabled=true; st=await ensureStop(trip, city, date, date, false, pos&&pos.lat!=null?{lat:pos.lat, lon:pos.lon, loose:true}:null); }
           catch(err){ st=(date&&stopOnDate(trip.id,date,val('pTime')))||cur; } } // couldn't place the town: file it under where you were then
@@ -1519,7 +1530,7 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
         const loc=val('pLoc').trim();
         const sport=SPORTS.has(val('pCat')), kmIn=parseFloat(val('pKm').replace(',','.')), dm=val('pDur').trim().match(/^(\d+)(?:[:h.](\d{1,2}))?$/);
         const sportData=sport?{distanceKm:isFinite(kmIn)&&kmIn>0?Math.round(kmIn*100)/100:null, movingS:dm?(dm[2]!=null?(+dm[1])*3600+(+dm[2])*60:(+dm[1])*60):null}:{};
-        const data=Object.assign({}, pre&&pre.extra||{}, sportData, {tripId:trip.id, stopId:st.id, name, address:loc, category:val('pCat'), date, time:val('pTime'), private:$('#pPriv').checked, status, rating, cost:isFinite(c)?c:0, paidBy:isFinite(c)&&c>0?val('pPaid').trim():'', currency:val('pCur'), notes:val('pNotes').trim(), photoIds, updatedAt:now()});
+        const data=Object.assign({}, pre&&pre.extra||{}, sportData, (opts.todo||p&&p.todo)?{todo:true}:{}, {city:wantCity}, {tripId:trip.id, stopId:st.id, name, address:loc, category:val('pCat'), date, time:val('pTime'), private:$('#pPriv').checked, status, rating, cost:isFinite(c)?c:0, paidBy:isFinite(c)&&c>0?val('pPaid').trim():'', currency:val('pCur'), notes:val('pNotes').trim(), photoIds, updatedAt:now()});
         if(keep){ data.lat=pos.lat; data.lon=pos.lon; }
         let id=p&&p.id;
         if(p){ if(!keep&&p.lat!=null){ data.lat=null; data.lon=null; } if(p.date!==date) data.dayPos=null; await patch('places', p.id, data); }
@@ -2457,6 +2468,70 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
   }
 
   // ---------- quick add (type or dictate with the keyboard mic) and photo batches: both end in a review list ----------
+  // ---------- To do: things to try (a tip, a restaurant, a dish, a museum), ticked off when done ----------
+  // stored as places with status 'want' and todo:true; city is a trip stop (stopId) or, for a town not on the trip yet, the text in city
+  const todoCity=p=>(stopOf(p.stopId)||{}).city||p.city||'';
+  function todoHtml(t){
+    const all=S.places.filter(p=>p.tripId===t.id&&(p.status==='want'||p.todo));
+    const open=all.filter(p=>p.status==='want').sort((a,b)=>(todoCity(a)||'~').localeCompare(todoCity(b)||'~')||(a.date||'~').localeCompare(b.date||'~')||(a.name||'').localeCompare(b.name||''));
+    const done=all.filter(p=>p.status==='done').sort((a,b)=>((b.date||'')+(b.time||'')).localeCompare((a.date||'')+(a.time||'')));
+    const row=(p,grouped)=>{ const c=grouped?'':todoCity(p), ph=(p.photoIds||[])[0], note=String(p.notes||'').split('\n')[0];
+      return '<div class="todo-row'+(p.status==='done'?' done':'')+'"><button type="button" class="todo-ck'+(p.status==='done'?' on':'')+'" data-tick="'+p.id+'" aria-label="'+(p.status==='done'?'Mark not done':'Mark done')+'">'+(p.status==='done'?'✓':'')+'</button>'
+        + (ph?'<img alt="" src="/_blob/'+ph+'" data-tdo="'+p.id+'">':'')
+        + '<div class="tx" data-tdo="'+p.id+'"><div class="nm">'+emo(catIcon(p.category))+esc(p.name)+(p.rating?' <span class="faint">'+'★'.repeat(p.rating)+'</span>':'')+'</div>'
+        + '<div class="faint" style="font-size:13px">'+[c?esc(c):'', p.status==='done'&&p.date?fmtDate(p.date,{month:'short',day:'numeric'}):p.date?'planned '+fmtDate(p.date,{month:'short',day:'numeric'}):'', note?esc(note.slice(0,80)):''].filter(Boolean).join(' · ')+'</div></div>'
+        + (assets?'<button type="button" class="btn small ghost" data-tdph="'+p.id+'" aria-label="Add a photo">'+ICON.camera+'</button>':'')+'</div>'; };
+    let cur=null;
+    return '<div class="sec-title"><h2>To do</h2><button class="btn small ghost" id="tdAdd">'+ICON.plus+' With details</button></div>'
+      + (sample?'<div class="qa"><input id="tdText" autocomplete="off" enterkeyhint="send" placeholder="🎤 e.g. pintxos at Gandarias in San Sebastián, Marc\'s tip"><button class="btn" type="button" id="tdGo">Add</button></div>'
+        + '<div class="faint">Restaurants someone recommended, a dish to try, a museum… Tick it when it\'s done and add a photo.</div>':'')
+      + (open.length?'<div class="card" style="padding:4px 14px">'+open.map(p=>{ const c=todoCity(p)||'Anywhere', h=c!==cur?'<div class="faint" style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;padding-top:10px">'+esc(c)+'</div>':''; cur=c; return h+row(p,true); }).join('')+'</div>'
+        :'<div class="card empty"><p>Nothing on the list yet.</p></div>')
+      + (done.length?'<div class="faint" style="font-weight:700;padding-top:6px">✓ Done ('+done.length+')</div><div class="card" style="padding:4px 14px">'+done.map(p=>row(p)).join('')+'</div>':'')
+      + '<input id="tdPhotoIn" type="file" accept="image/*" multiple hidden>';
+  }
+  async function readTodos(t, text){
+    const r=await sample.json('A traveller is noting things they want to do or try on their trip "'+String(t.name||'').slice(0,80)+'" (cities: '+tripStops(t.id).filter(s=>!s.home).map(s=>s.city).join(', ')+'): '+JSON.stringify(String(text).slice(0,500))+'\n'
+      + 'It may hold one or several things. Reply with only a JSON array, one object per thing: {"name": string (short, e.g. "Gandarias pintxos bar", "Guggenheim Museum", "Try gâteau basque"), '
+      + '"category": one of '+CATS.map(c=>c[0]).filter(c=>c!=='food'&&c!=='restaurant').join('|')+' (a restaurant or dish to try: dinner unless it is clearly breakfast, lunch, coffee or drinks), '
+      + '"city": string or null (only if said or obvious from a famous place), "notes": string (who recommended it, why, what to order; "" if nothing)}.');
+    const list=Array.isArray(r)?r:(r&&typeof r==='object'?[r]:[]);
+    return list.slice(0,12).map(o=>({name:String(o.name||'').slice(0,80), category:CAT_LABEL[o.category]?o.category:'attraction', city:String(o.city||'').trim(), notes:String(o.notes||'').slice(0,300)})).filter(o=>o.name);
+  }
+  async function addTodos(t, items){
+    const stops=tripStops(t.id).filter(s=>!s.home);
+    for(const it of items){ const st=it.city?stops.find(s=>sameCity(s.city,it.city)):null;
+      await put('places', null, {createdAt:now(), tripId:t.id, stopId:st?st.id:'', city:st?'':it.city||'', name:it.name, category:it.category, date:'', time:'', status:'want', todo:true, rating:0, cost:0, currency:t.currency||'EUR', notes:it.notes||'', photoIds:[], private:false}); }
+  }
+  async function tickTodo(t, p){
+    if(p.status==='done'){ await patch('places', p.id, {status:'want'}); return; }
+    const d=todayStr(), date=p.date&&p.date<=d?p.date:(d>=t.startDate&&d<=t.endDate?d:p.date||d), time=p.time||(date===d?nowHM():'');
+    let st=stopOf(p.stopId);
+    if(!st&&p.city){ try{ st=await ensureStop(t, p.city, date, date, false, p.lat!=null?{lat:p.lat, lon:p.lon, loose:true}:null); }catch(e){} }
+    if(!st) st=stopOnDate(t.id, date, time)||tripStops(t.id).find(s=>!s.home);
+    await patch('places', p.id, {status:'done', todo:true, date, time, stopId:st?st.id:'', city:'', dayPos:null});
+    toast('✓ Done · in Days on '+fmtDate(date,{month:'short',day:'numeric'})+(assets?' · 📷 to add a photo':''));
+  }
+  function bindTodo(t){
+    const sec=main.querySelector('section[data-sec="todo"]'); if(!sec) return;
+    const byId=id=>S.places.find(p=>p.id===id);
+    sec.querySelectorAll('[data-tick]').forEach(b=>b.onclick=async()=>{ const p=byId(b.dataset.tick); if(!p) return; b.disabled=true;
+      try{ await tickTodo(t, p); }catch(e){ b.disabled=false; toast('Couldn\'t save: '+((e&&e.message)||e)); } });
+    sec.querySelectorAll('[data-tdo]').forEach(b=>b.onclick=()=>{ const p=byId(b.dataset.tdo); if(p) placeSheet(stopOf(p.stopId), p, {trip:t}); });
+    const fin=$('#tdPhotoIn'); let target=null;
+    sec.querySelectorAll('[data-tdph]').forEach(b=>b.onclick=()=>{ target=b.dataset.tdph; fin.click(); });
+    fin.onchange=async()=>{ const fs=Array.from(fin.files||[]); fin.value=''; const p=byId(target); if(!fs.length||!p) return;
+      toast('Uploading '+fs.length+' photo'+(fs.length===1?'':'s')+'…'); const ids=await uploadPhotos(fs);
+      if(ids.length){ const q=byId(p.id)||p; await patch('places', p.id, {photoIds:(q.photoIds||[]).concat(ids)}); toast('📷 Added to '+p.name); } };
+    $('#tdAdd').onclick=()=>placeSheet(null, null, {trip:t, todo:true});
+    const tx=$('#tdText'), go=$('#tdGo');
+    if(tx){ const run=async()=>{ const v=tx.value.trim(); if(!v){ tx.focus(); return; } go.disabled=true; go.textContent='…';
+        try{ let items=[]; try{ items=await readTodos(t, v); }catch(e){} if(!items.length) items=[{name:v.slice(0,80), category:'attraction', city:'', notes:''}];
+          await addTodos(t, items); tx.value=''; toast('Added '+items.length+' to do'+(items.length===1?'':'s')); }
+        catch(e){ toast('Couldn\'t add: '+((e&&e.message)||e)); }
+        go.disabled=false; go.textContent='Add'; };
+      go.onclick=run; tx.onkeydown=e=>{ if(e.key==='Enter'){ e.preventDefault(); run(); } }; }
+  }
   async function quickAdd(t, text){
     const today=todayStr(), here=stopOnDate(t.id, today)||{}, people=payers(t.id);
     const r=await sample.json('A traveller logged this in their trip journal: '+JSON.stringify(String(text).slice(0,500))+'\n'
