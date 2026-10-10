@@ -1212,7 +1212,8 @@ const WORLD = __WORLD__;
       out.push({a:cur, b:B.s, date:B.d, km:Math.round(d*ROAD_FACTOR.car)}); }
     return out;
   }
-  async function ensureStop(trip, name, dateArrive, dateDepart, again){
+  // at: a known position for the place (Timeline/GPS), used when Claude can't place the name, or places it far away
+  async function ensureStop(trip, name, dateArrive, dateDepart, again, at){
     name=String(name||'').trim().replace(/[.,!?;:]+$/,'');
     const tripCities=[...new Set(tripStops(trip.id).filter(s=>!s.home).map(s=>s.city))];
     name=fuzzyCity(name, tripCities)||name;
@@ -1226,9 +1227,12 @@ const WORLD = __WORLD__;
       if(Object.keys(up).length) await patch('stops', hit.id, up);
       return Object.assign({}, hit, up);
     }
-    const g=await geocode(name, tripCities.join(', '));
+    let g=null; try{ g=await geocode(name, tripCities.join(', ')); }catch(e){ if(!at) throw e; }
     // Claude's proper name may be a city the trip already has ("Donostia" → San Sebastián)
-    if(g&&!again){ const known=fuzzyCity(g.city, tripCities); if(known) return ensureStop(trip, known, dateArrive, dateDepart, true); }
+    if(g&&!again){ const known=fuzzyCity(g.city, tripCities); if(known) return ensureStop(trip, known, dateArrive, dateDepart, true, at); }
+    if(at&&isFinite(at.lat)&&(!g||haversine(g,at)>30)){ // trust the recorded position; borrow the country from the nearest known place
+      const nb=S.stops.filter(x=>x.countryA2&&x.lat!=null).map(x=>[haversine(x,at),x]).sort((a,b)=>a[0]-b[0])[0], c=g||(nb&&nb[0]<400?nb[1]:{});
+      g={city:name, country:c.country||'', countryA2:c.countryA2||'', countryN3:c.countryN3||'', lat:at.lat, lon:at.lon}; }
     if(!g) throw new Error('Couldn\'t find "'+name+'". Check the spelling, or add country (e.g. "Pau, France").');
     const data=Object.assign(g,{tripId:trip.id, arrive:dateArrive||dateDepart||'', depart:dateDepart||dateArrive||'', order:Date.now(), photoIds:[], createdAt:now()});
     const ref=await put('stops', null, data);
@@ -1989,17 +1993,19 @@ const WORLD = __WORLD__;
       const rows=drives.filter(d=>d.from&&d.to&&cityKey(d.from)!==cityKey(d.to)), lost=drives.filter(d=>!d.from||!d.to).length;
       rows.forEach(d=>{ d.same=legs.find(l=>l.date===d.date&&cc(l.fromId)===cityKey(d.from)&&cc(l.toId)===cityKey(d.to)); d.km=Math.round(d.km); d.dur=d.s1?Math.round((d.s1-d.s0)/1000):null;
         // your own legs that day may already split this drive (Burgos → Pamplona → Serres-Castet): give each its part of the road
-        if(!d.same){ const day=legs.filter(l=>l.date===d.date); let cur=day.find(l=>cc(l.fromId)===cityKey(d.from)); const ch=[];
+        // a day already imported (its legs carry a recorded road) isn't added again when Google re-sends it
+        if(!d.same){ const rec=legs.find(l=>l.date===d.date&&legTrack(l)&&(cc(l.fromId)===cityKey(d.from)||haversine({lat:d.a[0],lon:d.a[1]},stopOf(l.fromId)||{lat:0,lon:0})<10)); if(rec) d.done=rec; }
+        if(!d.same&&!d.done){ const day=legs.filter(l=>l.date===d.date); let cur=day.find(l=>cc(l.fromId)===cityKey(d.from)); const ch=[];
           while(cur&&ch.length<6&&!ch.includes(cur)){ ch.push(cur); if(cc(cur.toId)===cityKey(d.to)) break; const nx=cc(cur.toId); cur=day.find(l=>cc(l.fromId)===nx); }
           if(ch.length>1&&cc(ch[ch.length-1].toId)===cityKey(d.to)) d.chain=ch; } });
       $('#tlHint').textContent=(rows.length?'Found '+rows.length+' trip'+(rows.length===1?'':'s')+' between towns. Untick any you don\'t want:':'Nothing between towns in that file (only short local moves).')
         +(lost?' '+lost+' drive'+(lost===1?'':'s')+' couldn\'t be placed.':'')+(rows.some(d=>d.gaps)?' ⚠️ Google lost GPS for part of the day, so some roads have gaps and km are estimates (≈).':'');
-      $('#tlList').innerHTML=rows.map((d,i)=>'<label class="row" style="gap:8px;flex-wrap:nowrap"><input type="checkbox" data-tl="'+i+'" '+(d.same&&d.same.track?'':'checked ')+'style="width:20px;height:20px;flex-shrink:0"><span style="flex:1">'+(MODE_EMOJI[d.mode]||'🚗')+' '+esc(d.from)+' → '+esc(d.to)
-        +' <span class="faint">· '+fmtDate(d.date,{month:'short',day:'numeric'})+' '+d.time+' · '+fmtKm(d.km)+' km'+(d.dur?' · '+fmtDur(d.dur):'')+(d.chain?' · adds the road to your '+d.chain.map(l=>esc((stopOf(l.fromId)||{}).city||'?')).concat([esc(d.to)]).join(' → ')+' drives':d.same?(d.same.track?' · already recorded':' · updates the '+(d.same.kmEstimated?'≈':'')+fmtKm(d.same.km||0)+' km one'):'')+'</span></span></label>').join('');
+      $('#tlList').innerHTML=rows.map((d,i)=>'<label class="row" style="gap:8px;flex-wrap:nowrap"><input type="checkbox" data-tl="'+i+'" '+((d.same&&d.same.track)||d.done?'':'checked ')+'style="width:20px;height:20px;flex-shrink:0"><span style="flex:1">'+(MODE_EMOJI[d.mode]||'🚗')+' '+esc(d.from)+' → '+esc(d.to)
+        +' <span class="faint">· '+fmtDate(d.date,{month:'short',day:'numeric'})+' '+d.time+' · '+fmtKm(d.km)+' km'+(d.dur?' · '+fmtDur(d.dur):'')+(d.done?' · that day is already recorded':'')+(d.chain?' · adds the road to your '+d.chain.map(l=>esc((stopOf(l.fromId)||{}).city||'?')).concat([esc(d.to)]).join(' → ')+' drives':d.same?(d.same.track?' · already recorded':' · updates the '+(d.same.kmEstimated?'≈':'')+fmtKm(d.same.km||0)+' km one'):'')+'</span></span></label>').join('');
       $('#tlGo').disabled=!rows.length;
       form.onsubmit=async e=>{ e.preventDefault(); const pick=[...form.querySelectorAll('[data-tl]')].filter(c=>c.checked).map(c=>rows[+c.dataset.tl]); if(!pick.length){ closeSheet(); return; }
-        const btn=$('#tlGo'); btn.disabled=true; btn.textContent='Adding…'; let n=0;
-        try{ for(const d of pick){
+        const btn=$('#tlGo'); btn.disabled=true; btn.textContent='Adding…'; let n=0; const failed=[];
+        try{ for(const d of pick){ try{
             if(d.chain){ // cut the road at the point nearest each town in between; keep the legs' own km and times, fill what's missing
               const P=d.path, cuts=[0]; d.chain.slice(0,-1).forEach(l=>{ const c=stopOf(l.toId); let bi=cuts[cuts.length-1], bd=1e9;
                 for(let i=cuts[cuts.length-1];i<P.length;i++){ const dd=haversine({lat:P[i][0],lon:P[i][1]},c); if(dd<bd){ bd=dd; bi=i; } } cuts.push(bi); }); cuts.push(P.length-1);
@@ -2010,10 +2016,11 @@ const WORLD = __WORLD__;
               n++; continue; }
             const data={mode:d.mode, date:d.date, time:d.time, arrTime:d.dur?addHM(d.time,d.dur):'', km:d.km, kmEstimated:!!d.est, durationS:d.dur, track:thinTrack(d.path), updatedAt:now()};
             if(d.same) await patch('legs', d.same.id, data);
-            else { const A=await ensureStop(t, d.from, null, d.date), B=await ensureStop(t, d.to, d.date, null);
+            else { const A=await ensureStop(t, d.from, null, d.date, false, {lat:d.a[0], lon:d.a[1]}), B=await ensureStop(t, d.to, d.date, null, false, {lat:d.b[0], lon:d.b[1]});
               await put('legs', null, Object.assign({tripId:t.id, fromId:A.id, toId:B.id, cost:0, currency:t.currency||'EUR', notes:'', order:Date.now(), createdAt:now()}, data)); }
-            n++; }
-          closeSheet(); toast('Added '+n+' drive'+(n===1?'':'s')+' from Timeline'); }
+            n++; }catch(err){ failed.push(d.from+' → '+d.to); } }
+          if(failed.length&&!n) throw new Error('Couldn\'t add '+failed.join(', ')+'. Try again.');
+          closeSheet(); toast('Added '+n+' drive'+(n===1?'':'s')+' from Timeline'+(failed.length?' · couldn\'t add '+failed.join(', '):'')); }
         catch(err){ btn.disabled=false; btn.textContent='Add to the route'; const er=$('#fErr'); er.hidden=false; er.textContent=(err&&err.message)||'Couldn\'t save. Try again.'; } };
     });
   }
