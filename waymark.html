@@ -101,6 +101,24 @@
   .day-h .btn{padding:4px 8px;}
   .day-i{display:flex;gap:8px;align-items:center;padding:4px 0;font-size:14px;cursor:pointer;}
   .day-i img{width:30px;height:30px;border-radius:6px;object-fit:cover;flex-shrink:0;cursor:zoom-in;}
+  .day-i.has-ph{flex-wrap:wrap;}
+  .ph-strip{order:9;flex-basis:100%;display:flex;gap:6px;overflow-x:auto;padding:4px 0 6px 0;scrollbar-width:none;-webkit-overflow-scrolling:touch;}
+  .ph-strip::-webkit-scrollbar{display:none;}
+  .day-i .ph-strip img{width:96px;height:96px;border-radius:10px;}
+  .day-i .ph-strip img:first-child{width:144px;}
+  .trip-hero{position:relative;margin:-4px 0 0;height:230px;border-radius:18px;overflow:hidden;background:var(--surface-2) center/cover no-repeat;box-shadow:var(--shadow);}
+  .trip-hero::after{content:'';position:absolute;inset:0;background:linear-gradient(180deg,rgba(0,0,0,0) 35%,rgba(0,0,0,.62));}
+  .trip-hero .hero-txt{position:absolute;left:16px;right:60px;bottom:14px;color:#fff;z-index:1;}
+  .trip-hero h1{font-family:'Barlow Condensed',sans-serif;font-size:32px;line-height:1.02;font-weight:700;letter-spacing:.01em;text-shadow:0 1px 8px rgba(0,0,0,.35);}
+  .trip-hero .hero-d{font-size:14px;opacity:.92;margin-top:4px;}
+  .trip-hero .hero-pick{position:absolute;right:10px;bottom:12px;z-index:1;width:40px;height:40px;border-radius:50%;border:0;background:rgba(255,255,255,.88);font-size:18px;cursor:pointer;}
+  .trip-cover{margin:-14px -16px 4px;height:150px;background:var(--surface-2) center/cover no-repeat;}
+  .trip-card{overflow:hidden;position:relative;}
+  .trip-card .pill{white-space:nowrap;}
+  .trip-card .on-cover{position:absolute;top:12px;left:12px;box-shadow:var(--shadow);}
+  .cover-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;max-height:60vh;overflow:auto;}
+  .cover-grid img{width:100%;aspect-ratio:1;object-fit:cover;border-radius:8px;cursor:pointer;border:3px solid transparent;}
+  .cover-grid img.on{border-color:var(--accent);}
   .drag{margin-left:auto;padding:6px 2px 6px 10px;color:var(--ink-faint);font-size:18px;line-height:1;cursor:grab;touch-action:pan-y;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;flex-shrink:0;}
   .day-i.dragging{transform:scale(1.02);transition:transform .12s;}
   .day-i.dragging{background:var(--surface);box-shadow:var(--shadow);border-radius:8px;position:relative;z-index:2;}
@@ -758,8 +776,10 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
       + trips.map(t=>{
         const st=tripStats(t.id); const live = t.startDate<=t0 && t0<=t.endDate; const soon = t.startDate>t0;
         const money=Object.entries(st.totals).map(([c,a])=>fmtMoney(a,c)).join(' · ');
-        return '<div class="card trip-card" data-trip="'+t.id+'"><div class="between"><h3>'+esc(t.name)+'</h3>'
-          + (live?'<span class="pill accent">On the road</span>':soon?'<span class="pill">Upcoming</span>':'')+'</div>'
+        const cv=tripCover(t);
+        return '<div class="card trip-card" data-trip="'+t.id+'">'+(cv?'<div class="trip-cover" style="background-image:url(/_blob/'+cv+')"></div>':'')+'<div class="between"><h3>'+esc(t.name)+'</h3>'
+          + (cv?'':(live?'<span class="pill accent">On the road</span>':soon?'<span class="pill">Upcoming</span>':''))+'</div>'
+          + (cv&&(live||soon)?'<span class="pill on-cover'+(live?' accent':'')+'" style="background:'+(live?'var(--accent);color:#fff':'var(--surface)')+'">'+(live?'On the road':'Upcoming')+'</span>':'')
           + '<div class="faint">'+fmtDate(t.startDate,{month:'short',day:'numeric'})+' – '+fmtDate(t.endDate,{month:'short',day:'numeric',year:'numeric'})+' · '+st.days+' days</div>'
           + '<div class="row"><span class="pill mono">'+fmtKm(st.km)+' km</span><span class="pill">'+st.cities+' cities</span><span class="pill">'+st.countries+' countr'+(st.countries===1?'y':'ies')+'</span>'+(money?'<span class="pill">'+money+'</span>':'')+'</div></div>';
       }).join('');
@@ -780,7 +800,10 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
     const cityMap=new Map();
     stops.filter(s=>!s.home).forEach(s=>{ const k=norm(s.city); if(!cityMap.has(k)) cityMap.set(k,[]); cityMap.get(k).push(s); });
     main.innerHTML =
-      '<div class="faint">'+fmtDate(t.startDate,{weekday:'short',month:'short',day:'numeric'})+' – '+fmtDate(t.endDate,{weekday:'short',month:'short',day:'numeric',year:'numeric'})+(t.notes?' · '+esc(t.notes):'')+'</div>'
+      (()=>{ const cv=tripCover(t), dates=fmtDate(t.startDate,{weekday:'short',month:'short',day:'numeric'})+' – '+fmtDate(t.endDate,{weekday:'short',month:'short',day:'numeric',year:'numeric'});
+        return cv?'<div class="trip-hero" style="background-image:url(/_blob/'+cv+')"><div class="hero-txt"><h1>'+esc(t.name)+'</h1><div class="hero-d">'+dates+'</div></div><button type="button" class="hero-pick" id="coverPick" aria-label="Change the cover photo">🖼</button></div>'
+          +(t.notes?'<div class="faint">'+esc(t.notes)+'</div>':'')
+          :'<div class="faint">'+dates+(t.notes?' · '+esc(t.notes):'')+'</div>'; })()
       + ((t.people||[]).length?'<div class="faint" style="margin-top:-10px">👥 '+t.people.length+' '+(t.people.length===1?'traveller':'travellers')+': '+esc(t.people.map(x=>x.name||x.email||'?').join(', '))+'</div>':'')
       + '<div class="pass"><div class="cell"><div class="k">Distance</div><div class="v mono">'+fmtKm(st.km)+'<small style="font-size:14px"> km</small></div></div>'
       + '<div class="cell"><div class="k">Days</div><div class="v">'+st.days+'</div></div>'
@@ -833,6 +856,7 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
     drawMap($('#tripMap'), {key:'trip:'+t.id, stops, legs, places:tripPlaces, stays:tripStays(t.id), onStay:x=>staySheet(x, {trip:t}), visitedN3, height:520, label:'Route map for '+t.name,
       onStop:s=>go({stopId:s.id, placeCat:'all'}), onPlace:p=>placeSheet(stopOf(p.stopId), p, {trip:t})});
     bindTodo(t);
+    const cp=$('#coverPick'); if(cp) cp.onclick=()=>coverSheet(t);
     const sk=$('#stepsKpi'); if(sk) sk.onclick=()=>stepsSheet(t, todayStr()>=t.startDate&&todayStr()<=t.endDate?todayStr():t.endDate);
     $('#addAct').onclick=()=>placeSheet(null, null, {trip:t, date:(todayStr()>=t.startDate&&todayStr()<=t.endDate)?todayStr():t.startDate});
     const fs0=$('#fromStrava'); if(fs0) fs0.onclick=()=>stravaSheet(t);
@@ -957,6 +981,21 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
       return {id:t.id, name:t.name, lat:c.lat, lon:c.lon, photo:tripCover(t.id), label:fmtDate(t.startDate,{month:'short',year:'numeric'}),
         when:fmtDate(t.startDate,{month:'short',day:'numeric'})+' – '+fmtDate(t.endDate,{month:'short',day:'numeric',year:'numeric'})}; }).filter(Boolean); }
   // Places you've been, grouped: countries (for the world page) and the cities inside one country
+  // the trip's cover photo: the one picked (coverId), else the best-rated shareable activity photo
+  function tripPhotos(tid){ const seen=new Set(), out=[];
+    S.places.filter(p=>p.tripId===tid&&!p.private).concat(S.stays.filter(x=>x.tripId===tid), S.stops.filter(x=>x.tripId===tid))
+      .forEach(x=>(x.photoIds||[]).forEach(id=>{ if(id&&!seen.has(id)){ seen.add(id); out.push(id); } })); return out; }
+  function tripCover(t){ if(t.coverId&&tripPhotos(t.id).includes(t.coverId)) return t.coverId;
+    const ps=S.places.filter(p=>p.tripId===t.id&&!p.private&&p.status!=='want'&&(p.photoIds||[]).length)
+      .sort((a,b)=>(b.rating||0)-(a.rating||0)||(MEAL_KEYS.has(a.category)?1:0)-(MEAL_KEYS.has(b.category)?1:0)||b.photoIds.length-a.photoIds.length||(b.date||'').localeCompare(a.date||''));
+    return ps.length?ps[0].photoIds[0]:(tripPhotos(t.id)[0]||''); }
+  function coverSheet(t){ const ids=tripPhotos(t.id), cur=tripCover(t);
+    if(!ids.length){ toast('Add photos to the trip first.'); return; }
+    openSheet('<h2>Cover photo</h2><div class="faint">Shown at the top of the trip and in your trips list.</div><div class="cover-grid">'+ids.map(id=>'<img alt="" src="/_blob/'+id+'" data-cv="'+id+'"'+(id===cur?' class="on"':'')+'>').join('')+'</div>'
+      + '<div class="row"><button class="btn" type="button" id="xCancel">Close</button>'+(t.coverId?'<button class="btn ghost" type="button" id="cvAuto">Pick for me</button>':'')+'</div>', form=>{
+      $('#xCancel').onclick=closeSheet;
+      const au=$('#cvAuto'); if(au) au.onclick=async()=>{ await patch('trips', t.id, {coverId:null}); closeSheet(); };
+      form.querySelectorAll('[data-cv]').forEach(im=>im.onclick=async()=>{ await patch('trips', t.id, {coverId:im.dataset.cv}); closeSheet(); toast('Cover updated'); }); }); }
   function placeCover(stopIds){ const ids=new Set(stopIds);
     const ps=S.places.filter(p=>ids.has(p.stopId)&&(p.photoIds||[]).length&&!p.private).sort((a,b)=>(b.date||'').localeCompare(a.date||''));
     return ps.length?ps[0].photoIds[0]:(S.stops.find(x=>ids.has(x.id)&&(x.photoIds||[]).length)||{photoIds:['']}).photoIds[0]; }
@@ -2342,8 +2381,8 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
       html+='<div class="day-list" data-day="'+d+'">'+dayOrder(d, legs, acts, exps).map(({k,x})=>{ const tv=hhmm(x), tm='<label class="tset'+(tv?'':' empty')+'" data-tcol="'+(k==='leg'?'legs':k==='act'?'places':'expenses')+'" data-tid="'+x.id+'">'+(tv||'+ time')+'<input type="time" value="'+tv+'" aria-label="Time"></label>';
             if(k==='leg'){ const l=x; const a=stopOf(l.fromId)||{}, b=stopOf(l.toId)||{};
             return '<div class="day-i" data-leg="'+l.id+'">'+tm+emo(MODE_EMOJI[l.mode]||'🚗')+'<span style="flex:1">'+esc(a.city||'?')+' → '+esc(b.city||'?')+'</span><span class="faint mono">'+(l.kmEstimated?'≈':'')+fmtKm(l.km||0)+' km</span></div>'; }
-            if(k==='act'){ const p=x; return '<div class="day-i" data-pl="'+p.id+'">'+tm+emo(catIcon(p.category))+'<span style="flex:1;min-width:0">'+esc(p.name)+(p.status==='want'?' <span class="faint">· planned</span>':'')
-            +(statsLine(p)?' <span class="faint">'+statsLine(p)+'</span>':'')+'</span>'+(p.photoIds||[]).slice(0,3).map(id=>'<img alt="" src="/_blob/'+id+'" data-photo="'+id+'">').join('')+'</div>'; }
+            if(k==='act'){ const p=x, ph=(p.photoIds||[]).slice(0,8); return '<div class="day-i'+(ph.length?' has-ph':'')+'" data-pl="'+p.id+'">'+tm+emo(catIcon(p.category))+'<span style="flex:1;min-width:0">'+esc(p.name)+(p.status==='want'?' <span class="faint">· planned</span>':'')
+            +(statsLine(p)?' <span class="faint">'+statsLine(p)+'</span>':'')+'</span>'+(ph.length?'<div class="ph-strip">'+ph.map(id=>'<img alt="" loading="lazy" src="/_blob/'+id+'" data-photo="'+id+'">').join('')+'</div>':'')+'</div>'; }
             const e=x; return '<div class="day-i" data-exp="'+e.id+'">'+tm+emo(expIcon(e.category,e.label))+'<span style="flex:1;min-width:0">'+esc(e.label)+'</span><span class="faint mono">'+fmtMoney(e.amount,e.currency)+'</span></div>'; }).join('')+'</div>'
         + (legs.length||acts.length||exps.length?'':'<div class="faint">Nothing logged yet</div>')
         + nightHtml(t, d)
