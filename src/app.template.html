@@ -890,6 +890,7 @@ const WORLD = __WORLD__;
       try{ await patch('legs', k.id, ch); await del('legs', x.id); toast('Merged into one drive'); }catch(e){ b.disabled=false; toast('Couldn\'t merge them. Try again.'); } });
     main.querySelectorAll('[data-steps]').forEach(b=>b.onclick=e=>{ e.stopPropagation(); stepsSheet(t, b.dataset.steps); });
     main.querySelectorAll('[data-daymenu]').forEach(b=>b.onclick=()=>dayMenu(t, b.dataset.daymenu));
+    main.querySelectorAll('[data-dayshare]').forEach(b=>b.onclick=e=>{ e.stopPropagation(); shareSheet(t, {from:b.dataset.dayshare, to:b.dataset.dayshare}); });
     main.querySelectorAll('[data-fold]').forEach(b=>b.onclick=()=>{ const d=b.dataset.fold; if(openDays.has(d)) openDays.delete(d); else openDays.add(d); render(); });
     main.querySelectorAll('[data-pl]').forEach(el=>el.onclick=e=>{ if(e.target.dataset.photo) return; const p=S.places.find(x=>x.id===el.dataset.pl); if(p) placeSheet(stopOf(p.stopId), p, {trip:t}); });
     $('#addLeg').onclick=()=>legSheet(t, null);
@@ -2375,7 +2376,8 @@ const WORLD = __WORLD__;
       const sum=[nThings?nThings+(nThings===1?' thing':' things'):'', stp?'👟 '+(+stp).toLocaleString():'', km?(legs.some(l=>l.kmEstimated)?'≈':'')+fmtKm(km)+' km':''].filter(Boolean).join(' · ')||'nothing logged';
       html+='<div class="day'+(d===today?' today':'')+(folded?' folded':'')+'"><div class="day-h"><div class="day-t"'+(live&&d<today?' data-fold="'+d+'" role="button" aria-expanded="'+!folded+'"':'')+'><b>'+fmtDate(d,{weekday:'short',month:'short',day:'numeric'})+'</b>'+(d===today?' <span class="pill accent">Today</span>':'')
         +' <span class="faint">'+esc(cities.join(' → '))+'</span>'+(stp&&!folded?' <button type="button" class="steps-tag" data-steps="'+d+'">👟 '+(+stp).toLocaleString()+'</button>':'')+(folded?'<div class="faint">'+sum+' <span class="fold-hint">▾ show</span></div>':live&&d<today?' <span class="fold-hint">▴</span>':'')+'</div>'
-        +'<button type="button" class="btn small ghost day-plus" data-daymenu="'+d+'" aria-label="Add or share on '+fmtDate(d)+'">'+ICON.plus+'</button></div>';
+        +'<div class="row" style="gap:6px;flex-wrap:nowrap;flex-shrink:0">'+(nThings||legs.length?'<button type="button" class="btn small ghost day-plus" data-dayshare="'+d+'" aria-label="Share '+fmtDate(d)+'">'+ICON.share+'</button>':'')
+        +'<button type="button" class="btn small ghost day-plus" data-daymenu="'+d+'" aria-label="Add or share on '+fmtDate(d)+'">'+ICON.plus+'</button></div></div>';
       if(folded){ html+='</div>'; continue; }
       html+='<div class="day-list" data-day="'+d+'">'+dayOrder(d, legs, acts, exps).map(({k,x})=>{ const tv=hhmm(x), tm='<label class="tset'+(tv?'':' empty')+'" data-tcol="'+(k==='leg'?'legs':k==='act'?'places':'expenses')+'" data-tid="'+x.id+'">'+(tv||'+ time')+'<input type="time" value="'+tv+'" aria-label="Time"></label>';
             if(k==='leg'){ const l=x; const a=stopOf(l.fromId)||{}, b=stopOf(l.toId)||{};
