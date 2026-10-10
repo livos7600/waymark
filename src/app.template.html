@@ -1230,7 +1230,7 @@ const WORLD = __WORLD__;
     let g=null; try{ g=await geocode(name, tripCities.join(', ')); }catch(e){ if(!at) throw e; }
     // Claude's proper name may be a city the trip already has ("Donostia" → San Sebastián)
     if(g&&!again){ const known=fuzzyCity(g.city, tripCities); if(known) return ensureStop(trip, known, dateArrive, dateDepart, true, at); }
-    if(at&&isFinite(at.lat)&&(!g||haversine(g,at)>30)){ // trust the recorded position; borrow the country from the nearest known place
+    if(at&&isFinite(at.lat)&&(!g||haversine(g,at)>(at.loose?5:30))){ // trust the recorded position; borrow the country from the nearest known place
       const nb=S.stops.filter(x=>x.countryA2&&x.lat!=null).map(x=>[haversine(x,at),x]).sort((a,b)=>a[0]-b[0])[0], c=g||(nb&&nb[0]<400?nb[1]:{});
       g={city:name, country:c.country||'', countryA2:c.countryA2||'', countryN3:c.countryN3||'', lat:at.lat, lon:at.lon}; }
     if(!g) throw new Error('Couldn\'t find "'+name+'". Check the spelling, or add country (e.g. "Pau, France").');
@@ -1506,9 +1506,11 @@ const WORLD = __WORLD__;
         const same=city?tStops.filter(s=>sameCity(s.city,city)):[];
         if(same.length) st=same.find(s=>date&&s.arrive<=date&&date<=(s.depart||s.arrive))||same[0];
         else if(city){ // a city the trip hasn't had yet (from the photo or typed): add it
-          try{ $('#pSave').disabled=true; st=await ensureStop(trip, city, date, date); }
-          catch(err){ st=(date&&stopOnDate(trip.id,date))||cur; } } // couldn't place the town: file it under that day's city
-        else st=(date&&stopOnDate(trip.id,date))||cur;
+          try{ $('#pSave').disabled=true; st=await ensureStop(trip, city, date, date, false, pos&&pos.lat!=null?{lat:pos.lat, lon:pos.lon, loose:true}:null); }
+          catch(err){ st=(date&&stopOnDate(trip.id,date,val('pTime')))||cur; } } // couldn't place the town: file it under where you were then
+        else { // no town given: the trip town nearest the pin, else where you were at that time (not just where you woke up)
+          const nb=pos&&pos.lat!=null?tStops.filter(s=>!s.home&&s.lat!=null).map(s=>[haversine(s,pos),s]).sort((a,b)=>a[0]-b[0])[0]:null;
+          st=(nb&&nb[0]<15?nb[1]:null)||(date&&stopOnDate(trip.id,date,val('pTime')))||cur; }
         city=st.city;
         const c=parseFloat(val('pCost').replace(',','.'));
         // a position Claude guessed for another name is stale; a photo's GPS stays
@@ -2233,7 +2235,10 @@ const WORLD = __WORLD__;
     const plan=tripStops(tid).filter(x=>!x.home&&x.arrive&&x.arrive<d&&(!l||x.arrive>l.date)).pop();
     if(plan) return plan;
     return ls&&!ls.home?ls:null; }
-  function stopOnDate(tid, d){ const m=morningStop(tid, d); if(m) return m; const xs=tripStops(tid).filter(s=>!s.home&&s.arrive&&s.arrive<=d&&d<=(s.depart||s.arrive)); return xs.find(s=>s.arrive!==d)||xs[xs.length-1]||null; }
+  // where you were on day d (at time tm when known): after the day's last leg that had arrived by then, else where you woke up
+  function stopOnDate(tid, d, tm){
+    if(tm){ const ls=tripLegs(tid).filter(l=>l.date===d&&(l.arrTime||legTime(l))&&(l.arrTime||legTime(l))<=tm), l=ls.pop(), s=l&&stopOf(l.toId); if(s&&!s.home) return s; }
+    const m=morningStop(tid, d); if(m) return m; const xs=tripStops(tid).filter(s=>!s.home&&s.arrive&&s.arrive<=d&&d<=(s.depart||s.arrive)); return xs.find(s=>s.arrive!==d)||xs[xs.length-1]||null; }
   // The towns of a day, from what happened: where you woke up, the day's legs, activities, expenses and the night's stay.
   // An empty day shows only the towns planned to start that day (itinerary stops), never a stop whose stored
   // date range was stretched by an old edit.
@@ -2552,8 +2557,8 @@ const WORLD = __WORLD__;
             const date=e.date||todayStr(), city=String(e.city||'').trim(), amt=parseFloat(String(e.amount||'').replace(',','.'));
             const same=city?tripStops(t.id).filter(s=>!s.home&&sameCity(s.city,city)):[];
             let st=same.find(s=>s.arrive<=date&&date<=(s.depart||s.arrive))||same[0];
-            if(!st&&city) st=await ensureStop(t, city, date, date);
-            if(!st) st=stopOnDate(t.id,date)||tripStops(t.id).find(s=>!s.home);
+            if(!st&&city) st=await ensureStop(t, city, date, date, false, e.lat!=null&&isFinite(e.lat)?{lat:+e.lat, lon:+e.lon, loose:true}:null);
+            if(!st) st=stopOnDate(t.id,date,e.time)||tripStops(t.id).find(s=>!s.home);
             if(!st) throw new Error('Add a city first.');
             const pin=e.lat!=null&&isFinite(e.lat)?{lat:+e.lat, lon:+e.lon}:{};
             if(e.kind==='expense') await put('expenses', null, Object.assign({tripId:t.id, label:name, amount:isFinite(amt)?amt:0, currency:e.currency||t.currency||'EUR', category:e.cat||'Other', date, time:e.time||'', city:st.city, stopId:st.id, paidBy:e.paidBy||lastPayer(t.id), notes:e.notes||'', photoIds:e.photoIds, address:e.address||'', createdAt:now(), updatedAt:now()}, pin));
