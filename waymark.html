@@ -2613,7 +2613,8 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
     metas.sort((a,b)=>(a.when||'~').localeCompare(b.when||'~'));
     const groups=[]; let g=null;
     metas.forEach(x=>{ const prev=g&&g.items[g.items.length-1];
-      const same=prev&&x.when&&prev.when&&(Date.parse(x.when)-Date.parse(prev.when))<=40*60000&&!(x.m.lat!=null&&prev.m.lat!=null&&haversine(x.m,prev.m)>1)&&g.items.length<6;
+      // photos with no date (sent over WhatsApp/Messages lose it) stay together instead of one entry each
+      const same=prev&&g.items.length<6&&(x.when&&prev.when?(Date.parse(x.when)-Date.parse(prev.when))<=40*60000&&!(x.m.lat!=null&&prev.m.lat!=null&&haversine(x.m,prev.m)>1):!x.when&&!prev.when);
       if(same) g.items.push(x); else { g={items:[x]}; groups.push(g); } });
     hint('Uploading '+files.length+' photo'+(files.length===1?'':'s')+'…'); bar(.15);
     if(!canRead) toast('This view of the app can\'t show photos to Claude, so names come from the location only. Open Waymark in Safari at claude.ai for full photo reading.');
@@ -2667,9 +2668,16 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
       + '<div class="grid2"><select data-f="cat">'+catOpts(e)+'</select><input data-f="city" list="rvCities" value="'+esc(e.city)+'" placeholder="City"></div>'
       + '<div class="grid2"><input data-f="date" type="date" value="'+esc(e.date)+'"><input data-f="time" type="time" value="'+esc(e.time)+'"></div>'
       + '<div class="grid2"><input data-f="amount" inputmode="decimal" value="'+(e.amount!=null?esc(e.amount):'')+'" placeholder="Price (optional)">'+curSelect('rvCur'+i, e.currency||t.currency).replace('<select','<select data-f="currency"')+'</div>'
-      + (e.parts?'<div class="faint">'+e.parts.length+' stops'+(e.notes?': '+esc(e.notes):'')+' <button type="button" class="btn small ghost" data-split="'+i+'">Split into '+e.parts.length+'</button></div>':e.address?'<div class="faint">📍 '+esc(e.address)+'</div>':'')
-      + '<label class="row" style="gap:8px;font-size:14px"><input type="checkbox" data-f="keep" checked style="width:20px;height:20px"> Save this</label></div>';
-    openSheet('<h2>Check and save</h2><div class="hint">'+(from==='photos'?'Photos from the same outing became one entry (a walk through a town is one city visit; meals stay separate).':'Here\'s what Claude understood.')+' Fix anything, untick what you don\'t want, then save.</div>'
+      + (e.parts?'<div class="faint">'+e.parts.length+' parts'+(e.notes?': '+esc(e.notes):'')+' <button type="button" class="btn small ghost" data-split="'+i+'">Split into '+e.parts.length+'</button></div>':e.address?'<div class="faint">📍 '+esc(e.address)+'</div>':'')
+      + '<div class="between"><label class="row" style="gap:8px;font-size:14px"><input type="checkbox" data-f="keep"'+(e.keep===false?'':' checked')+' style="width:20px;height:20px"> Save this</label>'
+      + (i>0?'<button type="button" class="btn small ghost" data-join="'+i+'">⤴ Join with the one above</button>':'')+'</div></div>';
+    // one entry from several: the first keeps its name, type, city and time; photos, notes and parts add up (Split undoes it)
+    const joinInto=(a,b)=>{ const pa=a.parts||[Object.assign({}, a)], pb=b.parts||[b];
+      a.parts=pa.concat(pb); a.photoIds=a.photoIds.concat(b.photoIds.filter(id=>!a.photoIds.includes(id))); a.thumbs=a.photoIds.length;
+      const nn=[...new Set(a.parts.map(x=>String(x.name||'').trim()).filter(Boolean))]; a.notes=nn.slice(1).length?nn.join(' · '):a.notes||'';
+      if(a.lat==null&&b.lat!=null){ a.lat=b.lat; a.lon=b.lon; } if(a.amount==null&&b.amount!=null){ a.amount=b.amount; a.currency=b.currency; } a.keep=true; };
+    openSheet('<h2>Check and save</h2><div class="hint">'+(from==='photos'?'Photos from the same outing became one entry (a walk through a town is one city visit; meals stay separate). A run or a day out split in pieces? Join them.':'Here\'s what Claude understood.')+' Fix anything, untick what you don\'t want, then save.</div>'
+      + '<button type="button" class="btn small" id="rvAll" style="align-self:flex-start"'+(entries.length>1?'':' hidden')+'>🔗 Make it all one entry</button>'
       + '<datalist id="rvCities">'+cityList.map(c=>'<option value="'+esc(c)+'">').join('')+'</datalist>'
       + '<div id="rvList" style="display:flex;flex-direction:column;gap:12px"></div><div class="err" id="fErr" hidden></div>'
       + '<div class="row"><button class="btn primary" type="submit" id="rvSave">Save all</button><button class="btn" type="button" id="xCancel">Cancel</button></div>',
@@ -2680,7 +2688,11 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
         $('#rvList').querySelectorAll('[data-rk]').forEach(b=>b.onclick=()=>{ read(); const e=entries[+b.closest('[data-ri]').dataset.ri], k=b.dataset.rk; if(k===e.kind) return;
           e.kind=k; e.cat=k==='meal'?mealFor(e.time,e.name):k==='expense'?'Other':k==='stay'?'hotel':'attraction'; draw(); });
         $('#rvList').querySelectorAll('[data-split]').forEach(b=>b.onclick=()=>{ read(); const i=+b.dataset.split, e=entries[i]; if(!e.parts) return;
-          entries.splice(i, 1, ...e.parts.map(x=>Object.assign(x,{keep:true}))); draw(); }); };
+          entries.splice(i, 1, ...e.parts.map(x=>Object.assign(x,{keep:true}))); draw(); });
+        $('#rvList').querySelectorAll('[data-join]').forEach(b=>b.onclick=()=>{ read(); const i=+b.dataset.join; joinInto(entries[i-1], entries[i]); entries.splice(i,1); draw(); });
+        $('#rvAll').hidden=entries.length<2; };
+      $('#rvAll').onclick=()=>{ read(); const ks=entries.filter(x=>x.keep!==false); if(ks.length<2) return; ks.slice(1).forEach(x=>joinInto(ks[0], x));
+        entries.splice(0, entries.length, ...entries.filter(x=>x===ks[0]||x.keep===false)); draw(); };
       draw();
       form.onsubmit=async ev=>{ ev.preventDefault(); read(); const btn=$('#rvSave'); btn.disabled=true; let n=0;
         try{
