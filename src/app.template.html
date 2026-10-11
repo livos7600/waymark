@@ -2618,7 +2618,8 @@ const WORLD = __WORLD__;
       const same=prev&&g.items.length<6&&(x.when&&prev.when?(Date.parse(x.when)-Date.parse(prev.when))<=40*60000&&!(x.m.lat!=null&&prev.m.lat!=null&&haversine(x.m,prev.m)>1):!x.when&&!prev.when);
       if(same) g.items.push(x); else { g={items:[x]}; groups.push(g); } });
     hint('Uploading '+files.length+' photo'+(files.length===1?'':'s')+'…'); bar(.15);
-    if(!canRead) toast('This view of the app can\'t show photos to Claude, so names come from the location only. Open Waymark in Safari at claude.ai for full photo reading.');
+    if(!canRead){ let seen=false; try{ seen=!!localStorage.getItem('wm.noImgTip'); localStorage.setItem('wm.noImgTip','1'); }catch(e){}
+      if(!seen) toast('Names come from where the photos were taken (this app view can\'t show photos to Claude).'); } // once per phone
     for(const grp of groups){ grp.ids=await uploadPhotos(grp.items.map(x=>x.f)); if(!box.isConnected) return; }
     const entries=[];
     for(let i=0;i<groups.length;i++){ const grp=groups[i], m0=(grp.items.find(x=>x.m.date)||grp.items[0]).m, gps=grp.items.find(x=>x.m.lat!=null);
