@@ -2679,6 +2679,7 @@ const WORLD = __WORLD__;
       + '<div class="grid2"><select data-f="cat">'+catOpts(e)+'</select><input data-f="city" list="rvCities" value="'+esc(e.city)+'" placeholder="City"></div>'
       + '<div class="grid2"><input data-f="date" type="date" value="'+esc(e.date)+'"><input data-f="time" type="time" value="'+esc(e.time)+'"></div>'
       + '<div class="grid2"><input data-f="amount" inputmode="decimal" value="'+(e.amount!=null?esc(e.amount):'')+'" placeholder="Price (optional)">'+curSelect('rvCur'+i, e.currency||t.currency).replace('<select','<select data-f="currency"')+'</div>'
+      + '<textarea data-f="memo" rows="2" placeholder="Notes (what you ordered, who was there, would you go back?)">'+esc(e.memo!=null?e.memo:e.parts?'':e.notes||'')+'</textarea>'
       + (e.parts?'<div class="faint">'+e.parts.length+' parts'+(e.notes?': '+esc(e.notes):'')+' <button type="button" class="btn small ghost" data-split="'+i+'">Split into '+e.parts.length+'</button></div>':e.address?'<div class="faint">📍 '+esc(e.address)+'</div>':'')
       + '<div class="between"><label class="row" style="gap:8px;font-size:14px"><input type="checkbox" data-f="keep"'+(e.keep===false?'':' checked')+' style="width:20px;height:20px"> Save this</label>'
       + (i>0?'<button type="button" class="btn small ghost" data-join="'+i+'">⤴ Join with the one above</button>':'')+'</div></div>';
@@ -2710,6 +2711,7 @@ const WORLD = __WORLD__;
       form.onsubmit=async ev=>{ ev.preventDefault(); read(); const btn=$('#rvSave'); btn.disabled=true; let n=0;
         try{
           for(const e of entries.filter(x=>x.keep)){
+            if(e.memo!=null) e.notes=e.parts?[e.memo.trim(), e.notes].filter(Boolean).join('\n'):e.memo.trim(); // typed notes, then the joined parts' names
             const name=String(e.name||'').trim()||(e.kind==='meal'?CAT_LABEL[e.cat]||'Meal':e.kind==='expense'?e.cat:e.kind==='stay'?'Stay':'Activity');
             const date=e.date||todayStr(), city=String(e.city||'').trim(), amt=parseFloat(String(e.amount||'').replace(',','.'));
             const same=city?tripStops(t.id).filter(s=>!s.home&&sameCity(s.city,city)):[];
