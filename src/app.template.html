@@ -425,14 +425,21 @@ const WORLD = __WORLD__;
     return out; }
   function toast(msg){ const t=document.createElement('div'); t.className='toast'; t.textContent=msg; document.body.appendChild(t); setTimeout(()=>t.remove(),2600); }
 
+  // business or personal: a trip is personal, business or mixed (work days bizFrom–bizTo); a cost's own biz true/false wins,
+  // otherwise it follows the trip (so changing the trip type or work days moves every untouched cost with it)
+  const tripPurpose=t=>(t&&t.purpose)||'personal';
+  function bizDefault(t, d){ const p=tripPurpose(t); if(p==='business') return true; if(p!=='mixed') return false; return !!(d&&t.bizFrom&&t.bizTo&&d>=t.bizFrom&&d<=t.bizTo); }
+  function isBiz(x){ if(x.biz===true||x.biz===false) return x.biz; return bizDefault(tripOf(x.tripId), x.date||x.checkIn); }
+  const bizBox=(id, trip, x, date)=>tripPurpose(trip)==='personal'?'':'<label class="row" style="gap:8px;font-size:14px;cursor:pointer;margin-top:6px"><input type="checkbox" id="'+id+'" style="width:20px;height:20px"'+((x?isBiz(Object.assign({tripId:trip.id},x)):bizDefault(trip,date))?' checked':'')+'> 💼 Business expense</label>';
+  const bizRead=(id, trip, date)=>{ const el=$('#'+id); if(!el) return undefined; return el.checked===bizDefault(trip,date)?null:el.checked; };
   function costLines(tid){
     const out=[];
-    tripLegs(tid).forEach(l=>{ if(l.cost) out.push({cat:LEG_CAT[l.mode]||'Transport', label:(MODES[l.mode]||{}).label+': '+(stopOf(l.fromId)||{}).city+' → '+(stopOf(l.toId)||{}).city, amount:+l.cost, cur:l.currency||'EUR'}); });
+    tripLegs(tid).forEach(l=>{ if(l.cost) out.push({cat:LEG_CAT[l.mode]||'Transport', label:(MODES[l.mode]||{}).label+': '+(stopOf(l.fromId)||{}).city+' → '+(stopOf(l.toId)||{}).city, amount:+l.cost, cur:l.currency||'EUR', biz:isBiz(l)}); });
     S.places.filter(p=>p.tripId===tid && p.cost).forEach(p=>{
       const cat = p.category==='hotel'?'Lodging':MEAL_KEYS.has(p.category)?'Meals':(p.category==='shopping')?'Shopping':p.category==='laundry'?'Laundry':'Activities';
-      out.push({cat, label:p.name, amount:+p.cost, cur:p.currency||'EUR'}); });
-    S.expenses.filter(e=>e.tripId===tid).forEach(e=>out.push({cat:e.category==='Transport'?(RIDE_CAT[expIcon('Transport',e.label)]||'Transport'):(e.category||'Other'), label:e.label, amount:+e.amount, cur:e.currency||'EUR', id:e.id}));
-    S.stays.filter(x=>x.tripId===tid&&x.cost).forEach(x=>out.push({cat:'Lodging', label:x.name+' · '+stayNights(x)+' night'+(stayNights(x)===1?'':'s'), amount:+x.cost, cur:x.currency||'EUR'}));
+      out.push({cat, label:p.name, amount:+p.cost, cur:p.currency||'EUR', biz:isBiz(p)}); });
+    S.expenses.filter(e=>e.tripId===tid).forEach(e=>out.push({cat:e.category==='Transport'?(RIDE_CAT[expIcon('Transport',e.label)]||'Transport'):(e.category||'Other'), label:e.label, amount:+e.amount, cur:e.currency||'EUR', id:e.id, biz:isBiz(e)}));
+    S.stays.filter(x=>x.tripId===tid&&x.cost).forEach(x=>out.push({cat:'Lodging', label:x.name+' · '+stayNights(x)+' night'+(stayNights(x)===1?'':'s'), amount:+x.cost, cur:x.currency||'EUR', biz:isBiz(x)}));
     return out;
   }
   function totalsByCur(lines){ const m={}; lines.forEach(l=>{ m[l.cur]=(m[l.cur]||0)+l.amount; }); return m; }
@@ -871,6 +878,7 @@ const WORLD = __WORLD__;
         finally{ qg.disabled=false; qg.textContent='Add'; } };
       qg.onclick=go; qa.addEventListener('keydown',e=>{ if(e.key==='Enter'){ e.preventDefault(); go(); } }); }
     const xb=$('#xlsxBtn'); if(xb) xb.onclick=()=>exportExpenses(t);
+    const bx=$('#bizXlsx'); if(bx) bx.onclick=()=>exportExpenses(t, {biz:true});
     const ae2=$('#addExp2'); if(ae2) ae2.onclick=()=>expenseSheet(t, null);
     const loc=$('#locateAll'); if(loc) loc.onclick=async()=>{ loc.disabled=true; loc.textContent='Finding them…';
       try{ const n=await locatePlaces(unplaced); toast(n?n+' on the map':'Couldn\'t place them. Open one and save it to try again.'); }
@@ -922,11 +930,14 @@ const WORLD = __WORLD__;
     const tot=totalsByCur(lines);
     const byCat={}; lines.forEach(l=>{ const k=l.cat+'|'+l.cur; byCat[k]=(byCat[k]||0)+l.amount; });
     const max=Math.max(...Object.values(byCat));
-    const other=S.expenses.filter(e=>e.tripId===tid);
-    return '<div class="card">'+Object.entries(byCat).sort((a,b)=>b[1]-a[1]).map(([k,a])=>{ const [cat,cur]=k.split('|');
+    const other=S.expenses.filter(e=>e.tripId===tid), trip=tripOf(tid);
+    const bizHtml=tripPurpose(trip)==='personal'?'':(()=>{ const b=totalsByCur(lines.filter(l=>l.biz)), pz=totalsByCur(lines.filter(l=>!l.biz)), f=m=>Object.keys(m).length?Object.entries(m).map(([c,a])=>fmtMoney(a,c)).join(' + '):'—';
+      return '<div class="card" style="padding:12px 14px;display:flex;flex-direction:column;gap:8px"><div class="between"><span>💼 Business</span><span class="amt">'+f(b)+'</span></div><div class="between"><span>🏖 Personal</span><span class="amt">'+f(pz)+'</span></div>'
+        + (downloads?'<button type="button" class="btn small" id="bizXlsx" style="align-self:flex-start">⬇ Business expense report</button>':'')+'</div>'; })();
+    return bizHtml+'<div class="card">'+Object.entries(byCat).sort((a,b)=>b[1]-a[1]).map(([k,a])=>{ const [cat,cur]=k.split('|');
         return '<div class="budget-row" style="display:block"><div class="between"><span>'+expIcon(cat)+' '+esc(cat)+'</span><span class="amt">'+fmtMoney(a,cur)+'</span></div><div class="bar"><i style="width:'+Math.round(a/max*100)+'%"></i></div></div>'; }).join('')
       + '<div class="budget-row" style="font-weight:700"><span>Total</span><span class="amt">'+Object.entries(tot).map(([c,a])=>fmtMoney(a,c)).join(' + ')+'</span></div></div>'
-      + (other.length?'<div class="card">'+other.sort((a,b)=>(b.date||'').localeCompare(a.date||'')).map(e=>'<div class="budget-row" data-exp="'+e.id+'" style="cursor:pointer;gap:10px"><span style="min-width:0">'+expIcon(e.category,e.label)+' '+esc(e.label)+' <span class="faint">· '+esc(e.category||'Other')+(e.date?' · '+fmtDate(e.date):'')+(e.city?' · '+esc(e.city):'')+(e.paidBy?' · paid by '+esc(e.paidBy):'')+'</span>'
+      + (other.length?'<div class="card">'+other.sort((a,b)=>(b.date||'').localeCompare(a.date||'')).map(e=>'<div class="budget-row" data-exp="'+e.id+'" style="cursor:pointer;gap:10px"><span style="min-width:0">'+expIcon(e.category,e.label)+' '+esc(e.label)+(tripPurpose(trip)!=='personal'&&isBiz(e)?' 💼':'')+' <span class="faint">· '+esc(e.category||'Other')+(e.date?' · '+fmtDate(e.date):'')+(e.city?' · '+esc(e.city):'')+(e.paidBy?' · paid by '+esc(e.paidBy):'')+'</span>'
           + (e.notes?'<span class="faint" style="display:block;white-space:pre-wrap">'+esc(e.notes)+'</span>':'')+'</span><span class="amt" style="display:flex;gap:8px;align-items:center;flex-shrink:0">'+((e.photoIds||[]).length?'<img alt="Receipt" src="/_blob/'+e.photoIds[0]+'" data-photo="'+e.photoIds[0]+'" style="width:32px;height:32px;object-fit:cover;border-radius:6px;cursor:zoom-in">':'')+fmtMoney(e.amount,e.currency)+'</span></div>').join('')+'</div>':'')
       + whoPaidHtml(other.concat(S.places.filter(p=>p.tripId===tid&&+p.cost&&p.paidBy).map(p=>({paidBy:p.paidBy, currency:p.currency, amount:p.cost})),
           S.legs.concat(S.stays).filter(x=>x.tripId===tid&&+x.cost&&x.paidBy).map(x=>({paidBy:x.paidBy, currency:x.currency, amount:x.cost}))))
@@ -1222,6 +1233,9 @@ const WORLD = __WORLD__;
       + '<div class="field"><label for="tName">Name</label><input id="tName" required value="'+esc(t?t.name:'')+'" placeholder="e.g. Japan spring 2027"></div>'
       + '<div class="grid2"><div class="field"><label for="tStart">Start</label><input id="tStart" type="date" value="'+esc(t?t.startDate:todayStr())+'"></div><div class="field"><label for="tEnd">End</label><input id="tEnd" type="date" value="'+esc(t?t.endDate:todayStr())+'"></div></div>'
       + '<div class="field"><label for="tCur">Main currency</label>'+curSelect('tCur', t?t.currency:'EUR')+'</div>'
+      + '<div class="field"><label>Trip type</label><div class="row">'+[['personal','🏖 Personal'],['business','💼 Business'],['mixed','🔀 Both']].map(([k,l])=>'<button type="button" class="chip'+(tripPurpose(t)===k?' on':'')+'" data-tp="'+k+'">'+l+'</button>').join('')+'</div>'
+        + '<div class="grid2" id="tBizDays"'+(tripPurpose(t)==='mixed'?'':' hidden')+' style="margin-top:8px"><div class="field"><label for="tBizFrom">Work days from</label><input id="tBizFrom" type="date" value="'+esc(t&&t.bizFrom||'')+'"></div><div class="field"><label for="tBizTo">to</label><input id="tBizTo" type="date" value="'+esc(t&&t.bizTo||'')+'"></div></div>'
+        + '<div class="hint" id="tBizHint">'+({personal:'Costs aren\'t marked for work.',business:'Every cost counts as a business expense unless you untick it.',mixed:'Costs on work days count as business; tick or untick any single cost.'})[tripPurpose(t)]+'</div></div>'
       + '<div class="field"><label for="tNotes">Note (optional)</label><input id="tNotes" value="'+esc(t?t.notes||'':'')+'"></div>'
       + '<div class="field"><label>Who\'s going <span style="text-transform:none;letter-spacing:0;font-weight:500" id="tPplN"></span></label><div id="tPpl" style="display:flex;flex-direction:column;gap:8px"></div>'
         + '<div class="row"><button type="button" class="btn small" id="tPplAdd">+ Add a traveller</button></div>'
@@ -1230,6 +1244,9 @@ const WORLD = __WORLD__;
       + '<div class="row"><button class="btn primary" type="submit">Save</button><button class="btn" type="button" id="xCancel">Cancel</button>'+(t?'<button class="btn danger" type="button" id="xDel" style="margin-left:auto">Delete</button>':'')+'</div>',
     form=>{
       $('#xCancel').onclick=closeSheet;
+      let purpose=tripPurpose(t);
+      form.querySelectorAll('[data-tp]').forEach(b=>b.onclick=()=>{ purpose=b.dataset.tp; form.querySelectorAll('[data-tp]').forEach(x=>x.classList.toggle('on',x===b)); $('#tBizDays').hidden=purpose!=='mixed';
+        $('#tBizHint').textContent=({personal:'Costs aren\'t marked for work.',business:'Every cost counts as a business expense unless you untick it.',mixed:'Costs on work days count as business; tick or untick any single cost.'})[purpose]; });
       let people=(t&&Array.isArray(t.people)?t.people:[]).map(x=>Object.assign({},x));
       const readPpl=()=>{ $('#tPpl').querySelectorAll('[data-pi]').forEach(r=>{ const i=+r.dataset.pi; ['name','email','phone'].forEach(k=>{ people[i][k]=r.querySelector('[data-k="'+k+'"]').value.trim(); }); }); };
       const drawPpl=()=>{ $('#tPpl').innerHTML=people.map((x,i)=>'<div data-pi="'+i+'" style="display:grid;grid-template-columns:1fr 1fr auto;gap:6px;align-items:center;border:1px solid var(--line);border-radius:10px;padding:8px">'
@@ -1249,7 +1266,7 @@ const WORLD = __WORLD__;
         const name=val('tName').trim(), a=val('tStart'), b=val('tEnd');
         if(!name||!a||!b){ const er=$('#fErr'); er.hidden=false; er.textContent='Add a name and both dates.'; return; }
         readPpl();
-        const data={name, startDate:a<=b?a:b, endDate:a<=b?b:a, currency:val('tCur'), notes:val('tNotes').trim(), people:people.filter(x=>x.name||x.email||x.phone).map(x=>({name:x.name.slice(0,60), email:x.email.slice(0,120), phone:x.phone.slice(0,40)})), updatedAt:now()};
+        const data={name, startDate:a<=b?a:b, endDate:a<=b?b:a, currency:val('tCur'), notes:val('tNotes').trim(), people:people.filter(x=>x.name||x.email||x.phone).map(x=>({name:x.name.slice(0,60), email:x.email.slice(0,120), phone:x.phone.slice(0,40)})), purpose, bizFrom:purpose==='mixed'?val('tBizFrom'):'', bizTo:purpose==='mixed'?(val('tBizTo')||val('tBizFrom')):'', updatedAt:now()};
         if(t){ await patch('trips', t.id, data); closeSheet(); }
         else { const ref=await put('trips', null, Object.assign({createdAt:now()}, data)); closeSheet(); go({tripId:ref.id}); }
       };
@@ -1334,7 +1351,7 @@ const WORLD = __WORLD__;
       + '<div class="hint" id="lDurH"></div>'
       + '<div class="field"><label for="lKm">Distance km (optional)</label><input id="lKm" inputmode="numeric" value="'+esc(rec&&rec.km?rec.km:l&&!l.kmEstimated?l.km:'')+'" placeholder="'+(l&&l.kmEstimated?'≈'+fmtKm(l.km):'Auto')+'"></div>'
       + '<div class="grid3"><div class="field"><label for="lCost">Cost (optional)</label><input id="lCost" inputmode="decimal" value="'+esc(l&&l.cost?l.cost:'')+'"></div><div class="field"><label for="lCur">Currency</label>'+curSelect('lCur', l?l.currency:trip.currency)+'</div></div>'
-      + '<div class="field" id="lPaidF"'+(l&&+l.cost?'':' hidden')+'><label for="lPaid">Paid by</label><input id="lPaid" list="lPayers" autocomplete="off" value="'+esc(l&&l.paidBy||lastPayer(trip.id))+'"><datalist id="lPayers">'+payers(trip.id).map(n=>'<option value="'+esc(n)+'">').join('')+'</datalist></div>'
+      + '<div class="field" id="lPaidF"'+(l&&+l.cost?'':' hidden')+'><label for="lPaid">Paid by</label>'+'<input id="lPaid" list="lPayers" autocomplete="off" value="'+esc(l&&l.paidBy||lastPayer(trip.id))+'"><datalist id="lPayers">'+payers(trip.id).map(n=>'<option value="'+esc(n)+'">').join('')+'</datalist>'+bizBox('lBiz', trip, l, (l?l.date:dDate))+'</div>'
       + '<div class="field"><label for="lNotes">Notes (optional)</label><input id="lNotes" value="'+esc(l?l.notes||'':'')+'" placeholder="Flight number, rental car, scenic route…"></div>'
       + '<div class="hint">Leave distance blank: flights use straight‑line km, drives and trains an estimate (≈) you can correct later.</div>'
       + '<div class="err" id="fErr" hidden></div>'
@@ -1370,6 +1387,7 @@ const WORLD = __WORLD__;
           const mins=legMins();
           const data={tripId:trip.id, mode, fromId:A.id, toId:B.id, date, time:val('lTime'), arrTime:val('lArr'), ...(mins!=null?{durationS:mins*60}:{}), km, kmEstimated:!(isFinite(kmIn)&&kmIn>0)&&mode!=='plane',
             cost:isFinite(costIn)?costIn:0, currency:val('lCur'), paidBy:isFinite(costIn)&&costIn>0?(val('lPaid').trim()||lastPayer(trip.id)):'', notes:val('lNotes').trim(), updatedAt:now()};
+          { const b=bizRead('lBiz', trip, date); if(b!==undefined) data.biz=b; }
           if(rec&&rec.track){ data.track=rec.track; data.durationS=mins!=null?mins*60:(rec.durationS||null); if(isFinite(kmIn)&&kmIn>0) data.kmEstimated=false; }
           else if(dropTrack){ data.track=null; data.durationS=null; }
           if(l&&l.date!==date) data.dayPos=null;
@@ -1459,7 +1477,7 @@ const WORLD = __WORLD__;
             + '<div class="field"><label for="pDur">Time (h:mm)</label><input id="pDur" inputmode="numeric" placeholder="e.g. 0:45" value="'+(x.movingS?Math.floor(x.movingS/3600)+':'+pad2(Math.round(x.movingS%3600/60)):'')+'"></div></div>'
             + '<div class="field" id="pViaF"'+(sp?'':' hidden')+'><label for="pVia">Through (towns along the way)</label><input id="pVia" autocomplete="off" placeholder="e.g. Capbreton, Hossegor, Seignosse" value="'+esc((x.via||[]).join(', '))+'"></div>'; })()
       + '<div class="grid3"><div class="field"><label for="pCost">Price (optional)</label><input id="pCost" inputmode="decimal" value="'+esc(p&&p.cost?p.cost:'')+'"></div><div class="field"><label for="pCur">Currency</label>'+curSelect('pCur', p?p.currency:trip.currency)+'</div></div>'
-      + '<div class="field" id="pPaidF"'+(p&&+p.cost?'':' hidden')+'><label for="pPaid">Paid by</label><input id="pPaid" list="pPayers" autocomplete="off" value="'+esc(p&&p.paidBy||lastPayer(trip.id))+'"><datalist id="pPayers">'+payers(trip.id).map(n=>'<option value="'+esc(n)+'">').join('')+'</datalist></div>'
+      + '<div class="field" id="pPaidF"'+(p&&+p.cost?'':' hidden')+'><label for="pPaid">Paid by</label>'+'<input id="pPaid" list="pPayers" autocomplete="off" value="'+esc(p&&p.paidBy||lastPayer(trip.id))+'"><datalist id="pPayers">'+payers(trip.id).map(n=>'<option value="'+esc(n)+'">').join('')+'</datalist>'+bizBox('pBiz', trip, p, date0)+'</div>'
       + '<label class="row" style="gap:8px;font-size:14px;cursor:pointer"><input type="checkbox" id="pPriv" style="width:20px;height:20px"'+(p&&p.private?' checked':'')+'> 🔒 Keep off shares <span class="faint">(stays in your log, never on images or videos)</span></label>'
       + '<div class="field"><label for="pNotes">Notes</label><textarea id="pNotes" placeholder="What you did, what you ordered, would you go back?">'+esc(p?p.notes||'':'')+'</textarea></div>'
       + '<div class="err" id="fErr" hidden></div>'
@@ -1596,6 +1614,7 @@ const WORLD = __WORLD__;
         const sportData=sport?{via:viaIn.length>1?viaIn:null, distanceKm:isFinite(kmIn)&&kmIn>0?Math.round(kmIn*100)/100:null, movingS:dm?(dm[2]!=null?(+dm[1])*3600+(+dm[2])*60:(+dm[1])*60):null}:{};
         const data=Object.assign({}, pre&&pre.extra||{}, sportData, (opts.todo||p&&p.todo)?{todo:true}:{}, {city:wantCity}, {tripId:trip.id, stopId:st.id, name, address:loc, category:val('pCat'), date, time:val('pTime'), private:$('#pPriv').checked, status, rating, cost:isFinite(c)?c:0, paidBy:isFinite(c)&&c>0?val('pPaid').trim():'', currency:val('pCur'), notes:val('pNotes').trim(), photoIds, updatedAt:now()});
         if(keep){ data.lat=pos.lat; data.lon=pos.lon; }
+        { const b=bizRead('pBiz', trip, date); if(b!==undefined) data.biz=b; }
         let id=p&&p.id;
         if(p){ if(!keep&&p.lat!=null){ data.lat=null; data.lon=null; } if(p.date!==date) data.dayPos=null; await patch('places', p.id, data); }
         else id=(await put('places', null, Object.assign({createdAt:now()}, data))).id;
@@ -1628,7 +1647,7 @@ const WORLD = __WORLD__;
       + '<div class="field"><label for="eCat">Category</label><select id="eCat">'+cats.map(c=>'<option'+((x?x.category:'Other')===c?' selected':'')+'>'+c+'</option>').join('')+'</select></div>'
       + locFieldHtml('e', x&&x.address||'', 'Filled from the receipt photo, or type a place')
       + '<div class="grid2"><div class="field"><label for="eCity">Where</label><input id="eCity" list="eCities" autocomplete="off" value="'+esc(x?x.city||'':'')+'" placeholder="City"><datalist id="eCities">'+cities.map(c=>'<option value="'+esc(c)+'">').join('')+'</datalist></div>'
-      + '<div class="field"><label for="ePaid">Paid by</label><input id="ePaid" list="payers" autocomplete="off" value="'+esc(x?x.paidBy||'':lastPayer(trip.id))+'" placeholder="e.g. Me, Sam, split"><datalist id="payers">'+payers(trip.id).map(n=>'<option value="'+esc(n)+'">').join('')+'</datalist></div></div>'
+      + '<div class="field"><label for="ePaid">Paid by</label>'+'<input id="ePaid" list="payers" autocomplete="off" value="'+esc(x?x.paidBy||'':lastPayer(trip.id))+'" placeholder="e.g. Me, Sam, split"><datalist id="payers">'+payers(trip.id).map(n=>'<option value="'+esc(n)+'">').join('')+'</datalist>'+bizBox('eBiz', trip, x, (x?x.date||'':todayStr()))+'</div></div>'
       + '<div class="field"><label for="eNote">Note (optional)</label><textarea id="eNote" placeholder="Receipt details, what it covered, who owes what…">'+esc(x?x.notes||'':'')+'</textarea></div>'
       + '<div class="err" id="fErr" hidden></div>'
       + '<div class="confirm" id="eMeal" hidden><span>🍽️ A breakfast, lunch or dinner? Log it as a meal: it shows in the day like an activity (with stars and photos) and still counts in the budget.</span><div class="row"><button type="button" class="btn small primary" id="eToMeal">Make it a meal</button></div></div>'
@@ -1694,6 +1713,7 @@ const WORLD = __WORLD__;
         const data={tripId:trip.id, label, amount:a, currency:val('eCur'), category:val('eCat'), date:val('eDate'), time:val('eTime'), city:st?st.city:city, stopId:st?st.id:'', paidBy:val('ePaid').trim(), notes:val('eNote').trim(), photoIds, updatedAt:now()};
         data.address=eloc.text(); if(eloc.pos){ data.lat=eloc.pos.lat; data.lon=eloc.pos.lon; } else if(x&&x.lat!=null){ data.lat=null; data.lon=null; }
         if(x&&x.date!==data.date) data.dayPos=null;
+        { const b=bizRead('eBiz', trip, data.date); if(b!==undefined) data.biz=b; }
         let eid=x&&x.id;
         if(x) await patch('expenses', x.id, data); else eid=(await put('expenses', null, Object.assign({createdAt:now()}, data))).id;
         eloc.afterSave('expenses', eid, data.city);
@@ -2217,7 +2237,7 @@ const WORLD = __WORLD__;
       + '<div class="hint" id="sNights"></div>'
       + '<div class="field"><label for="sCity">City</label><input id="sCity" list="sCities" autocomplete="off" placeholder="From the photo or booking, or type" value="'+esc(st?city0||'':'')+'"><datalist id="sCities">'+cityNames.map(c=>'<option value="'+esc(c)+'">').join('')+'</datalist></div>'
       + '<div class="grid3"><div class="field"><label for="sCost">Total price (optional)</label><input id="sCost" inputmode="decimal" value="'+esc(st&&st.cost?st.cost:'')+'"></div><div class="field"><label for="sCur">Currency</label>'+curSelect('sCur', st?st.currency:trip.currency)+'</div></div>'
-      + '<div class="field" id="sPaidF"'+(st&&+st.cost?'':' hidden')+'><label for="sPaid">Paid by</label><input id="sPaid" list="sPayers" autocomplete="off" value="'+esc(st&&st.paidBy||lastPayer(trip.id))+'"><datalist id="sPayers">'+payers(trip.id).map(n=>'<option value="'+esc(n)+'">').join('')+'</datalist></div>'
+      + '<div class="field" id="sPaidF"'+(st&&+st.cost?'':' hidden')+'><label for="sPaid">Paid by</label>'+'<input id="sPaid" list="sPayers" autocomplete="off" value="'+esc(st&&st.paidBy||lastPayer(trip.id))+'"><datalist id="sPayers">'+payers(trip.id).map(n=>'<option value="'+esc(n)+'">').join('')+'</datalist>'+bizBox('sBiz', trip, st, ci)+'</div>'
       + '<div class="grid2"><div class="field"><label for="sPlat">Booked via</label><select id="sPlat">'+PLATFORMS.map(x=>'<option value="'+esc(x)+'"'+((st?st.platform||'':'')===x?' selected':'')+'>'+(x||'—')+'</option>').join('')+'</select></div>'
       + '<div class="field"><label for="sRef">Booking ref</label><input id="sRef" value="'+esc(st?st.bookingRef||'':'')+'" autocomplete="off"></div></div>'
       + '<div class="field"><label for="sAddr">Address (optional)</label><input id="sAddr" value="'+esc(st?st.address||'':'')+'"><div class="row"><button type="button" class="btn small" id="sFind">🔎 Find it from the name</button></div><div id="sFound"></div></div>'
@@ -2295,6 +2315,7 @@ const WORLD = __WORLD__;
           rating, notes:val('sNotes').trim(), photoIds, updatedAt:now()};
         if(keep){ data.lat=pos.lat; data.lon=pos.lon; } else if(st&&st.lat!=null&&st.name!==name){ data.lat=null; data.lon=null; }
         let id=st&&st.id;
+        { const b=bizRead('sBiz', trip, checkIn); if(b!==undefined) data.biz=b; }
         if(st) await patch('stays', st.id, data); else id=(await put('stays', null, Object.assign({createdAt:now()}, data))).id;
         closeSheet();
         for(const x of orig.concat(added)) if(!photoIds.includes(x)) forgetAsset(x, st);
@@ -2512,26 +2533,33 @@ const WORLD = __WORLD__;
   // every cost on the trip with its date: legs, meals/activities, expenses, stays
   function costRows(tid){
     const rows=[], city=id=>(stopOf(id)||{}).city||'';
-    tripLegs(tid).forEach(l=>{ if(!+l.cost) return; rows.push({date:l.date||'', time:hhmm(l), type:'Transport', cat:LEG_CAT[l.mode]||'Transport', what:(MODES[l.mode]||{}).label+': '+city(l.fromId)+' → '+city(l.toId), city:city(l.fromId), amount:+l.cost, cur:l.currency||'EUR', paid:l.paidBy||'', notes:l.notes||''}); });
-    S.places.filter(p=>p.tripId===tid&&+p.cost).forEach(p=>rows.push({date:p.date||'', time:hhmm(p), type:MEAL_KEYS.has(p.category)?'Meal':'Activity', cat:p.category==='hotel'?'Lodging':MEAL_KEYS.has(p.category)?'Meals':p.category==='shopping'?'Shopping':p.category==='laundry'?'Laundry':'Activities', what:p.name+(MEAL_KEYS.has(p.category)?' ('+(CAT_LABEL[p.category]||'')+')':''), city:city(p.stopId), amount:+p.cost, cur:p.currency||'EUR', paid:p.paidBy||'', notes:p.notes||''}));
-    S.expenses.filter(e=>e.tripId===tid).forEach(e=>rows.push({date:e.date||'', time:hhmm(e), type:'Expense', cat:e.category==='Transport'?(RIDE_CAT[expIcon('Transport',e.label)]||'Transport'):(e.category||'Other'), what:e.label, city:e.city||city(e.stopId), amount:+e.amount||0, cur:e.currency||'EUR', paid:e.paidBy||'', notes:e.notes||''}));
-    S.stays.filter(x=>x.tripId===tid&&+x.cost).forEach(x=>rows.push({date:x.checkIn||'', time:'', type:'Stay', cat:'Lodging', what:x.name+' · '+stayNights(x)+' night'+(stayNights(x)===1?'':'s'), city:x.city||city(x.stopId), amount:+x.cost, cur:x.currency||'EUR', paid:x.paidBy||'', notes:[x.platform,x.bookingRef].filter(Boolean).join(' · ')}));
+    tripLegs(tid).forEach(l=>{ if(!+l.cost) return; rows.push({date:l.date||'', time:hhmm(l), type:'Transport', cat:LEG_CAT[l.mode]||'Transport', what:(MODES[l.mode]||{}).label+': '+city(l.fromId)+' → '+city(l.toId), city:city(l.fromId), amount:+l.cost, cur:l.currency||'EUR', paid:l.paidBy||'', notes:l.notes||'', biz:isBiz(l)}); });
+    S.places.filter(p=>p.tripId===tid&&+p.cost).forEach(p=>rows.push({date:p.date||'', time:hhmm(p), type:MEAL_KEYS.has(p.category)?'Meal':'Activity', cat:p.category==='hotel'?'Lodging':MEAL_KEYS.has(p.category)?'Meals':p.category==='shopping'?'Shopping':p.category==='laundry'?'Laundry':'Activities', what:p.name+(MEAL_KEYS.has(p.category)?' ('+(CAT_LABEL[p.category]||'')+')':''), city:city(p.stopId), amount:+p.cost, cur:p.currency||'EUR', paid:p.paidBy||'', notes:p.notes||'', biz:isBiz(p)}));
+    S.expenses.filter(e=>e.tripId===tid).forEach(e=>rows.push({date:e.date||'', time:hhmm(e), type:'Expense', cat:e.category==='Transport'?(RIDE_CAT[expIcon('Transport',e.label)]||'Transport'):(e.category||'Other'), what:e.label, city:e.city||city(e.stopId), amount:+e.amount||0, cur:e.currency||'EUR', paid:e.paidBy||'', notes:e.notes||'', biz:isBiz(e)}));
+    S.stays.filter(x=>x.tripId===tid&&+x.cost).forEach(x=>rows.push({date:x.checkIn||'', time:'', type:'Stay', cat:'Lodging', what:x.name+' · '+stayNights(x)+' night'+(stayNights(x)===1?'':'s'), city:x.city||city(x.stopId), amount:+x.cost, cur:x.currency||'EUR', paid:x.paidBy||'', notes:[x.platform,x.bookingRef].filter(Boolean).join(' · '), biz:isBiz(x)}));
     return rows.sort((a,b)=>(a.date+a.time).localeCompare(b.date+b.time));
   }
-  async function exportExpenses(t){
+  async function exportExpenses(t, opt){
+    opt=opt||{};
     if(!downloads){ toast('Saving files isn\'t available here.'); return; }
-    const rows=costRows(t.id); if(!rows.length){ toast('No costs to export yet.'); return; }
-    const head=['Date','Time','Type','Category','Description','City','Amount','Currency','Paid by','Notes'];
-    const list=[head].concat(rows.map(r=>[r.date,r.time,r.type,r.cat,r.what,r.city,Math.round(r.amount*100)/100,r.cur,r.paid,r.notes]));
+    const rows=costRows(t.id).filter(r=>!opt.biz||r.biz);
+    // business report: also the drives on business days, for a mileage claim (km × your rate)
+    const drives=opt.biz?tripLegs(t.id).filter(l=>l.mode==='car'&&+l.km&&isBiz(l)):[];
+    if(!rows.length&&!drives.length){ toast(opt.biz?'No business costs yet. Tick 💼 Business on a cost, or set the trip type.':'No costs to export yet.'); return; }
+    const bcol=!opt.biz&&tripPurpose(t)!=='personal'; // the full export says which costs are business
+    const head=['Date','Time','Type','Category','Description','City','Amount','Currency','Paid by','Notes'].concat(bcol?['Business']:[]);
+    const list=[head].concat(rows.map(r=>[r.date,r.time,r.type,r.cat,r.what,r.city,Math.round(r.amount*100)/100,r.cur,r.paid,r.notes].concat(bcol?[r.biz?'yes':'']:[])));
     const by={}; rows.forEach(r=>{ const k=r.cat+'|'+r.cur; by[k]=(by[k]||0)+r.amount; });
     const tot={}; rows.forEach(r=>{ tot[r.cur]=(tot[r.cur]||0)+r.amount; });
     const cats=[['Category','Currency','Total']].concat(Object.entries(by).sort((a,b)=>b[1]-a[1]).map(([k,v])=>{ const [c,cur]=k.split('|'); return [c,cur,Math.round(v*100)/100]; }))
       .concat(Object.entries(tot).map(([c,v])=>['Total',c,Math.round(v*100)/100]));
     const who={}; rows.filter(r=>r.paid).forEach(r=>{ const k=r.paid+'|'+r.cur; who[k]=(who[k]||0)+r.amount; });
     const payers=[['Paid by','Currency','Total']].concat(Object.entries(who).sort().map(([k,v])=>{ const [n,cur]=k.split('|'); return [n,cur,Math.round(v*100)/100]; }));
-    const sheets=[{name:'Expenses', rows:list, widths:[11,7,10,16,40,16,11,9,12,30]}, {name:'By category', rows:cats, widths:[18,10,12]}];
+    const sheets=[{name:opt.biz?'Business expenses':'Expenses', rows:list, widths:[11,7,10,16,40,16,11,9,12,30,9]}, {name:'By category', rows:cats, widths:[18,10,12]}];
     if(payers.length>1) sheets.push({name:'Who paid', rows:payers, widths:[16,10,12]});
-    const data=xlsx(sheets), name=(t.name||'Trip').replace(/[^\w\- ]+/g,'').replace(/\s+/g,' ').trim()+' – expenses.xlsx';
+    if(drives.length){ const c=id=>(stopOf(id)||{}).city||''; const tk=drives.reduce((a,l)=>a+(+l.km||0),0);
+      sheets.push({name:'Mileage', rows:[['Date','From','To','Km','Measured','Notes']].concat(drives.map(l=>[l.date,c(l.fromId),c(l.toId),Math.round(+l.km),legTrack(l)||!l.kmEstimated?'yes':'estimated',l.notes||'']), [['Total','','',Math.round(tk),'','']]), widths:[11,18,18,8,11,30]}); }
+    const data=xlsx(sheets), name=(t.name||'Trip').replace(/[^\w\- ]+/g,'').replace(/\s+/g,' ').trim()+(opt.biz?' – business expenses.xlsx':' – expenses.xlsx');
     try{ await downloads.save({filename:name, data}); toast('Saved'); }
     catch(e){ if(e&&e.code==='declined') return; toast(e&&e.code==='extension_not_enabled'?'Excel files can\'t be saved here.':'Couldn\'t save the file.'); }
   }
