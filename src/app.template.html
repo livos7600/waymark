@@ -343,10 +343,10 @@ const WORLD = __WORLD__;
     :!tm?'lunch':tm<'10:45'?'breakfast':tm<'15:00'?'lunch':tm<'17:45'?'snack':'dinner';
   const CATS = MEALS.concat([
     ['food','Food & drink'],['restaurant','Restaurant'],['citytour','City visit'],['museum','Museum'],['attraction','Attraction'],['hike','Hike'],['run','Run'],['walk','Walk'],['ride','Bike ride'],
-    ['hotel','Hotel'],['nightlife','Nightlife'],['shopping','Shopping'],['other','Other']
+    ['hotel','Hotel'],['nightlife','Nightlife'],['shopping','Shopping'],['laundry','Laundry'],['other','Other']
   ]);
-  const CAT_ICON = {breakfast:'🥐',lunch:'🥗',dinner:'🍽️',snack:'🥨',coffee:'☕',drinks:'🍹',food:'🍴',restaurant:'🍴',citytour:'🏙️',museum:'🏛️',attraction:'📍',hike:'🥾',run:'🏃',walk:'🚶',ride:'🚴',hotel:'🏨',nightlife:'🌙',shopping:'🛍️',other:'✦'};
-  const EXP_ICON = {'Transport':'🚗','Lodging':'🛏️','Food & drink':'🍴','Meals':'🍽️','Activities':'🎟️','Shopping':'🛍️','Fees & insurance':'🛡️','Other':'💳'};
+  const CAT_ICON = {breakfast:'🥐',lunch:'🥗',dinner:'🍽️',snack:'🥨',coffee:'☕',drinks:'🍹',food:'🍴',restaurant:'🍴',citytour:'🏙️',museum:'🏛️',attraction:'📍',hike:'🥾',run:'🏃',walk:'🚶',ride:'🚴',hotel:'🏨',nightlife:'🌙',shopping:'🛍️',laundry:'🧺',other:'✦'};
+  const EXP_ICON = {'Transport':'🚗','Lodging':'🛏️','Food & drink':'🍴','Meals':'🍽️','Activities':'🎟️','Shopping':'🛍️','Laundry':'🧺','Fees & insurance':'🛡️','Other':'💳'};
   const MODE_EMOJI={plane:'✈️',car:'🚗',train:'🚆',bus:'🚌',ferry:'⛴️',walk:'🚶'};
   // what kind of transport/other cost it is, from its label ("Flight to Bordeaux", "Péage A63", "Uber")
   const RIDE_ICONS=[[/flight|plane|avion|vol\b|airline|air ?france|easyjet|ryanair|transat|westjet|air canada|baggage|bagage/i,'✈️'],[/train|sncf|tgv|ter\b|ouigo|rail|eurostar|renfe/i,'🚆'],
@@ -429,7 +429,7 @@ const WORLD = __WORLD__;
     const out=[];
     tripLegs(tid).forEach(l=>{ if(l.cost) out.push({cat:LEG_CAT[l.mode]||'Transport', label:(MODES[l.mode]||{}).label+': '+(stopOf(l.fromId)||{}).city+' → '+(stopOf(l.toId)||{}).city, amount:+l.cost, cur:l.currency||'EUR'}); });
     S.places.filter(p=>p.tripId===tid && p.cost).forEach(p=>{
-      const cat = p.category==='hotel'?'Lodging':MEAL_KEYS.has(p.category)?'Meals':(p.category==='shopping')?'Shopping':'Activities';
+      const cat = p.category==='hotel'?'Lodging':MEAL_KEYS.has(p.category)?'Meals':(p.category==='shopping')?'Shopping':p.category==='laundry'?'Laundry':'Activities';
       out.push({cat, label:p.name, amount:+p.cost, cur:p.currency||'EUR'}); });
     S.expenses.filter(e=>e.tripId===tid).forEach(e=>out.push({cat:e.category==='Transport'?(RIDE_CAT[expIcon('Transport',e.label)]||'Transport'):(e.category||'Other'), label:e.label, amount:+e.amount, cur:e.currency||'EUR', id:e.id}));
     S.stays.filter(x=>x.tripId===tid&&x.cost).forEach(x=>out.push({cat:'Lodging', label:x.name+' · '+stayNights(x)+' night'+(stayNights(x)===1?'':'s'), amount:+x.cost, cur:x.currency||'EUR'}));
@@ -1612,7 +1612,7 @@ const WORLD = __WORLD__;
   function payers(tid){ const set=new Set(['Me']); ((tripOf(tid)||{}).people||[]).forEach(x=>{ if(x.name) set.add(x.name); }); S.expenses.concat(S.places, S.legs, S.stays).filter(e=>e.tripId===tid&&e.paidBy).forEach(e=>set.add(e.paidBy)); return [...set]; }
   function lastPayer(tid){ const l=S.expenses.concat(S.places, S.legs, S.stays).filter(e=>e.tripId===tid&&e.paidBy).sort((a,b)=>(b.updatedAt||'').localeCompare(a.updatedAt||''))[0]; return l?l.paidBy:'Me'; }
 
-  const EXP_CATS=['Transport','Lodging','Food & drink','Activities','Shopping','Fees & insurance','Other'];
+  const EXP_CATS=['Transport','Lodging','Food & drink','Activities','Shopping','Laundry','Fees & insurance','Other'];
   function expenseSheet(trip, x, files, pre){
     const cats=EXP_CATS;
     const canRead=!!(sample&&sampleImages);
@@ -2513,7 +2513,7 @@ const WORLD = __WORLD__;
   function costRows(tid){
     const rows=[], city=id=>(stopOf(id)||{}).city||'';
     tripLegs(tid).forEach(l=>{ if(!+l.cost) return; rows.push({date:l.date||'', time:hhmm(l), type:'Transport', cat:LEG_CAT[l.mode]||'Transport', what:(MODES[l.mode]||{}).label+': '+city(l.fromId)+' → '+city(l.toId), city:city(l.fromId), amount:+l.cost, cur:l.currency||'EUR', paid:l.paidBy||'', notes:l.notes||''}); });
-    S.places.filter(p=>p.tripId===tid&&+p.cost).forEach(p=>rows.push({date:p.date||'', time:hhmm(p), type:MEAL_KEYS.has(p.category)?'Meal':'Activity', cat:p.category==='hotel'?'Lodging':MEAL_KEYS.has(p.category)?'Meals':p.category==='shopping'?'Shopping':'Activities', what:p.name+(MEAL_KEYS.has(p.category)?' ('+(CAT_LABEL[p.category]||'')+')':''), city:city(p.stopId), amount:+p.cost, cur:p.currency||'EUR', paid:p.paidBy||'', notes:p.notes||''}));
+    S.places.filter(p=>p.tripId===tid&&+p.cost).forEach(p=>rows.push({date:p.date||'', time:hhmm(p), type:MEAL_KEYS.has(p.category)?'Meal':'Activity', cat:p.category==='hotel'?'Lodging':MEAL_KEYS.has(p.category)?'Meals':p.category==='shopping'?'Shopping':p.category==='laundry'?'Laundry':'Activities', what:p.name+(MEAL_KEYS.has(p.category)?' ('+(CAT_LABEL[p.category]||'')+')':''), city:city(p.stopId), amount:+p.cost, cur:p.currency||'EUR', paid:p.paidBy||'', notes:p.notes||''}));
     S.expenses.filter(e=>e.tripId===tid).forEach(e=>rows.push({date:e.date||'', time:hhmm(e), type:'Expense', cat:e.category==='Transport'?(RIDE_CAT[expIcon('Transport',e.label)]||'Transport'):(e.category||'Other'), what:e.label, city:e.city||city(e.stopId), amount:+e.amount||0, cur:e.currency||'EUR', paid:e.paidBy||'', notes:e.notes||''}));
     S.stays.filter(x=>x.tripId===tid&&+x.cost).forEach(x=>rows.push({date:x.checkIn||'', time:'', type:'Stay', cat:'Lodging', what:x.name+' · '+stayNights(x)+' night'+(stayNights(x)===1?'':'s'), city:x.city||city(x.stopId), amount:+x.cost, cur:x.currency||'EUR', paid:x.paidBy||'', notes:[x.platform,x.bookingRef].filter(Boolean).join(' · ')}));
     return rows.sort((a,b)=>(a.date+a.time).localeCompare(b.date+b.time));
