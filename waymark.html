@@ -190,6 +190,8 @@
   .country .flag{font-size:22px;}
 
   /* sheet */
+  .kb-done{position:fixed;top:10px;right:12px;z-index:60;border:0;border-radius:999px;padding:9px 16px;font-weight:700;font-size:15px;background:var(--ink);color:var(--surface);box-shadow:var(--shadow);cursor:pointer;}
+  .sheet.kb-open{padding-bottom:min(55vh,420px);}
   .backdrop{position:fixed;inset:0;z-index:50;background:rgba(10,15,20,.55);display:flex;align-items:flex-end;justify-content:center;}
   @media (min-width:640px){ .backdrop{align-items:center;} }
   .sheet{background:var(--surface);width:100%;max-width:560px;max-height:92vh;max-height:92%;overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;border-radius:18px 18px 0 0;
@@ -1189,6 +1191,15 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
     sh.addEventListener('keydown', e=>{ const x=e.target; if(e.key==='Enter'&&x.tagName==='INPUT'&&!sh.onsubmit){ e.preventDefault(); x.blur(); } });
     const typing=el=>el&&/^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName)&&!/^(checkbox|radio|range|file|button)$/.test(el.type||'');
     sh.addEventListener('touchstart', e=>{ const a=document.activeElement; if(typing(a)&&!typing(e.target)&&!(e.target.closest&&e.target.closest('label'))) a.blur(); }, {passive:true});
+    // inside the Claude app the page isn't told the keyboard's height: a Done button at the top, a swipe puts the keyboard
+    // away, and while typing the sheet gets room at the bottom so the next fields can scroll up above the keyboard
+    const done=document.createElement('button'); done.type='button'; done.className='kb-done'; done.textContent='Done ⌄'; done.hidden=true;
+    done.addEventListener('pointerdown', e=>{ e.preventDefault(); const a=document.activeElement; if(a&&a.blur) a.blur(); });
+    bd.appendChild(done);
+    sh.addEventListener('focusin', e=>{ if(typing(e.target)){ done.hidden=false; sh.classList.add('kb-open'); } });
+    sh.addEventListener('focusout', ()=>setTimeout(()=>{ if(!typing(document.activeElement)){ done.hidden=true; sh.classList.remove('kb-open'); } }, 60));
+    let y0=null; sh.addEventListener('touchstart', e=>{ y0=e.touches[0].clientY; }, {passive:true});
+    sh.addEventListener('touchmove', e=>{ if(y0!=null&&Math.abs(e.touches[0].clientY-y0)>14){ const a=document.activeElement; if(typing(a)) a.blur(); y0=null; } }, {passive:true});
     fitSheet(); bind(sh);
   }
   const vv=window.visualViewport;
