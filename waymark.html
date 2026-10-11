@@ -2512,6 +2512,149 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
     }
     return ids;
   }
+  // ---------- Guide (recommendations for friends) and Itinerary (for colleagues): text with map links, or a PDF ----------
+  // Only what the owner picks: a date range or one city, done places (never "Keep off shares"), no who-paid, no business costs.
+  const mapsLink=(name, where, lat, lon)=>'https://www.google.com/maps/search/?api=1&query='+encodeURIComponent(lat!=null&&isFinite(lat)?(+lat).toFixed(5)+','+(+lon).toFixed(5):[name,where].filter(Boolean).join(', '));
+  const stars=n=>n?'★'.repeat(n):'';
+  function guideData(t, g){
+    const inRange=d=>d&&d>=g.from&&d<=g.to, cityOf=id=>(stopOf(id)||{}).city||'', okCity=c=>!g.city||norm(c)===g.city;
+    const order=[]; // towns in travel order
+    const seen=new Set(), push=c=>{ if(c&&!seen.has(norm(c))){ seen.add(norm(c)); order.push(c); } };
+    for(let d=g.from; d<=g.to; d=addDays(d,1)) dayCities(t,d).forEach(push);
+    const by={}; const bucket=c=>{ push(c); return by[norm(c)]=by[norm(c)]||{city:c, stay:[], eat:[], doo:[]}; };
+    tripStays(t.id).filter(x=>x.checkIn<=g.to&&(x.checkOut||x.checkIn)>g.from).forEach(x=>{ const c=x.city||cityOf(x.stopId); if(!okCity(c)||(g.min&&(x.rating||0)<g.min)) return;
+      bucket(c).stay.push({name:x.name, icon:stayIcon(x), what:(STAY_KIND[x.kind]||STAY_KIND.other)[1], rating:x.rating||0, price:perNight(x), extra:x.platform&&x.platform!=='Other'?x.platform:'', address:x.address||'', notes:x.notes||'', lat:x.lat, lon:x.lon, photo:(x.photoIds||[])[0], c}); });
+    const names=new Set();
+    S.places.filter(p=>p.tripId===t.id&&p.status==='done'&&!p.private&&inRange(p.date)&&p.category!=='laundry').sort((a,b)=>((a.date||'')+(a.time||'')).localeCompare((b.date||'')+(b.time||''))).forEach(p=>{
+      const c=cityOf(p.stopId); if(!okCity(c)||(g.min&&(p.rating||0)<g.min)) return;
+      const k=norm(c)+'|'+norm(p.name); if(names.has(k)) return; names.add(k); // a place visited twice is one recommendation
+      const it={name:p.name, icon:catIcon(p.category), what:CAT_LABEL[p.category]||'', rating:p.rating||0, price:+p.cost?fmtMoney(p.cost,p.currency):'', extra:viaTxt(p), address:p.address||'', notes:p.notes||'', lat:p.lat, lon:p.lon, photo:(p.photoIds||[])[0], c};
+      const b=bucket(c); (MEAL_KEYS.has(p.category)?b.eat:p.category==='hotel'?b.stay:b.doo).push(it); });
+    return order.map(c=>by[norm(c)]).filter(b=>b&&(b.stay.length||b.eat.length||b.doo.length));
+  }
+  function itinData(t, g){
+    const days=[];
+    for(let d=g.from; d<=g.to; d=addDays(d,1)){ const items=[];
+      // the same order as Days (drives in their place between the towns' activities)
+      const legs=tripLegs(t.id).filter(l=>l.date===d), acts=g.acts?S.places.filter(p=>p.tripId===t.id&&p.date===d&&!p.private&&p.category!=='laundry'):[];
+      dayOrder(d, legs, acts, []).forEach(({k,x})=>{
+        if(k==='leg') items.push({t:hhmm(x)||'', icon:MODE_EMOJI[x.mode]||'🚗', text:((stopOf(x.fromId)||{}).city||'?')+' → '+((stopOf(x.toId)||{}).city||'?')+(hhmm(x)&&x.arrTime?' (arrive '+x.arrTime+')':'')+(+x.km?' · '+fmtKm(x.km)+' km':'')});
+        else if(k==='act') items.push({t:hhmm(x)||'', icon:catIcon(x.category), text:x.name+(x.status==='want'?' (planned)':''), lat:x.lat, lon:x.lon, address:x.address||''}); });
+      staysOnNight(t.id, d).forEach(x=>items.push({t:'', icon:'🛏', text:x.name+(x.checkIn===d?' — check in':''), address:x.address||x.city||'', ref:g.refs&&x.checkIn===d?x.bookingRef||'':'', lat:x.lat, lon:x.lon}));
+      if(items.length||!g.skipEmpty) days.push({d, cities:dayCities(t,d), items}); }
+    return days;
+  }
+  function guideTitle(t, g){ const c=g.city?(tripStops(t.id).find(s=>norm(s.city)===g.city)||{}).city:''; return (c||t.name||'Trip'); }
+  function guideRange(g){ return g.from===g.to?fmtDate(g.from,{weekday:'short',month:'short',day:'numeric',year:'numeric'}):fmtDate(g.from,{month:'short',day:'numeric'})+' – '+fmtDate(g.to,{month:'short',day:'numeric',year:'numeric'}); }
+  function guideText(t, g){
+    const L=[];
+    if(g.mode==='itin'){
+      L.push('🗓 '+guideTitle(t,g)+' — itinerary', guideRange(g), '');
+      itinData(t,g).forEach(day=>{ L.push(fmtDate(day.d,{weekday:'long',month:'short',day:'numeric'})+(day.cities.length?' · '+day.cities.join(' → '):''));
+        if(!day.items.length) L.push('  (free day)');
+        day.items.forEach(it=>{ L.push('  '+it.icon+' '+(it.t?it.t+' ':'')+it.text+(it.ref?' · ref '+it.ref:'')); if(it.address&&g.links) L.push('     '+it.address); if(g.links&&(it.lat!=null||it.address)&&it.icon==='🛏') L.push('     '+mapsLink(it.text.replace(/ — check in$/,''), it.address, it.lat, it.lon)); });
+        L.push(''); });
+    } else {
+      L.push('📘 '+guideTitle(t,g)+' — our picks', guideRange(g), '');
+      guideData(t,g).forEach(b=>{ L.push(b.city.toUpperCase());
+        [['🛏 Where to stay',b.stay],['🍽️ Eat & drink',b.eat],['📍 What to do',b.doo]].forEach(([h,xs])=>{ if(!xs.length) return; L.push(h);
+          xs.forEach(x=>{ L.push('• '+x.name+(x.rating?' '+stars(x.rating):'')+[g.prices?x.price:'', x.extra].filter(Boolean).map(s=>' · '+s).join(''));
+            if(g.notes&&x.notes) L.push('  '+x.notes.replace(/\s*\n\s*/g,' · ').slice(0,220));
+            if(g.links) L.push('  '+mapsLink(x.name, x.address||b.city, x.lat, x.lon)); }); });
+        L.push(''); });
+      if(L.length<=3) L.push('(Nothing to recommend in this range yet: done activities, meals and stays show here.)');
+    }
+    L.push('Made with Waymark');
+    return L.join('\n');
+  }
+  // the PDF: A4 pages drawn on a canvas (title, towns, sections, entries with an optional photo), packed by pdfFromJpegs
+  async function guidePdf(t, g){
+    const PW=1240, PH=1754, M=90, pages=[]; let c, gx, y=0;
+    const FONT='-apple-system, Helvetica, Arial, sans-serif';
+    const newPage=async()=>{ if(c) pages.push(await canvasJpeg(c)); c=document.createElement('canvas'); c.width=PW; c.height=PH; gx=c.getContext('2d'); gx.fillStyle='#fff'; gx.fillRect(0,0,PW,PH); y=M; };
+    const need=async h=>{ if(y+h>PH-M) await newPage(); };
+    const wrap=(txt, font, maxW)=>{ gx.font=font; const out=[]; String(txt).split('\n').forEach(par=>{ let line=''; par.split(/\s+/).forEach(w=>{ const tl=line?line+' '+w:w; if(gx.measureText(tl).width>maxW&&line){ out.push(line); line=w; } else line=tl; }); out.push(line); }); return out; };
+    const write=async(txt, font, color, lh, x, maxW)=>{ const ls=wrap(txt,font,maxW||PW-2*M-(x||0)); for(const l of ls){ await need(lh); gx.font=font; gx.fillStyle=color; gx.fillText(l, M+(x||0), y+lh*.78); y+=lh; } };
+    const imgs={}; const load=async id=>{ if(!id||!g.photos) return null; if(id in imgs) return imgs[id]; try{ const im=new Image(); im.src='/_blob/'+id; await im.decode(); imgs[id]=im; }catch(e){ imgs[id]=null; } return imgs[id]; };
+    await newPage();
+    await write(g.mode==='itin'?'Itinerary':'Our picks', 'bold 30px '+FONT, '#FF7A3D', 40);
+    await write(guideTitle(t,g), 'bold 64px '+FONT, '#15202B', 76);
+    await write(guideRange(g), '32px '+FONT, '#4C5967', 48); y+=24;
+    if(g.mode==='itin'){
+      for(const day of itinData(t,g)){ await need(130); gx.fillStyle='#E4E9EE'; gx.fillRect(M,y,PW-2*M,3); y+=22;
+        await write(fmtDate(day.d,{weekday:'long',month:'long',day:'numeric'})+(day.cities.length?'  ·  '+day.cities.join(' → '):''), 'bold 36px '+FONT, '#15202B', 50);
+        if(!day.items.length) await write('Free day', '30px '+FONT, '#8693A0', 44, 20);
+        for(const it of day.items){ await write(it.icon+'  '+(it.t?it.t+'   ':'')+it.text+(it.ref?'  ·  ref '+it.ref:''), '30px '+FONT, '#15202B', 44, 20);
+          if(it.address&&it.icon==='🛏') await write(it.address, '26px '+FONT, '#4C5967', 38, 66); }
+        y+=16; }
+    } else {
+      const data=guideData(t,g);
+      if(!data.length) await write('Nothing to recommend in this range yet.', '30px '+FONT, '#4C5967', 44);
+      for(const b of data){ await need(200); y+=10; await write(b.city, 'bold 52px '+FONT, '#15202B', 66); gx.fillStyle='#FF7A3D'; gx.fillRect(M,y,120,6); y+=26;
+        for(const [h,xs] of [['Where to stay',b.stay],['Eat & drink',b.eat],['What to do',b.doo]]){ if(!xs.length) continue; await need(120); await write(h, 'bold 34px '+FONT, '#4C5967', 52);
+          for(const x of xs){ const im=await load(x.photo), ph=im?190:0, tw=PW-2*M-(im?ph+30:0);
+            const lines=[[x.icon+'  '+x.name, 'bold 32px '+FONT, '#15202B', 44], [[x.what, x.rating?stars(x.rating):'', g.prices?x.price:'', x.extra].filter(Boolean).join('  ·  '), '27px '+FONT, '#4C5967', 38]]
+              .concat(g.notes&&x.notes?[[x.notes.replace(/\s*\n\s*/g,' · ').slice(0,260), 'italic 27px '+FONT, '#15202B', 38]]:[]).concat(x.address?[[x.address, '25px '+FONT, '#8693A0', 36]]:[]);
+            let h0=0; lines.forEach(([tx,f,,lh])=>{ h0+=wrap(tx,f,tw).length*lh; }); await need(Math.max(h0,ph)+30);
+            const top=y; if(im){ const s=Math.max(ph/im.naturalWidth, ph/im.naturalHeight), sw=ph/s, sh=ph/s;
+              gx.save(); gx.beginPath(); gx.roundRect?gx.roundRect(PW-M-ph,top,ph,ph,18):gx.rect(PW-M-ph,top,ph,ph); gx.clip(); gx.drawImage(im,(im.naturalWidth-sw)/2,(im.naturalHeight-sh)/2,sw,sh,PW-M-ph,top,ph,ph); gx.restore(); }
+            for(const [tx,f,col,lh] of lines) for(const l of wrap(tx,f,tw)){ gx.font=f; gx.fillStyle=col; gx.fillText(l, M, y+lh*.78); y+=lh; }
+            y=Math.max(y, top+ph)+28; } } } }
+    await need(60); await write('Made with Waymark', '24px '+FONT, '#8693A0', 36);
+    pages.push(await canvasJpeg(c));
+    return pdfFromJpegs(pages, PW, PH);
+  }
+  const canvasJpeg=c=>new Promise(r=>c.toBlob(async b=>r(new Uint8Array(await b.arrayBuffer())),'image/jpeg',.82));
+  // a minimal PDF: each page is one JPEG drawn full-page (A4)
+  function pdfFromJpegs(pages, PW, PH){
+    const enc=new TextEncoder(), parts=[], offs=[]; let len=0; const add=x=>{ const u=typeof x==='string'?enc.encode(x):x; parts.push(u); len+=u.length; };
+    const obj=(n,body)=>{ offs[n]=len; add(n+' 0 obj\n'); body(); add('\nendobj\n'); };
+    add('%PDF-1.4\n'); const N=pages.length, kid=i=>3+i*3;
+    obj(1,()=>add('<</Type/Catalog/Pages 2 0 R>>')); obj(2,()=>add('<</Type/Pages/Count '+N+'/Kids['+pages.map((_,i)=>kid(i)+' 0 R').join(' ')+']>>'));
+    pages.forEach((jpg,i)=>{ const p=kid(i), im=p+1, ct=p+2, cs='q 595 0 0 842 0 0 cm /Im0 Do Q';
+      obj(p,()=>add('<</Type/Page/Parent 2 0 R/MediaBox[0 0 595 842]/Resources<</XObject<</Im0 '+im+' 0 R>>>>/Contents '+ct+' 0 R>>'));
+      obj(im,()=>{ add('<</Type/XObject/Subtype/Image/Width '+PW+'/Height '+PH+'/ColorSpace/DeviceRGB/BitsPerComponent 8/Filter/DCTDecode/Length '+jpg.length+'>>\nstream\n'); add(jpg); add('\nendstream'); });
+      obj(ct,()=>add('<</Length '+cs.length+'>>\nstream\n'+cs+'\nendstream')); });
+    const xref=len, total=3+N*3; let x='xref\n0 '+total+'\n0000000000 65535 f \n'; for(let i=1;i<total;i++) x+=String(offs[i]).padStart(10,'0')+' 00000 n \n';
+    add(x+'trailer\n<</Size '+total+'/Root 1 0 R>>\nstartxref\n'+xref+'\n%%EOF');
+    return new Blob(parts,{type:'application/pdf'});
+  }
+  function guideSheet(t, init){
+    init=init||{};
+    const g={mode:init.mode||'recs', from:init.from||t.startDate, to:init.to||t.endDate, city:'', min:0, prices:true, notes:true, links:true, photos:true, acts:true, refs:false, skipEmpty:true};
+    const cities=[]; tripStops(t.id).filter(s=>!s.home).forEach(s=>{ if(!cities.some(c=>norm(c)===norm(s.city))) cities.push(s.city); });
+    const days=[]; for(let d=t.startDate; d<=t.endDate&&days.length<120; d=addDays(d,1)) days.push(d);
+    const opt=(d,sel)=>'<option value="'+d+'"'+(d===sel?' selected':'')+'>'+fmtDate(d,{weekday:'short',month:'short',day:'numeric'})+'</option>';
+    const chip=(k,l,on)=>'<button type="button" class="chip'+(on?' on':'')+'" data-gt="'+k+'">'+l+'</button>';
+    openSheet('<h2>Guide or itinerary</h2><div class="hint">Send friends your picks, or colleagues the plan. Only what you choose goes in: no budget, no who-paid, nothing marked "Keep off shares".</div>'
+      + '<div class="chips">'+chip('recs','📘 Recommendations',g.mode==='recs')+chip('itin','🗓 Itinerary',g.mode==='itin')+'</div>'
+      + '<div class="grid2"><div class="field"><label for="gFrom">From</label><select id="gFrom">'+days.map(d=>opt(d,g.from)).join('')+'</select></div><div class="field"><label for="gTo">To</label><select id="gTo">'+days.map(d=>opt(d,g.to)).join('')+'</select></div></div>'
+      + '<div class="field" id="gCityF"><label for="gCity">Town</label><select id="gCity"><option value="">All towns</option>'+cities.map(c=>'<option value="'+esc(norm(c))+'">'+esc(c)+'</option>').join('')+'</select></div>'
+      + '<div class="chips" id="gOpts"></div>'
+      + '<div class="field"><label for="gText">Text version</label><textarea id="gText" rows="10" style="font-size:14px"></textarea></div>'
+      + '<div class="row"><button type="button" class="btn primary" id="gShare">'+ICON.share+' Send text</button><button type="button" class="btn" id="gCopy">Copy</button>'+(downloads?'<button type="button" class="btn" id="gPdf">⬇ PDF</button>':'')+'<button type="button" class="btn ghost" id="xCancel">Close</button></div>',
+    form=>{
+      $('#xCancel').onclick=closeSheet;
+      const OPTS={recs:[['min','Only ★4+'],['prices','Prices'],['notes','My notes'],['links','Map links'],['photos','Photos in PDF']], itin:[['acts','Activities'],['refs','Booking refs'],['links','Addresses & links'],['skipEmpty','Skip empty days']]};
+      const draw=()=>{ $('#gOpts').innerHTML=OPTS[g.mode].map(([k,l])=>'<button type="button" class="chip'+((k==='min'?g.min:g[k])?' on':'')+'" data-go="'+k+'">'+l+'</button>').join('');
+        $('#gOpts').querySelectorAll('[data-go]').forEach(b=>b.onclick=()=>{ const k=b.dataset.go; if(k==='min') g.min=g.min?0:4; else g[k]=!g[k]; draw(); });
+        $('#gCityF').style.display=g.mode==='itin'?'none':''; $('#gText').value=guideText(t,g); };
+      form.querySelectorAll('[data-gt]').forEach(b=>b.onclick=()=>{ g.mode=b.dataset.gt; form.querySelectorAll('[data-gt]').forEach(x=>x.classList.toggle('on',x===b)); draw(); });
+      $('#gFrom').onchange=()=>{ g.from=val('gFrom'); if(g.to<g.from){ g.to=g.from; $('#gTo').value=g.to; } draw(); };
+      $('#gTo').onchange=()=>{ g.to=val('gTo'); if(g.to<g.from){ g.from=g.to; $('#gFrom').value=g.from; } draw(); };
+      $('#gCity').onchange=()=>{ g.city=val('gCity'); draw(); };
+      $('#gCopy').onclick=async()=>{ try{ await navigator.clipboard.writeText(val('gText')); toast('Copied'); }catch(e){ $('#gText').select(); toast('Select all and copy'); } };
+      $('#gShare').onclick=async()=>{ const text=val('gText');
+        if(navigator.share){ try{ await navigator.share({text}); return; }catch(e){ if(e&&e.name==='AbortError') return; } }
+        try{ await navigator.clipboard.writeText(text); toast('Copied: paste it in WhatsApp, Messages or an email'); }catch(e){ toast('Select the text and copy it'); } };
+      const pb=$('#gPdf'); if(pb) pb.onclick=async()=>{ pb.disabled=true; pb.textContent='…';
+        try{ const data=await guidePdf(t,g), name=(guideTitle(t,g)).replace(/[^\w\- ]+/g,'').replace(/\s+/g,' ').trim()+(g.mode==='itin'?' – itinerary.pdf':' – guide.pdf');
+          await downloads.save({filename:name, data}); toast('Saved'); }
+        catch(e){ if(!(e&&e.code==='declined')) toast('Couldn\'t make the PDF.'); }
+        pb.disabled=false; pb.textContent='⬇ PDF'; };
+      draw();
+    });
+  }
   // ---------- receipt scanner: drag 4 corners onto the paper, straighten it, clean it to crisp black & white ----------
   function solve8(A, b){ const n=8; for(let i=0;i<n;i++){ let m=i; for(let r=i+1;r<n;r++) if(Math.abs(A[r][i])>Math.abs(A[m][i])) m=r;
       [A[i],A[m]]=[A[m],A[i]]; [b[i],b[m]]=[b[m],b[i]]; const d=A[i][i]||1e-12;
@@ -2593,18 +2736,7 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
       const k=Math.min((PW-140)/img.naturalWidth, (PH-260)/img.naturalHeight), w=img.naturalWidth*k, h=img.naturalHeight*k; g.drawImage(img,(PW-w)/2,200,w,h);
       const b=await new Promise(r=>c.toBlob(r,'image/jpeg',.8)); pages.push(new Uint8Array(await b.arrayBuffer())); }catch(err){} }
     if(!pages.length){ toast('Couldn\'t load the receipt photos.'); return; }
-    // a minimal PDF: each page is one JPEG drawn full-page (A4)
-    const enc=new TextEncoder(), parts=[], offs=[]; let len=0; const add=x=>{ const u=typeof x==='string'?enc.encode(x):x; parts.push(u); len+=u.length; };
-    const obj=(n,body)=>{ offs[n]=len; add(n+' 0 obj\n'); body(); add('\nendobj\n'); };
-    add('%PDF-1.4\n'); const N=pages.length, kid=i=>3+i*3;
-    obj(1,()=>add('<</Type/Catalog/Pages 2 0 R>>')); obj(2,()=>add('<</Type/Pages/Count '+N+'/Kids['+pages.map((_,i)=>kid(i)+' 0 R').join(' ')+']>>'));
-    pages.forEach((jpg,i)=>{ const p=kid(i), im=p+1, ct=p+2, cs='q 595 0 0 842 0 0 cm /Im0 Do Q';
-      obj(p,()=>add('<</Type/Page/Parent 2 0 R/MediaBox[0 0 595 842]/Resources<</XObject<</Im0 '+im+' 0 R>>>>/Contents '+ct+' 0 R>>'));
-      obj(im,()=>{ add('<</Type/XObject/Subtype/Image/Width '+PW+'/Height '+PH+'/ColorSpace/DeviceRGB/BitsPerComponent 8/Filter/DCTDecode/Length '+jpg.length+'>>\nstream\n'); add(jpg); add('\nendstream'); });
-      obj(ct,()=>add('<</Length '+cs.length+'>>\nstream\n'+cs+'\nendstream')); });
-    const xref=len, total=3+N*3; let x='xref\n0 '+total+'\n0000000000 65535 f \n'; for(let i=1;i<total;i++) x+=String(offs[i]).padStart(10,'0')+' 00000 n \n';
-    add(x+'trailer\n<</Size '+total+'/Root 1 0 R>>\nstartxref\n'+xref+'\n%%EOF');
-    const data=new Blob(parts,{type:'application/pdf'}), name=(t.name||'Trip').replace(/[^\w\- ]+/g,'').replace(/\s+/g,' ').trim()+(onlyBiz?' – business receipts.pdf':' – receipts.pdf');
+    const data=pdfFromJpegs(pages, PW, PH), name=(t.name||'Trip').replace(/[^\w\- ]+/g,'').replace(/\s+/g,' ').trim()+(onlyBiz?' – business receipts.pdf':' – receipts.pdf');
     try{ await downloads.save({filename:name, data}); toast('Saved'); }
     catch(e){ if(e&&e.code==='declined') return; toast('Couldn\'t save the PDF.'); }
   }
@@ -3449,7 +3581,7 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
       .concat(days.filter(d=>d!==today).map(d=>({label:fmtDate(d,{weekday:'short',month:'short',day:'numeric'}), from:d, to:d})));
     const dayOpt=(d,sel)=>'<option value="'+d+'"'+(d===sel?' selected':'')+'>'+fmtDate(d,{weekday:'short',month:'short',day:'numeric'})+'</option>';
     const canShare=!!(navigator.canShare&&navigator.share);
-    openSheet('<h2>Share</h2>'
+    openSheet('<h2>Share</h2><button type="button" class="btn small" id="toGuide" style="align-self:flex-start">📘 Guide or itinerary (text · PDF)</button>'
       + '<div id="cardBox" style="flex-shrink:0;display:flex;justify-content:center;background:var(--surface-2);border-radius:12px;padding:8px;min-height:120px;align-items:center"><span class="faint">Drawing…</span></div>'
       + '<div class="field"><label>1 · Which days</label><div class="chips" id="shPre">'+presets.map((p,i)=>'<button type="button" class="chip" data-pre="'+i+'">'+esc(p.label)+'</button>').join('')+'</div>'
       + '<div class="grid2"><div class="field"><label for="shFrom">From</label><select id="shFrom">'+days.map(d=>dayOpt(d,o.from)).join('')+'</select></div><div class="field"><label for="shTo">To</label><select id="shTo">'+days.map(d=>dayOpt(d,o.to)).join('')+'</select></div></div></div>'
@@ -3528,6 +3660,7 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
       $('#shShow').querySelectorAll('[data-show]').forEach(b=>b.onclick=()=>{ const k=b.dataset.show; o[k]=!o[k]; b.classList.toggle('on',o[k]); later(); });
       $('#shTitle').oninput=()=>{ titleTouched=true; o.title=val('shTitle'); if(!capTouched) $('#cap').value=caption(t,o); later(); };
       $('#cap').oninput=()=>{ capTouched=true; };
+      $('#toGuide').onclick=()=>guideSheet(t, {from:o.from, to:o.to});
       $('#copyCap').onclick=async()=>{ const txt=val('cap'); try{ await navigator.clipboard.writeText(txt); toast('Caption copied'); }catch(e){ const ta=$('#cap'); ta.focus(); ta.select(); $('#shareHint').textContent='Press copy on your keyboard to copy the selected caption.'; } };
       const base=()=>(o.title||t.name).replace(/→/g,'-').replace(/[^\w\- ]+/g,'').replace(/\s+/g,' ').trim()||'trip', fname=()=>base()+'.png';
       const vidName=()=>base()+(vidBlob&&/mp4/.test(vidBlob.type)?'.mp4':'.webm');
