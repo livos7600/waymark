@@ -2675,6 +2675,8 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
     const joinInto=(a,b)=>{ const pa=a.parts||[Object.assign({}, a)], pb=b.parts||[b];
       a.parts=pa.concat(pb); a.photoIds=a.photoIds.concat(b.photoIds.filter(id=>!a.photoIds.includes(id))); a.thumbs=a.photoIds.length;
       const nn=[...new Set(a.parts.map(x=>String(x.name||'').trim()).filter(Boolean))]; a.notes=nn.slice(1).length?nn.join(' · '):a.notes||'';
+      // it starts when the earliest part did (a forwarded photo can carry the evening it was saved, not when it was taken)
+      const tp=a.parts.filter(x=>x.time&&(x.date||a.date)===a.date).map(x=>x.time).sort(); if(tp.length) a.time=tp[0];
       if(a.lat==null&&b.lat!=null){ a.lat=b.lat; a.lon=b.lon; } if(a.amount==null&&b.amount!=null){ a.amount=b.amount; a.currency=b.currency; } a.keep=true; };
     openSheet('<h2>Check and save</h2><div class="hint">'+(from==='photos'?'Photos from the same outing became one entry (a walk through a town is one city visit; meals stay separate). A run or a day out split in pieces? Join them.':'Here\'s what Claude understood.')+' Fix anything, untick what you don\'t want, then save.</div>'
       + '<button type="button" class="btn small" id="rvAll" style="align-self:flex-start"'+(entries.length>1?'':' hidden')+'>🔗 Make it all one entry</button>'
