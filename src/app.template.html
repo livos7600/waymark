@@ -1444,7 +1444,8 @@ const WORLD = __WORLD__;
       + '<div class="field"><label>Rating</label><div class="rating" id="rating">'+[1,2,3,4,5].map(i=>'<button type="button" data-r="'+i+'" aria-label="'+i+' stars" class="'+(i<=rating?'on':'')+'">★</button>').join('')+'</div></div>'
       + (()=>{ const x=p||(pre&&pre.extra)||{}, sp=SPORTS.has(p?p.category:(pre&&pre.category)||'');
           return '<div class="grid2" id="pSportF"'+(sp?'':' hidden')+'><div class="field"><label for="pKm">Distance km</label><input id="pKm" inputmode="decimal" placeholder="e.g. 8.4" value="'+(x.distanceKm?esc(x.distanceKm):'')+'"></div>'
-            + '<div class="field"><label for="pDur">Time (h:mm)</label><input id="pDur" inputmode="numeric" placeholder="e.g. 0:45" value="'+(x.movingS?Math.floor(x.movingS/3600)+':'+pad2(Math.round(x.movingS%3600/60)):'')+'"></div></div>'; })()
+            + '<div class="field"><label for="pDur">Time (h:mm)</label><input id="pDur" inputmode="numeric" placeholder="e.g. 0:45" value="'+(x.movingS?Math.floor(x.movingS/3600)+':'+pad2(Math.round(x.movingS%3600/60)):'')+'"></div></div>'
+            + '<div class="field" id="pViaF"'+(sp?'':' hidden')+'><label for="pVia">Through (towns along the way)</label><input id="pVia" autocomplete="off" placeholder="e.g. Capbreton, Hossegor, Seignosse" value="'+esc((x.via||[]).join(', '))+'"></div>'; })()
       + '<div class="grid3"><div class="field"><label for="pCost">Price (optional)</label><input id="pCost" inputmode="decimal" value="'+esc(p&&p.cost?p.cost:'')+'"></div><div class="field"><label for="pCur">Currency</label>'+curSelect('pCur', p?p.currency:trip.currency)+'</div></div>'
       + '<div class="field" id="pPaidF"'+(p&&+p.cost?'':' hidden')+'><label for="pPaid">Paid by</label><input id="pPaid" list="pPayers" autocomplete="off" value="'+esc(p&&p.paidBy||lastPayer(trip.id))+'"><datalist id="pPayers">'+payers(trip.id).map(n=>'<option value="'+esc(n)+'">').join('')+'</datalist></div>'
       + '<label class="row" style="gap:8px;font-size:14px;cursor:pointer"><input type="checkbox" id="pPriv" style="width:20px;height:20px"'+(p&&p.private?' checked':'')+'> 🔒 Keep off shares <span class="faint">(stays in your log, never on images or videos)</span></label>'
@@ -1543,7 +1544,7 @@ const WORLD = __WORLD__;
         $('#pPos').textContent='📍 Pinned on the map'; });
       // a meal: time of day picks breakfast/lunch/dinner until the type is chosen by hand
       let catTouched=!!p;
-      const sportF=()=>{ const f=$('#pSportF'); if(f) f.hidden=!SPORTS.has(val('pCat')); }; $('#pCat').addEventListener('change', sportF);
+      const sportF=()=>{ const f=$('#pSportF'), v=$('#pViaF'); if(f) f.hidden=!SPORTS.has(val('pCat')); if(v) v.hidden=!SPORTS.has(val('pCat')); }; $('#pCat').addEventListener('change', sportF);
       $('#pCat').onchange=()=>{ catTouched=true; $('#pTitle').textContent=(p?'Edit ':'Add ')+(isMeal(val('pCat'))?'a meal':'an activity').replace(/^a(n)? /, p?'':'$&'); };
       $('#pTime').addEventListener('change',()=>{ if(!catTouched&&isMeal(val('pCat'))&&val('pTime')) $('#pCat').value=mealFor(val('pTime'),val('pName')); });
       $('#pName').addEventListener('change',()=>{ if(!catTouched&&isMeal(val('pCat'))) $('#pCat').value=mealFor(val('pTime'),val('pName')); });
@@ -1579,7 +1580,8 @@ const WORLD = __WORLD__;
         const keep=pos&&(pos.name==null||pos.name===name);
         const loc=val('pLoc').trim();
         const sport=SPORTS.has(val('pCat')), kmIn=parseFloat(val('pKm').replace(',','.')), dm=val('pDur').trim().match(/^(\d+)(?:[:h.](\d{1,2}))?$/);
-        const sportData=sport?{distanceKm:isFinite(kmIn)&&kmIn>0?Math.round(kmIn*100)/100:null, movingS:dm?(dm[2]!=null?(+dm[1])*3600+(+dm[2])*60:(+dm[1])*60):null}:{};
+        const viaIn=val('pVia').split(/\s*(?:,|→|->|>|;)\s*/).map(x=>x.trim()).filter(Boolean);
+        const sportData=sport?{via:viaIn.length>1?viaIn:null, distanceKm:isFinite(kmIn)&&kmIn>0?Math.round(kmIn*100)/100:null, movingS:dm?(dm[2]!=null?(+dm[1])*3600+(+dm[2])*60:(+dm[1])*60):null}:{};
         const data=Object.assign({}, pre&&pre.extra||{}, sportData, (opts.todo||p&&p.todo)?{todo:true}:{}, {city:wantCity}, {tripId:trip.id, stopId:st.id, name, address:loc, category:val('pCat'), date, time:val('pTime'), private:$('#pPriv').checked, status, rating, cost:isFinite(c)?c:0, paidBy:isFinite(c)&&c>0?val('pPaid').trim():'', currency:val('pCur'), notes:val('pNotes').trim(), photoIds, updatedAt:now()});
         if(keep){ data.lat=pos.lat; data.lon=pos.lon; }
         let id=p&&p.id;
@@ -2390,7 +2392,7 @@ const WORLD = __WORLD__;
       html+='<div class="day-list" data-day="'+d+'">'+dayOrder(d, legs, acts, exps).map(({k,x})=>{ const tv=hhmm(x), tm='<label class="tset'+(tv?'':' empty')+'" data-tcol="'+(k==='leg'?'legs':k==='act'?'places':'expenses')+'" data-tid="'+x.id+'">'+(tv||'+ time')+'<input type="time" value="'+tv+'" aria-label="Time"></label>';
             if(k==='leg'){ const l=x; const a=stopOf(l.fromId)||{}, b=stopOf(l.toId)||{};
             return '<div class="day-i" data-leg="'+l.id+'">'+tm+emo(MODE_EMOJI[l.mode]||'🚗')+'<span style="flex:1">'+esc(a.city||'?')+' → '+esc(b.city||'?')+'</span><span class="faint mono">'+(l.kmEstimated?'≈':'')+fmtKm(l.km||0)+' km</span></div>'; }
-            if(k==='act'){ const p=x, ph=(p.photoIds||[]).slice(0,8); return '<div class="day-i'+(ph.length?' has-ph':'')+'" data-pl="'+p.id+'">'+tm+emo(catIcon(p.category))+'<span style="flex:1;min-width:0">'+esc(p.name)+(p.status==='want'?' <span class="faint">· planned</span>':'')
+            if(k==='act'){ const p=x, ph=(p.photoIds||[]).slice(0,8); return '<div class="day-i'+(ph.length?' has-ph':'')+'" data-pl="'+p.id+'">'+tm+emo(catIcon(p.category))+'<span style="flex:1;min-width:0">'+esc(p.name)+(p.status==='want'?' <span class="faint">· planned</span>':'')+(viaTxt(p)?' <span class="faint">· '+esc(viaTxt(p))+'</span>':'')
             +(statsLine(p)?' <span class="faint">'+statsLine(p)+'</span>':'')+'</span>'+(ph.length?'<div class="ph-strip">'+ph.map(id=>'<img alt="" loading="lazy" src="/_blob/'+id+'" data-photo="'+id+'">').join('')+'</div>':'')+'</div>'; }
             const e=x; return '<div class="day-i" data-exp="'+e.id+'">'+tm+emo(expIcon(e.category,e.label))+'<span style="flex:1;min-width:0">'+esc(e.label)+'</span><span class="faint mono">'+fmtMoney(e.amount,e.currency)+'</span></div>'; }).join('')+'</div>'
         + (legs.length||acts.length||exps.length?'':'<div class="faint">Nothing logged yet</div>')
@@ -2626,7 +2628,8 @@ const WORLD = __WORLD__;
         if(!r&&grp.items.length>1){ try{ r=await readPhoto(t, [grp.items[0].f], 'any'); }catch(e){ r=null; } } }
       if(!box.isConnected) return;
       const e={photoIds:grp.ids||[], date:(r&&r.date)||m0.date||todayStr(), time:(m0.time)||(r&&r.time)||'', name:(r&&r.name)||'', notes:(r&&r.notes)||'', amount:r&&r.amount, currency:(r&&r.currency)||'',
-        lat:gps?gps.m.lat:(r&&r.lat), lon:gps?gps.m.lon:(r&&r.lon), city:(r&&r.city)||'', address:'', thumbs:grp.items.length};
+        lat:gps?gps.m.lat:(r&&r.lat), lon:gps?gps.m.lon:(r&&r.lon), city:(r&&r.city)||'', address:'', thumbs:grp.items.length,
+        pts:grp.items.filter(x=>x.m.lat!=null).map(x=>({lat:x.m.lat, lon:x.m.lon, t:x.when}))};
       if(r&&r.kind==='receipt'){ if(r.expCat==='Food & drink'){ e.kind='meal'; e.cat=mealFor(e.time, e.name); } else { e.kind='expense'; e.cat=r.expCat||'Other'; } }
       else if(r&&r.kind==='stay'){ e.kind='stay'; e.cat='hotel'; }
       else { e.kind=MEAL_KEYS.has(r&&r.actCat)?'meal':'activity'; e.cat=e.kind==='meal'?(MEALS.some(x=>x[0]===r.actCat)?r.actCat:mealFor(e.time,e.name)):((r&&r.actCat)||'attraction'); }
@@ -2656,6 +2659,15 @@ const WORLD = __WORLD__;
       cur=ok?e:null; out.push(e); });
     return out;
   }
+  // a run, ride, hike or walk crosses towns: keep where it started (its stop) and list the towns it went through (via),
+  // with a line through the photos' positions in time order (stored as track, so the map, share card and video draw it)
+  function routeOf(e, st){ if(!SPORTS.has(e.cat)) return {};
+    const parts=(e.parts||[e]).slice().sort((a,b)=>String(a.time||'99').localeCompare(String(b.time||'99')));
+    const via=[]; [st.city].concat(parts.map(x=>x.city)).forEach(c=>{ c=String(c||'').trim(); if(c&&!via.some(v=>cityKey(v)===cityKey(c)||sameCity(v,c))) via.push(c); });
+    const pts=(e.pts||[]).slice().sort((a,b)=>String(a.t||'~').localeCompare(String(b.t||'~'))), tr=[];
+    pts.forEach(q=>{ const last=tr[tr.length-1]; if(!last||haversine({lat:last[0],lon:last[1]},q)>0.2) tr.push([+q.lat.toFixed(5), +q.lon.toFixed(5)]); });
+    const out={}; if(via.length>1) out.via=via; if(tr.length>1){ out.track=tr; out.trackFrom='photos'; } return out; }
+  const viaTxt=p=>Array.isArray(p.via)&&p.via.length>1?p.via.join(' → '):'';
   const KIND_LABEL={activity:'📍 Activity', meal:'🍽️ Meal', expense:'💳 Expense', stay:'🛏 Stay'};
   function reviewSheet(t, entries, from){
     const cityList=[...new Set(tripStops(t.id).filter(s=>!s.home).map(s=>s.city))];
@@ -2672,7 +2684,7 @@ const WORLD = __WORLD__;
       + (i>0?'<button type="button" class="btn small ghost" data-join="'+i+'">⤴ Join with the one above</button>':'')+'</div></div>';
     // one entry from several: the first keeps its name, type, city and time; photos, notes and parts add up (Split undoes it)
     const joinInto=(a,b)=>{ const pa=a.parts||[Object.assign({}, a)], pb=b.parts||[b];
-      a.parts=pa.concat(pb); a.photoIds=a.photoIds.concat(b.photoIds.filter(id=>!a.photoIds.includes(id))); a.thumbs=a.photoIds.length;
+      a.parts=pa.concat(pb); a.pts=pa.concat(pb).flatMap(x=>x.pts||[]); a.photoIds=a.photoIds.concat(b.photoIds.filter(id=>!a.photoIds.includes(id))); a.thumbs=a.photoIds.length;
       const nn=[...new Set(a.parts.map(x=>String(x.name||'').trim()).filter(Boolean))]; a.notes=nn.slice(1).length?nn.join(' · '):a.notes||'';
       // it starts when the earliest part did (a forwarded photo can carry the evening it was saved, not when it was taken)
       const tp=a.parts.filter(x=>x.time&&(x.date||a.date)===a.date).map(x=>x.time).sort(); if(tp.length) a.time=tp[0];
@@ -2701,14 +2713,16 @@ const WORLD = __WORLD__;
             const name=String(e.name||'').trim()||(e.kind==='meal'?CAT_LABEL[e.cat]||'Meal':e.kind==='expense'?e.cat:e.kind==='stay'?'Stay':'Activity');
             const date=e.date||todayStr(), city=String(e.city||'').trim(), amt=parseFloat(String(e.amount||'').replace(',','.'));
             const same=city?tripStops(t.id).filter(s=>!s.home&&sameCity(s.city,city)):[];
-            let st=same.find(s=>s.arrive<=date&&date<=(s.depart||s.arrive))||same[0];
+            // a run/ride/hike starts where you were (Capbreton), even if its first photo is in the next town
+            let st=null; if(e.kind==='activity'&&SPORTS.has(e.cat)){ const w=stopOnDate(t.id,date,e.time); if(w&&!w.home&&(e.lat==null||w.lat==null||haversine(w,{lat:+e.lat,lon:+e.lon})<15)) st=w; }
+            st=st||same.find(s=>s.arrive<=date&&date<=(s.depart||s.arrive))||same[0];
             if(!st&&city) st=await ensureStop(t, city, date, date, false, e.lat!=null&&isFinite(e.lat)?{lat:+e.lat, lon:+e.lon, loose:true}:null);
             if(!st) st=stopOnDate(t.id,date,e.time)||tripStops(t.id).find(s=>!s.home);
             if(!st) throw new Error('Add a city first.');
             const pin=e.lat!=null&&isFinite(e.lat)?{lat:+e.lat, lon:+e.lon}:{};
             if(e.kind==='expense') await put('expenses', null, Object.assign({tripId:t.id, label:name, amount:isFinite(amt)?amt:0, currency:e.currency||t.currency||'EUR', category:e.cat||'Other', date, time:e.time||'', city:st.city, stopId:st.id, paidBy:e.paidBy||lastPayer(t.id), notes:e.notes||'', photoIds:e.photoIds, address:e.address||'', createdAt:now(), updatedAt:now()}, pin));
             else if(e.kind==='stay') await put('stays', null, Object.assign({tripId:t.id, stopId:st.id, city:st.city, name, kind:e.cat||'hotel', checkIn:date, checkOut:addDays(date,1), nights:1, cost:isFinite(amt)?amt:0, currency:e.currency||t.currency||'EUR', pricePerNight:isFinite(amt)?amt:0, platform:'', bookingRef:'', address:e.address||'', rating:0, notes:e.notes||'', photoIds:e.photoIds, createdAt:now(), updatedAt:now()}, pin));
-            else { const ref=await put('places', null, Object.assign({tripId:t.id, stopId:st.id, name, address:e.address||'', category:e.cat||(e.kind==='meal'?'lunch':'attraction'), date, time:e.time||'', status:date>todayStr()?'want':'done', rating:0, cost:isFinite(amt)?amt:0, currency:e.currency||t.currency||'EUR', notes:e.notes||'', photoIds:e.photoIds, private:false, paidBy:e.paidBy||'', createdAt:now(), updatedAt:now()}, pin));
+            else { const ref=await put('places', null, Object.assign({tripId:t.id, stopId:st.id, name, address:e.address||'', category:e.cat||(e.kind==='meal'?'lunch':'attraction'), date, time:e.time||'', status:date>todayStr()?'want':'done', rating:0, cost:isFinite(amt)?amt:0, currency:e.currency||t.currency||'EUR', notes:e.notes||'', photoIds:e.photoIds, private:false, paidBy:e.paidBy||'', createdAt:now(), updatedAt:now()}, pin, routeOf(e, st)));
               if(e.lat==null&&ref&&ref.id) locatePlaces([Object.assign({id:ref.id, name, stopId:st.id})]).catch(()=>{}); }
             n++; }
           entries.filter(x=>!x.keep).forEach(e=>e.photoIds.forEach(id=>forgetAsset(id)));
