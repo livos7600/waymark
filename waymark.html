@@ -190,6 +190,15 @@
   .country .flag{font-size:22px;}
 
   /* sheet */
+  .scan-ov{position:fixed;inset:0;z-index:80;background:#0B1117;color:#fff;display:flex;flex-direction:column;padding:12px 12px calc(12px + env(safe-area-inset-bottom,0px));gap:10px;}
+  .scan-top{display:flex;flex-direction:column;gap:2px;}
+  .scan-top .faint{color:#A6B3BF;font-size:13px;}
+  .scan-stage{position:relative;flex:1;min-height:0;touch-action:none;}
+  .scan-stage canvas{position:absolute;}
+  .scan-stage i{position:absolute;width:30px;height:30px;margin:-15px 0 0 -15px;border-radius:50%;background:rgba(255,122,61,.35);border:3px solid #FF7A3D;touch-action:none;cursor:grab;}
+  .scan-bar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;}
+  .scan-bar .btn:not(.primary):not(.ghost){color:#15202B;} .scan-bar .btn.ghost{color:#fff;}
+  .scan-bar .chip{background:#1F2A35;color:#fff;border-color:#2B3946;} .scan-bar .chip.on{background:#fff;color:#15202B;}
   .kb-done{position:fixed;top:10px;right:12px;z-index:60;border:0;border-radius:999px;padding:9px 16px;font-weight:700;font-size:15px;background:var(--ink);color:var(--surface);box-shadow:var(--shadow);cursor:pointer;}
   .sheet.kb-open{padding-bottom:min(55vh,420px);}
   .backdrop{position:fixed;inset:0;z-index:50;background:rgba(10,15,20,.55);display:flex;align-items:flex-end;justify-content:center;}
@@ -880,6 +889,8 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
       qg.onclick=go; qa.addEventListener('keydown',e=>{ if(e.key==='Enter'){ e.preventDefault(); go(); } }); }
     const xb=$('#xlsxBtn'); if(xb) xb.onclick=()=>exportExpenses(t);
     const bx=$('#bizXlsx'); if(bx) bx.onclick=()=>exportExpenses(t, {biz:true});
+    const bp=$('#bizPdf'); if(bp) bp.onclick=()=>receiptsPdf(t, true);
+    const ap=$('#allPdf'); if(ap) ap.onclick=()=>receiptsPdf(t, false);
     const ae2=$('#addExp2'); if(ae2) ae2.onclick=()=>expenseSheet(t, null);
     const loc=$('#locateAll'); if(loc) loc.onclick=async()=>{ loc.disabled=true; loc.textContent='Finding them…';
       try{ const n=await locatePlaces(unplaced); toast(n?n+' on the map':'Couldn\'t place them. Open one and save it to try again.'); }
@@ -934,7 +945,7 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
     const other=S.expenses.filter(e=>e.tripId===tid), trip=tripOf(tid);
     const bizHtml=tripPurpose(trip)==='personal'?'':(()=>{ const b=totalsByCur(lines.filter(l=>l.biz)), pz=totalsByCur(lines.filter(l=>!l.biz)), f=m=>Object.keys(m).length?Object.entries(m).map(([c,a])=>fmtMoney(a,c)).join(' + '):'—';
       return '<div class="card" style="padding:12px 14px;display:flex;flex-direction:column;gap:8px"><div class="between"><span>💼 Business</span><span class="amt">'+f(b)+'</span></div><div class="between"><span>🏖 Personal</span><span class="amt">'+f(pz)+'</span></div>'
-        + (downloads?'<button type="button" class="btn small" id="bizXlsx" style="align-self:flex-start">⬇ Business expense report</button>':'')+'</div>'; })();
+        + (downloads?'<div class="row"><button type="button" class="btn small" id="bizXlsx">⬇ Business expense report</button><button type="button" class="btn small ghost" id="bizPdf">⬇ Receipts PDF</button></div>':'')+'</div>'; })();
     return bizHtml+'<div class="card">'+Object.entries(byCat).sort((a,b)=>b[1]-a[1]).map(([k,a])=>{ const [cat,cur]=k.split('|');
         return '<div class="budget-row" style="display:block"><div class="between"><span>'+expIcon(cat)+' '+esc(cat)+'</span><span class="amt">'+fmtMoney(a,cur)+'</span></div><div class="bar"><i style="width:'+Math.round(a/max*100)+'%"></i></div></div>'; }).join('')
       + '<div class="budget-row" style="font-weight:700"><span>Total</span><span class="amt">'+Object.entries(tot).map(([c,a])=>fmtMoney(a,c)).join(' + ')+'</span></div></div>'
@@ -942,6 +953,7 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
           + (e.notes?'<span class="faint" style="display:block;white-space:pre-wrap">'+esc(e.notes)+'</span>':'')+'</span><span class="amt" style="display:flex;gap:8px;align-items:center;flex-shrink:0">'+((e.photoIds||[]).length?'<img alt="Receipt" src="/_blob/'+e.photoIds[0]+'" data-photo="'+e.photoIds[0]+'" style="width:32px;height:32px;object-fit:cover;border-radius:6px;cursor:zoom-in">':'')+fmtMoney(e.amount,e.currency)+'</span></div>').join('')+'</div>':'')
       + whoPaidHtml(other.concat(S.places.filter(p=>p.tripId===tid&&+p.cost&&p.paidBy).map(p=>({paidBy:p.paidBy, currency:p.currency, amount:p.cost})),
           S.legs.concat(S.stays).filter(x=>x.tripId===tid&&+x.cost&&x.paidBy).map(x=>({paidBy:x.paidBy, currency:x.currency, amount:x.cost}))))
+      + (downloads&&other.some(e=>(e.photoIds||[]).length)?'<button type="button" class="btn small ghost" id="allPdf" style="align-self:flex-start">⬇ All receipts as PDF</button>':'')
       + '<div class="faint">Totals are kept per currency; no exchange rates are applied.</div>';
   }
 
@@ -1639,7 +1651,7 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
     let photoIds=pre?pre.photoIds.slice():x?(x.photoIds||[]).slice():[], picked=pre?pre.picked.slice():[], uploading=false, reading=false;
     const cities=[...new Set(tripStops(trip.id).filter(s=>!s.home).map(s=>s.city))];
     openSheet('<h2>'+(x?'Edit expense':'Add an expense')+'</h2>'
-      + (assets||canRead?'<div class="field"><label>Receipt / photo</label><div class="photos" id="ePhotos"></div><div class="row"><label class="btn small" for="ePhotoIn">'+ICON.camera+' Add photo</label><input id="ePhotoIn" type="file" accept="image/*" multiple hidden>'
+      + (assets||canRead?'<div class="field"><label>Receipt / photo</label><div class="photos" id="ePhotos"></div><div class="row"><label class="btn small" for="ePhotoIn">'+ICON.camera+' Add photo</label><label class="btn small" for="eScanIn">📄 Scan receipt</label><input id="eScanIn" type="file" accept="image/*" capture="environment" hidden><input id="ePhotoIn" type="file" accept="image/*" multiple hidden>'
         + (canRead?'<button type="button" class="btn small" id="eRead" hidden>'+ICON.spark+' Fill in from photo</button>':'')+'</div>'
         + '<div class="hint" id="eUp">'+(canRead&&!x?'Add a photo of the receipt and Claude fills in the amount, date and place.':'')+'</div></div>':'')
       + '<div class="field"><label for="eLabel">What</label><input id="eLabel" value="'+esc(x?x.label:'')+'" placeholder="e.g. Car rental, tolls, SIM card"></div>'
@@ -1670,6 +1682,10 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
       const sync=()=>{ if(!form.isConnected) return; $('#eSave').disabled=uploading||reading;
         const rb=$('#eRead'); if(rb){ rb.hidden=!(picked.length||photoIds.length); rb.disabled=uploading||reading; } };
       const orig=photoIds.slice(), added=[];
+      const scIn=$('#eScanIn'); if(scIn) scIn.onchange=async()=>{ const f=(scIn.files||[])[0]; scIn.value=''; if(!f) return;
+        // the scan drops the photo's GPS, so take the location from the original first
+        if(!eloc.pos&&!eloc.text()){ const m=await readExif(f).catch(()=>null); if(m&&m.lat!=null&&form.isConnected) eloc.fromGps(m.lat, m.lon); }
+        const out=await scanDoc(f); if(out&&form.isConnected) addFiles([out], true); };
       const eEl=$('#ePhotos'), drawEd=eEl?photoEditor(eEl, ()=>photoIds, v=>{ photoIds=v; }, sync):null;
       const drawPhotos=()=>{ if(drawEd) drawEd(); sync(); };
       drawPhotos();
@@ -2495,6 +2511,102 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
       catch(e){ toast(e&&e.code==='quota_or_state'?'Photo storage is full':'A photo failed to upload'); }
     }
     return ids;
+  }
+  // ---------- receipt scanner: drag 4 corners onto the paper, straighten it, clean it to crisp black & white ----------
+  function solve8(A, b){ const n=8; for(let i=0;i<n;i++){ let m=i; for(let r=i+1;r<n;r++) if(Math.abs(A[r][i])>Math.abs(A[m][i])) m=r;
+      [A[i],A[m]]=[A[m],A[i]]; [b[i],b[m]]=[b[m],b[i]]; const d=A[i][i]||1e-12;
+      for(let r=0;r<n;r++){ if(r===i) continue; const f=A[r][i]/d; if(!f) continue; for(let c=i;c<n;c++) A[r][c]-=f*A[i][c]; b[r]-=f*b[i]; } }
+    return b.map((v,i)=>v/(A[i][i]||1e-12)); }
+  // homography taking the output rectangle's corners (0,0)(w,0)(w,h)(0,h) to the quad q (TL,TR,BR,BL)
+  function rectToQuad(w, h, q){ const P=[[0,0],[w,0],[w,h],[0,h]], A=[], b=[];
+    P.forEach(([x,y],i)=>{ const [u,v]=q[i]; A.push([x,y,1,0,0,0,-u*x,-u*y]); b.push(u); A.push([0,0,0,x,y,1,-v*x,-v*y]); b.push(v); });
+    const k=solve8(A,b); return (x,y)=>{ const z=k[6]*x+k[7]*y+1; return [(k[0]*x+k[1]*y+k[2])/z, (k[3]*x+k[4]*y+k[5])/z]; }; }
+  function warpQuad(src, q){ const d=(a,b)=>Math.hypot(a[0]-b[0],a[1]-b[1]);
+    let w=Math.max(d(q[0],q[1]),d(q[3],q[2])), h=Math.max(d(q[0],q[3]),d(q[1],q[2])); const k=Math.min(1,1700/Math.max(w,h)); w=Math.max(20,Math.round(w*k)); h=Math.max(20,Math.round(h*k));
+    const H=rectToQuad(w,h,q), sw=src.width, sh=src.height, si=src.getContext('2d').getImageData(0,0,sw,sh).data;
+    const out=document.createElement('canvas'); out.width=w; out.height=h; const oc=out.getContext('2d'), od=oc.createImageData(w,h), o=od.data;
+    for(let y=0;y<h;y++) for(let x=0;x<w;x++){ let [u,v]=H(x+.5,y+.5); u=Math.min(sw-1.001,Math.max(0,u-.5)); v=Math.min(sh-1.001,Math.max(0,v-.5));
+      const x0=u|0, y0=v|0, fx=u-x0, fy=v-y0, i00=(y0*sw+x0)*4, i10=i00+4, i01=i00+sw*4, i11=i01+4, j=(y*w+x)*4;
+      for(let c=0;c<3;c++) o[j+c]=(si[i00+c]*(1-fx)+si[i10+c]*fx)*(1-fy)+(si[i01+c]*(1-fx)+si[i11+c]*fx)*fy; o[j+3]=255; }
+    oc.putImageData(od,0,0); return out; }
+  // crisp "scanned" look: each pixel against the brightness around it (shadows and uneven light drop out)
+  function cleanScan(cv){ const w=cv.width, h=cv.height, cx=cv.getContext('2d'), im=cx.getImageData(0,0,w,h), d=im.data, g=new Float32Array(w*h);
+    for(let i=0;i<w*h;i++) g[i]=.299*d[i*4]+.587*d[i*4+1]+.114*d[i*4+2];
+    const I=new Float64Array((w+1)*(h+1)); for(let y=0;y<h;y++){ let row=0; for(let x=0;x<w;x++){ row+=g[y*w+x]; I[(y+1)*(w+1)+x+1]=I[y*(w+1)+x+1]+row; } }
+    const r=Math.max(8,Math.round(Math.min(w,h)/14));
+    for(let y=0;y<h;y++) for(let x=0;x<w;x++){ const x0=Math.max(0,x-r), x1=Math.min(w,x+r+1), y0=Math.max(0,y-r), y1=Math.min(h,y+r+1);
+      const m=(I[y1*(w+1)+x1]-I[y0*(w+1)+x1]-I[y1*(w+1)+x0]+I[y0*(w+1)+x0])/((x1-x0)*(y1-y0)), t=g[y*w+x]/(m+1);
+      const v=t>=.93?255:t<=.72?0:Math.round((t-.72)/.21*255), j=(y*w+x)*4; d[j]=d[j+1]=d[j+2]=v; }
+    cx.putImageData(im,0,0); return cv; }
+  // a guess at the paper: the bright blob's extreme corners (a receipt on a darker table); else a frame just inside the photo
+  function guessCorners(src){ const W=160, k=W/src.width, H=Math.max(1,Math.round(src.height*k)), c=document.createElement('canvas'); c.width=W; c.height=H;
+    const cx=c.getContext('2d'); cx.drawImage(src,0,0,W,H); const d=cx.getImageData(0,0,W,H).data, g=[]; for(let i=0;i<W*H;i++) g.push(.299*d[i*4]+.587*d[i*4+1]+.114*d[i*4+2]);
+    const hist=new Array(256).fill(0); g.forEach(v=>hist[v|0]++); let sum=0; hist.forEach((n,i)=>sum+=n*i); let sB=0,wB=0,best=0,th=128;
+    for(let t=0;t<256;t++){ wB+=hist[t]; if(!wB) continue; const wF=W*H-wB; if(!wF) break; sB+=t*hist[t]; const mB=sB/wB, mF=(sum-sB)/wF, b=wB*wF*(mB-mF)*(mB-mF); if(b>best){ best=b; th=t; } }
+    let n=0, tl=null, tr=null, br=null, bl=null;
+    for(let y=0;y<H;y++) for(let x=0;x<W;x++){ if(g[y*W+x]<=th) continue; n++;
+      if(!tl||x+y<tl[0]+tl[1]) tl=[x,y]; if(!br||x+y>br[0]+br[1]) br=[x,y]; if(!tr||x-y>tr[0]-tr[1]) tr=[x,y]; if(!bl||y-x>bl[1]-bl[0]) bl=[x,y]; }
+    const f=n/(W*H), inset=[[.07,.06],[.93,.06],[.93,.94],[.07,.94]].map(([a,b])=>[a*src.width,b*src.height]);
+    if(!tl||f<.12||f>.92) return inset;
+    return [tl,tr,br,bl].map(([x,y])=>[(x+.5)/k,(y+.5)/k]); }
+  function scanDoc(file){ return new Promise(async done=>{
+    let bmp; try{ bmp=await createImageBitmap(file,{imageOrientation:'from-image'}); }catch(e){ done(file); return; }
+    let src=document.createElement('canvas'); { const k=Math.min(1,2000/Math.max(bmp.width,bmp.height)); src.width=Math.round(bmp.width*k); src.height=Math.round(bmp.height*k); src.getContext('2d').drawImage(bmp,0,0,src.width,src.height); }
+    let q=guessCorners(src), clean=true;
+    const ov=document.createElement('div'); ov.className='scan-ov';
+    ov.innerHTML='<div class="scan-top"><b>Scan receipt</b><span class="faint">Drag the 4 dots onto the corners of the paper</span></div><div class="scan-stage"><canvas></canvas>'+[0,1,2,3].map(i=>'<i data-c="'+i+'"></i>').join('')+'</div>'
+      +'<div class="scan-bar"><button type="button" class="btn small" data-a="rot">⟳ Rotate</button><button type="button" class="chip on" data-a="bw">Clean B&amp;W</button><button type="button" class="btn small ghost" data-a="x">Cancel</button><button type="button" class="btn small primary" data-a="ok" style="margin-left:auto">Use scan</button></div>';
+    document.body.appendChild(ov);
+    const stage=ov.querySelector('.scan-stage'), cv=stage.querySelector('canvas'), dots=[...stage.querySelectorAll('[data-c]')]; let sc=1, ox=0, oy=0;
+    const draw=()=>{ const g=cv.getContext('2d'); g.drawImage(src,0,0,cv.width,cv.height); g.fillStyle='rgba(0,0,0,.4)'; g.beginPath(); g.rect(0,0,cv.width,cv.height);
+      g.moveTo(q[0][0]*sc,q[0][1]*sc); [3,2,1].forEach(i=>g.lineTo(q[i][0]*sc,q[i][1]*sc)); g.closePath(); g.fill('evenodd');
+      g.strokeStyle='#FF7A3D'; g.lineWidth=2; g.beginPath(); q.forEach((p,i)=>i?g.lineTo(p[0]*sc,p[1]*sc):g.moveTo(p[0]*sc,p[1]*sc)); g.closePath(); g.stroke();
+      dots.forEach((d,i)=>{ d.style.left=(ox+q[i][0]*sc)+'px'; d.style.top=(oy+q[i][1]*sc)+'px'; }); };
+    const layout=()=>{ const r=stage.getBoundingClientRect(); sc=Math.min(r.width/src.width, r.height/src.height); cv.width=Math.max(1,Math.round(src.width*sc)); cv.height=Math.max(1,Math.round(src.height*sc));
+      ox=(r.width-cv.width)/2; oy=(r.height-cv.height)/2; cv.style.left=ox+'px'; cv.style.top=oy+'px'; draw(); };
+    dots.forEach((d,i)=>d.addEventListener('pointerdown',e=>{ e.preventDefault(); try{ d.setPointerCapture(e.pointerId); }catch(err){} const r=stage.getBoundingClientRect();
+      const mv=ev=>{ q[i]=[Math.min(src.width,Math.max(0,(ev.clientX-r.left-ox)/sc)), Math.min(src.height,Math.max(0,(ev.clientY-r.top-oy)/sc))]; draw(); };
+      const up=()=>{ d.removeEventListener('pointermove',mv); d.removeEventListener('pointerup',up); d.removeEventListener('pointercancel',up); };
+      d.addEventListener('pointermove',mv); d.addEventListener('pointerup',up); d.addEventListener('pointercancel',up); }));
+    const finish=v=>{ window.removeEventListener('resize',layout); ov.remove(); done(v); };
+    ov.querySelector('[data-a=x]').onclick=()=>finish(null);
+    ov.querySelector('[data-a=bw]').onclick=e=>{ clean=!clean; e.currentTarget.classList.toggle('on',clean); };
+    ov.querySelector('[data-a=rot]').onclick=()=>{ const r=document.createElement('canvas'); r.width=src.height; r.height=src.width; const g=r.getContext('2d'); g.translate(r.width,0); g.rotate(Math.PI/2); g.drawImage(src,0,0);
+      const H0=src.height; q=q.map(([x,y])=>[H0-y,x]); q=[q[3],q[0],q[1],q[2]]; src=r; layout(); };
+    ov.querySelector('[data-a=ok]').onclick=async e=>{ const b=e.currentTarget; b.disabled=true; b.textContent='…'; await new Promise(r=>setTimeout(r,30));
+      let out=warpQuad(src,q); if(clean) out=cleanScan(out);
+      out.toBlob(bl=>finish(bl?new File([bl],'receipt-scan.jpg',{type:'image/jpeg'}):file),'image/jpeg',.85); };
+    window.addEventListener('resize',layout); requestAnimationFrame(layout);
+  }); }
+  // one PDF page per receipt photo (caption: date · what · amount), for an expense report
+  async function receiptsPdf(t, onlyBiz){
+    if(!downloads){ toast('Saving files isn\'t available here.'); return; }
+    const xs=S.expenses.filter(e=>e.tripId===t.id&&(e.photoIds||[]).length&&(!onlyBiz||isBiz(e))).sort((a,b)=>((a.date||'')+(a.time||'')).localeCompare((b.date||'')+(b.time||'')));
+    if(!xs.length){ toast(onlyBiz?'No business expense has a receipt photo yet.':'No expense has a receipt photo yet.'); return; }
+    toast('Making the PDF…');
+    const pages=[], PW=1240, PH=1754;
+    for(const e of xs) for(const id of e.photoIds){ try{
+      const img=new Image(); img.src='/_blob/'+id; await img.decode();
+      const c=document.createElement('canvas'); c.width=PW; c.height=PH; const g=c.getContext('2d'); g.fillStyle='#fff'; g.fillRect(0,0,PW,PH);
+      g.fillStyle='#15202B'; g.font='bold 34px -apple-system, Helvetica, Arial, sans-serif'; g.fillText([e.date?fmtDate(e.date,{year:'numeric',month:'short',day:'numeric'}):'', e.label].filter(Boolean).join(' · ').slice(0,70), 70, 96);
+      g.font='28px -apple-system, Helvetica, Arial, sans-serif'; g.fillStyle='#4C5967'; g.fillText([(+e.amount||0).toFixed(2)+' '+(e.currency||''), e.category, e.paidBy?'paid by '+e.paidBy:'', isBiz(e)?'business':''].filter(Boolean).join(' · ').slice(0,90), 70, 144);
+      const k=Math.min((PW-140)/img.naturalWidth, (PH-260)/img.naturalHeight), w=img.naturalWidth*k, h=img.naturalHeight*k; g.drawImage(img,(PW-w)/2,200,w,h);
+      const b=await new Promise(r=>c.toBlob(r,'image/jpeg',.8)); pages.push(new Uint8Array(await b.arrayBuffer())); }catch(err){} }
+    if(!pages.length){ toast('Couldn\'t load the receipt photos.'); return; }
+    // a minimal PDF: each page is one JPEG drawn full-page (A4)
+    const enc=new TextEncoder(), parts=[], offs=[]; let len=0; const add=x=>{ const u=typeof x==='string'?enc.encode(x):x; parts.push(u); len+=u.length; };
+    const obj=(n,body)=>{ offs[n]=len; add(n+' 0 obj\n'); body(); add('\nendobj\n'); };
+    add('%PDF-1.4\n'); const N=pages.length, kid=i=>3+i*3;
+    obj(1,()=>add('<</Type/Catalog/Pages 2 0 R>>')); obj(2,()=>add('<</Type/Pages/Count '+N+'/Kids['+pages.map((_,i)=>kid(i)+' 0 R').join(' ')+']>>'));
+    pages.forEach((jpg,i)=>{ const p=kid(i), im=p+1, ct=p+2, cs='q 595 0 0 842 0 0 cm /Im0 Do Q';
+      obj(p,()=>add('<</Type/Page/Parent 2 0 R/MediaBox[0 0 595 842]/Resources<</XObject<</Im0 '+im+' 0 R>>>>/Contents '+ct+' 0 R>>'));
+      obj(im,()=>{ add('<</Type/XObject/Subtype/Image/Width '+PW+'/Height '+PH+'/ColorSpace/DeviceRGB/BitsPerComponent 8/Filter/DCTDecode/Length '+jpg.length+'>>\nstream\n'); add(jpg); add('\nendstream'); });
+      obj(ct,()=>add('<</Length '+cs.length+'>>\nstream\n'+cs+'\nendstream')); });
+    const xref=len, total=3+N*3; let x='xref\n0 '+total+'\n0000000000 65535 f \n'; for(let i=1;i<total;i++) x+=String(offs[i]).padStart(10,'0')+' 00000 n \n';
+    add(x+'trailer\n<</Size '+total+'/Root 1 0 R>>\nstartxref\n'+xref+'\n%%EOF');
+    const data=new Blob(parts,{type:'application/pdf'}), name=(t.name||'Trip').replace(/[^\w\- ]+/g,'').replace(/\s+/g,' ').trim()+(onlyBiz?' – business receipts.pdf':' – receipts.pdf');
+    try{ await downloads.save({filename:name, data}); toast('Saved'); }
+    catch(e){ if(e&&e.code==='declined') return; toast('Couldn\'t save the PDF.'); }
   }
   // ---------- Excel expense report (.xlsx built in the page: a stored zip of SpreadsheetML) ----------
   const CRC_T=(()=>{ const t=new Uint32Array(256); for(let n=0;n<256;n++){ let c=n; for(let k=0;k<8;k++) c=c&1?0xEDB88320^(c>>>1):c>>>1; t[n]=c>>>0; } return t; })();
