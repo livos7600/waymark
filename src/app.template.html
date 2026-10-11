@@ -335,16 +335,17 @@ const WORLD = __WORLD__;
     walk:{label:'Walk/Bike', color:'var(--walk)', icon:'<path d="M13 4a2 2 0 1 1-.01 0zM10 8l3-1 3 4 3 1-1 2-4-1-1 3 3 3v4h-2v-3l-3-2-1 5H8l2-9-2 1v3H6V9z" fill="currentColor"/>'}
   };
   // Meals are their own activity types (time of day picks the default), then things to do.
-  const MEALS = [['breakfast','Breakfast'],['lunch','Lunch'],['dinner','Dinner'],['coffee','Coffee & snacks'],['drinks','Drinks']];
+  const MEALS = [['breakfast','Breakfast'],['lunch','Lunch'],['dinner','Dinner'],['snack','Snack'],['coffee','Coffee'],['drinks','Drinks']];
   const MEAL_KEYS = new Set(MEALS.map(m=>m[0]).concat(['food','restaurant']));
   const mealFor = (tm, name) => /breakfast|brunch|petit[- ]d[ée]j|d[ée]jeuner du matin/i.test(name||'')?'breakfast':/dinner|d[îi]ner|supper/i.test(name||'')?'dinner'
-    :/lunch|d[ée]jeuner/i.test(name||'')?'lunch':/caf[ée]|coffee|snack|go[ûu]ter|ice cream|glace/i.test(name||'')?'coffee':/drinks?|bar\b|wine|beer|cocktail|ap[ée]ro/i.test(name||'')?'drinks'
-    :!tm?'lunch':tm<'10:45'?'breakfast':tm<'15:00'?'lunch':tm<'17:45'?'coffee':'dinner';
+    :/lunch|d[ée]jeuner/i.test(name||'')?'lunch':/snack|go[ûu]ter|ice cream|glace|gelato|cr[êe]pe|gaufre|waffle|churro|p[âa]tisserie|pastry|cookie|chips|bakery|boulangerie/i.test(name||'')?'snack'
+    :/caf[ée]|coffee|espresso|latte|cappuccino|\btea\b|\bthé/i.test(name||'')?'coffee':/drinks?|bar\b|wine|vin\b|beer|bi[èe]re|cocktail|ap[ée]ro|juice|jus\b|smoothie|soda|cidre|cider/i.test(name||'')?'drinks'
+    :!tm?'lunch':tm<'10:45'?'breakfast':tm<'15:00'?'lunch':tm<'17:45'?'snack':'dinner';
   const CATS = MEALS.concat([
     ['food','Food & drink'],['restaurant','Restaurant'],['citytour','City visit'],['museum','Museum'],['attraction','Attraction'],['hike','Hike'],['run','Run'],['walk','Walk'],['ride','Bike ride'],
     ['hotel','Hotel'],['nightlife','Nightlife'],['shopping','Shopping'],['other','Other']
   ]);
-  const CAT_ICON = {breakfast:'🥐',lunch:'🥗',dinner:'🍽️',coffee:'☕',drinks:'🍷',food:'🍴',restaurant:'🍴',citytour:'🏙️',museum:'🏛️',attraction:'📍',hike:'🥾',run:'🏃',walk:'🚶',ride:'🚴',hotel:'🏨',nightlife:'🌙',shopping:'🛍️',other:'✦'};
+  const CAT_ICON = {breakfast:'🥐',lunch:'🥗',dinner:'🍽️',snack:'🥨',coffee:'☕',drinks:'🍹',food:'🍴',restaurant:'🍴',citytour:'🏙️',museum:'🏛️',attraction:'📍',hike:'🥾',run:'🏃',walk:'🚶',ride:'🚴',hotel:'🏨',nightlife:'🌙',shopping:'🛍️',other:'✦'};
   const EXP_ICON = {'Transport':'🚗','Lodging':'🛏️','Food & drink':'🍴','Meals':'🍽️','Activities':'🎟️','Shopping':'🛍️','Fees & insurance':'🛡️','Other':'💳'};
   const MODE_EMOJI={plane:'✈️',car:'🚗',train:'🚆',bus:'🚌',ferry:'⛴️',walk:'🚶'};
   // what kind of transport/other cost it is, from its label ("Flight to Bordeaux", "Péage A63", "Uber")
@@ -1722,7 +1723,7 @@ const WORLD = __WORLD__;
       + 'Reply with only a JSON object: {"kind": "receipt", "stay" or "activity", '
       + '"name": string (receipt: merchant and item, e.g. "Dinner at Bar Nestor"; a meal or a restaurant front: "<Breakfast|Lunch|Dinner|Coffee|Drinks> at <the name on the sign, menu or receipt>", e.g. "Dinner at Zoe"; activity: the specific place or activity, e.g. "Dune du Pilat", "Guggenheim Bilbao", "Surf lesson, Côte des Basques"; max 50 characters), '
       + '"amount": number or null (receipt: final total paid incl. tax and tip; activity: only if a price is visible), "currency": ISO 4217 code or null, '
-      + '"expenseCategory": one of '+JSON.stringify(EXP_CATS)+', "activityCategory": one of '+JSON.stringify(CATS.map(c=>c[0]).filter(c=>c!=='food'&&c!=='restaurant'))+' (a meal is breakfast, lunch, dinner, coffee or drinks by the time it was eaten; run, ride and hike only when the photo clearly shows that sport (running kit, a bike, a trail with hiking gear) — a castle, viewpoint, old town or monument reached on foot is attraction or citytour), '
+      + '"expenseCategory": one of '+JSON.stringify(EXP_CATS)+', "activityCategory": one of '+JSON.stringify(CATS.map(c=>c[0]).filter(c=>c!=='food'&&c!=='restaurant'))+' (a meal is breakfast, lunch or dinner by the time it was eaten, snack for ice cream, crêpes, pastries or a bite between meals, coffee for a café stop, drinks for a bar, wine, beer, juice or a soft drink; run, ride and hike only when the photo clearly shows that sport (running kit, a bike, a trail with hiking gear) — a castle, viewpoint, old town or monument reached on foot is attraction or citytour), '
       + '"date": "YYYY-MM-DD" or null (date printed on it, else the photo date), "time": "HH:MM" or null (24h time printed on it, else the photo time), '
       + '"city": string or null (the trip city it belongs to when within about 40 km of one, else the real nearest town), '
       + '"lat": number or null, "lon": number or null (where the place is: the GPS if given, else your best estimate for the place you named; null if you cannot tell), '
@@ -2605,7 +2606,7 @@ const WORLD = __WORLD__;
     const r=await sample.json('A traveller logged this in their trip journal: '+JSON.stringify(String(text).slice(0,500))+'\n'
       + 'Trip: "'+String(t.name||'').slice(0,80)+'", '+t.startDate+' to '+t.endDate+', main currency '+(t.currency||'EUR')+'. Today is '+today+', time now '+nowHM()+', current city '+(here.city||'unknown')+'. Travellers: '+people.join(', ')+'.\n'
       + 'It may hold one or several things. Reply with only a JSON array, one object per thing: {"kind": "meal" | "activity" | "expense", "name": string (short, e.g. "Dinner at Chez Pierre", "Taxi to the airport"), '
-      + '"category": for meals one of breakfast|lunch|dinner|coffee|drinks, for activities one of '+CATS.slice(MEALS.length).map(c=>c[0]).filter(c=>c!=='food'&&c!=='restaurant').join('|')+', for expenses one of '+EXP_CATS.join('|')+', '
+      + '"category": for meals one of '+MEALS.map(m=>m[0]).join('|')+', for activities one of '+CATS.slice(MEALS.length).map(c=>c[0]).filter(c=>c!=='food'&&c!=='restaurant').join('|')+', for expenses one of '+EXP_CATS.join('|')+', '
       + '"amount": number or null, "currency": ISO code or null (default the trip currency when an amount is said without one), "date": "YYYY-MM-DD" (default today; "yesterday" etc. relative to today), "time": "HH:MM" or null, '
       + '"city": string or null (only if said; else null), "paidBy": one of the travellers if said ("I"/"me" = "Me"), else null, "notes": string ("" if nothing more)}. Meals and paid activities are not expenses; an expense is anything else paid (taxi, fuel, SIM card, groceries, tickets).', {cache:false});
     const list=Array.isArray(r)?r:(r&&typeof r==='object'?[r]:[]);
