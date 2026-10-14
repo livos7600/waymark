@@ -111,6 +111,7 @@
   .trip-hero .hero-txt{position:absolute;left:16px;right:60px;bottom:14px;color:#fff;z-index:1;}
   .trip-hero h1{font-family:'Barlow Condensed',sans-serif;font-size:32px;line-height:1.02;font-weight:700;letter-spacing:.01em;text-shadow:0 1px 8px rgba(0,0,0,.35);}
   .trip-hero .hero-d{font-size:14px;opacity:.92;margin-top:4px;}
+  .trip-hero .hero-wrap{position:absolute;right:10px;top:10px;z-index:1;border:0;border-radius:999px;padding:8px 14px;font-weight:700;font-size:14px;background:rgba(255,255,255,.92);color:#15202B;cursor:pointer;box-shadow:var(--shadow);}
   .trip-hero .hero-pick{position:absolute;right:10px;bottom:12px;z-index:1;width:40px;height:40px;border-radius:50%;border:0;background:rgba(255,255,255,.88);font-size:18px;cursor:pointer;}
   .trip-cover{margin:-14px -16px 4px;height:150px;background:var(--surface-2) center/cover no-repeat;}
   .trip-card{overflow:hidden;position:relative;}
@@ -199,6 +200,12 @@
   .scan-bar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;}
   .scan-bar .btn:not(.primary):not(.ghost){color:#15202B;} .scan-bar .btn.ghost{color:#fff;}
   .scan-bar .chip{background:#1F2A35;color:#fff;border-color:#2B3946;} .scan-bar .chip.on{background:#fff;color:#15202B;}
+  .wr-ov{position:fixed;inset:0;z-index:90;background:#000;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:10px 10px calc(10px + env(safe-area-inset-bottom,0px));}
+  .wr-ov canvas{max-width:100%;max-height:calc(100% - 96px);width:auto;height:auto;aspect-ratio:9/16;border-radius:14px;cursor:pointer;}
+  .wr-bars{display:flex;gap:4px;width:100%;max-width:480px;}
+  .wr-bars i{flex:1;height:4px;border-radius:2px;background:rgba(255,255,255,.3);overflow:hidden;} .wr-bars b{display:block;height:100%;width:0;background:#fff;}
+  .wr-hint{color:rgba(255,255,255,.5);font-size:12px;}
+  .wr-btns{display:flex;gap:8px;} .wr-btns .btn.ghost{color:#fff;}
   .kb-done{position:fixed;top:10px;right:12px;z-index:60;border:0;border-radius:999px;padding:9px 16px;font-weight:700;font-size:15px;background:var(--ink);color:var(--surface);box-shadow:var(--shadow);cursor:pointer;}
   .sheet.kb-open{padding-bottom:min(55vh,420px);}
   .backdrop{position:fixed;inset:0;z-index:50;background:rgba(10,15,20,.55);display:flex;align-items:flex-end;justify-content:center;}
@@ -846,7 +853,7 @@ const WORLD = __WORLD__;
     stops.filter(s=>!s.home).forEach(s=>{ const k=norm(s.city); if(!cityMap.has(k)) cityMap.set(k,[]); cityMap.get(k).push(s); });
     main.innerHTML =
       (()=>{ const cv=tripCover(t), dates=fmtDate(t.startDate,{weekday:'short',month:'short',day:'numeric'})+' – '+fmtDate(t.endDate,{weekday:'short',month:'short',day:'numeric',year:'numeric'});
-        return cv?'<div class="trip-hero" style="background-image:url(/_blob/'+cv+')"><div class="hero-txt"><h1>'+esc(t.name)+'</h1><div class="hero-d">'+dates+'</div></div><button type="button" class="hero-pick" id="coverPick" aria-label="Change the cover photo">🖼</button></div>'
+        return cv?'<div class="trip-hero" style="background-image:url(/_blob/'+cv+')"><div class="hero-txt"><h1>'+esc(t.name)+'</h1><div class="hero-d">'+dates+'</div></div><button type="button" class="hero-pick" id="coverPick" aria-label="Change the cover photo">🖼</button><button type="button" class="hero-wrap" id="wrapBtn">✨ Wrapped</button></div>'
           +(t.notes?'<div class="faint">'+esc(t.notes)+'</div>':'')
           :'<div class="faint">'+dates+(t.notes?' · '+esc(t.notes):'')+'</div>'; })()
       + ((t.people||[]).length?'<div class="faint" style="margin-top:-10px">👥 '+t.people.length+' '+(t.people.length===1?'traveller':'travellers')+': '+esc(t.people.map(x=>x.name||x.email||'?').join(', '))+'</div>':'')
@@ -902,6 +909,7 @@ const WORLD = __WORLD__;
       onStop:s=>go({stopId:s.id, placeCat:'all'}), onPlace:p=>placeSheet(stopOf(p.stopId), p, {trip:t})});
     bindTodo(t);
     const cp=$('#coverPick'); if(cp) cp.onclick=()=>coverSheet(t);
+    const wb=$('#wrapBtn'); if(wb) wb.onclick=()=>openWrapped(t);
     const sk=$('#stepsKpi'); if(sk) sk.onclick=()=>stepsSheet(t, todayStr()>=t.startDate&&todayStr()<=t.endDate?todayStr():t.endDate);
     $('#addAct').onclick=()=>placeSheet(null, null, {trip:t, date:(todayStr()>=t.startDate&&todayStr()<=t.endDate)?todayStr():t.startDate});
     const fs0=$('#fromStrava'); if(fs0) fs0.onclick=()=>stravaSheet(t);
@@ -2573,6 +2581,125 @@ const WORLD = __WORLD__;
     }
     return ids;
   }
+  // ---------- Wrapped: the trip as a story of bold 9:16 cards (each drawn on a canvas, so it saves as an image) ----------
+  // Built only from the log; private activities and money stay out (a card is meant to be shared).
+  function wrappedData(t){
+    const st=tripStats(t.id), stops=tripStops(t.id).filter(s=>!s.home), today=todayStr();
+    const acts=S.places.filter(p=>p.tripId===t.id&&p.status==='done'&&!p.private);
+    const steps=Object.entries(tripSteps(t)).filter(([d,n])=>d>=t.startDate&&d<=t.endDate&&+n>0).map(([d,n])=>[d,+n]);
+    const cityList=[]; for(let d=t.startDate; d<=t.endDate&&d<=today; d=addDays(d,1)) dayCities(t,d).forEach(c=>{ if(!cityList.some(x=>norm(x)===norm(c))) cityList.push(c); });
+    const flags=[...new Set(stops.map(s=>s.countryA2).filter(Boolean))].map(flag);
+    const meals=acts.filter(p=>MEAL_KEYS.has(p.category)), byMeal={}; meals.forEach(p=>{ const k=MEAL_KEYS.has(p.category)&&CAT_ICON[p.category]?p.category:'dinner'; byMeal[k]=(byMeal[k]||0)+1; });
+    const topMeal=meals.filter(p=>p.rating).sort((a,b)=>b.rating-a.rating)[0]||null;
+    const sport={}; acts.filter(p=>SPORTS.has(p.category)).forEach(p=>{ const b=sport[p.category]=sport[p.category]||{n:0,km:0}; b.n++; b.km+=+p.distanceKm||0; });
+    // most photographed town
+    const ph={}; acts.forEach(p=>{ const s=stopOf(p.stopId); if(!s||!(p.photoIds||[]).length) return; const k=norm(s.city); (ph[k]=ph[k]||{city:s.city, ids:[]}).ids.push(...p.photoIds); });
+    const topTown=Object.values(ph).sort((a,b)=>b.ids.length-a.ids.length)[0]||null;
+    // the biggest day: most km, else most things logged
+    // a flight home would always win: the big day is the biggest one on the road
+    const days={}; tripLegs(t.id).forEach(l=>{ if(!l.date||l.mode==='plane') return; const d=days[l.date]=days[l.date]||{km:0,n:0}; d.km+=+l.km||0; }); acts.forEach(p=>{ if(!p.date) return; const d=days[p.date]=days[p.date]||{km:0,n:0}; d.n++; });
+    const big=Object.entries(days).filter(([d])=>d>=t.startDate&&d<=t.endDate&&(d.km||true)).sort((a,b)=>(b[1].km-a[1].km)||(b[1].n-a[1].n)).find(([d,v])=>v.km>0||v.n>2);
+    const nights=tripStays(t.id).reduce((a,x)=>a+stayNights(x),0), stayN=tripStays(t.id).length;
+    const marks=cityList.map(c=>{ const s=stops.find(x=>norm(x.city)===norm(c)&&x.mark&&x.mark.emoji)||stops.find(x=>norm(x.city)===norm(c)); return {city:c, emoji:s&&s.mark&&s.mark.emoji||'📍'}; });
+    return {st, steps, cityList, flags, meals, byMeal, topMeal, sport, topTown, big, nights, stayN, marks, acts, cover:tripCover(t)};
+  }
+  async function openWrapped(t){
+    const D=wrappedData(t), W=1080, H=1920, FONT='"Barlow Condensed", "Arial Narrow", sans-serif', BODY='Figtree, -apple-system, Helvetica, Arial, sans-serif';
+    try{ await Promise.all([document.fonts.load('800 120px "Barlow Condensed"'), document.fonts.load('600 40px Figtree')]); }catch(e){}
+    const imgs={}; const img=async id=>{ if(!id) return null; if(id in imgs) return imgs[id]; try{ const im=new Image(); im.src='/_blob/'+id; await im.decode(); imgs[id]=im; }catch(e){ imgs[id]=null; } return imgs[id]; };
+    const grad=(g,a,b)=>{ const gr=g.createLinearGradient(0,0,W*.4,H); gr.addColorStop(0,a); gr.addColorStop(1,b); g.fillStyle=gr; g.fillRect(0,0,W,H); };
+    const blobs=(g,c)=>{ g.save(); g.globalAlpha=.18; g.fillStyle=c; [[W*.85,H*.12,260],[W*.1,H*.82,340],[W*.95,H*.7,160]].forEach(([x,y,r])=>{ g.beginPath(); g.arc(x,y,r,0,7); g.fill(); }); g.restore(); };
+    const txt=(g,s,x,y,size,color,o)=>{ o=o||{}; g.font=(o.w||800)+' '+size+'px '+(o.body?BODY:FONT); g.fillStyle=color; g.textAlign=o.align||'left'; g.textBaseline='alphabetic';
+      if(o.max){ let f=size; while(g.measureText(s).width>o.max&&f>20){ f-=4; g.font=(o.w||800)+' '+f+'px '+(o.body?BODY:FONT); } } g.fillText(s,x,y); g.textAlign='left'; };
+    const wrapLines=(g,s,size,max,o)=>{ g.font=((o&&o.w)||600)+' '+size+'px '+BODY; const out=[]; let line=''; String(s).split(/\s+/).forEach(w=>{ const t2=line?line+' '+w:w; if(g.measureText(t2).width>max&&line){ out.push(line); line=w; } else line=t2; }); if(line) out.push(line); return out; };
+    const cover=async(g,id,x,y,w,h,r)=>{ const im=await img(id); if(!im) return false; const k=Math.max(w/im.naturalWidth,h/im.naturalHeight), sw=w/k, sh=h/k;
+      g.save(); g.beginPath(); g.roundRect?g.roundRect(x,y,w,h,r||0):g.rect(x,y,w,h); g.clip(); g.drawImage(im,(im.naturalWidth-sw)/2,(im.naturalHeight-sh)/2,sw,sh,x,y,w,h); g.restore(); return true; };
+    const foot=(g,c)=>{ txt(g,'WAYMARK · '+(t.name||'').toUpperCase(),70,H-80,34,c||'rgba(255,255,255,.75)',{w:700, max:W-140}); };
+    const range=fmtDate(t.startDate,{month:'short',day:'numeric'})+' – '+fmtDate(t.endDate,{month:'short',day:'numeric',year:'numeric'});
+    const cards=[];
+    // 1 intro
+    cards.push(async g=>{ g.fillStyle='#15202B'; g.fillRect(0,0,W,H); if(await cover(g,D.cover,0,0,W,H)){ const gr=g.createLinearGradient(0,H*.3,0,H); gr.addColorStop(0,'rgba(0,0,0,.05)'); gr.addColorStop(1,'rgba(0,0,0,.85)'); g.fillStyle=gr; g.fillRect(0,0,W,H); }
+      txt(g,'YOUR TRIP,',70,H-560,110,'#FFC857'); txt(g,'WRAPPED',70,H-440,150,'#fff');
+      const ls=wrapLines(g,t.name||'',58,W-140,{w:700}); ls.slice(0,3).forEach((l,i)=>txt(g,l,70,H-330+i*68,58,'#fff',{body:1,w:700})); txt(g,range,70,H-330+Math.min(3,ls.length)*68+20,42,'rgba(255,255,255,.85)',{body:1,w:500}); foot(g); });
+    // 2 distance
+    if(D.st.km>0) cards.push(async g=>{ grad(g,'#FF6B35','#B5179E'); blobs(g,'#fff');
+      txt(g,'WE COVERED',70,300,80,'rgba(255,255,255,.85)'); txt(g,fmtKm(Math.round(D.st.km)),70,560,300,'#fff',{max:W-140}); txt(g,'KILOMETRES',70,660,90,'#FFE66D');
+      txt(g,'≈ '+Math.max(1,Math.round(D.st.km/40075*100))+'% of the way around the Earth',70,760,44,'#fff',{body:1,w:600,max:W-140});
+      const ms=Object.entries(D.st.byMode).filter(([,k])=>k>0).sort((a,b)=>b[1]-a[1]); let y=900; const mx=ms.length?ms[0][1]:1;
+      for(const [m,k] of ms.slice(0,4)){ txt(g,(MODE_EMOJI[m]||'')+'  '+((MODES[m]||{}).label||m),70,y,46,'#fff',{body:1,w:700}); g.fillStyle='rgba(255,255,255,.25)'; g.fillRect(70,y+24,W-140,26); g.fillStyle='#fff'; g.fillRect(70,y+24,(W-140)*k/mx,26);
+        txt(g,fmtKm(Math.round(k))+' km',W-70,y,42,'#fff',{body:1,w:600,align:'right'}); y+=150; } foot(g); });
+    // 3 places
+    if(D.cityList.length) cards.push(async g=>{ grad(g,'#0B6E4F','#08415C'); blobs(g,'#9BE564');
+      txt(g,String(D.cityList.length),70,420,320,'#9BE564'); txt(g,D.cityList.length===1?'TOWN':'TOWNS',70,530,110,'#fff');
+      txt(g,D.flags.join('  ')+'  ·  '+D.st.countries+' '+(D.st.countries===1?'country':'countries'),70,620,50,'#fff',{body:1,w:600});
+      let x=70, y=760; g.font='700 40px '+BODY;
+      for(const m of D.marks){ const label=m.emoji+' '+m.city, w=g.measureText(label).width+56; if(x+w>W-70){ x=70; y+=86; } if(y>H-220) break;
+        g.fillStyle='rgba(255,255,255,.14)'; g.beginPath(); g.roundRect?g.roundRect(x,y-52,w,70,35):g.rect(x,y-52,w,70); g.fill(); txt(g,label,x+28,y,40,'#fff',{body:1,w:700}); x+=w+16; }
+      foot(g); });
+    // 4 steps
+    if(D.steps.length){ const tot=D.steps.reduce((a,[,n])=>a+n,0), best=D.steps.slice().sort((a,b)=>b[1]-a[1])[0];
+      cards.push(async g=>{ grad(g,'#3A0CA3','#4361EE'); blobs(g,'#F72585');
+        txt(g,'👟 ON FOOT',70,300,80,'rgba(255,255,255,.85)'); txt(g,tot>=100000?Math.round(tot/1000)+'K':tot.toLocaleString(),70,580,300,'#fff',{max:W-140}); txt(g,'STEPS',70,680,110,'#F72585');
+        txt(g,Math.round(tot/D.steps.length).toLocaleString()+' a day  ·  ≈ '+fmtKm(Math.round(tot*0.00075))+' km walked',70,790,46,'#fff',{body:1,w:600,max:W-140});
+        txt(g,'BEST DAY',70,1000,60,'#F72585'); txt(g,best[1].toLocaleString()+' steps',70,1110,96,'#fff'); txt(g,fmtDate(best[0],{weekday:'long',month:'long',day:'numeric'}),70,1180,44,'rgba(255,255,255,.9)',{body:1,w:600});
+        wrapLines(g,dayCities(t,best[0]).join(' → '),38,W-140,{w:500}).slice(0,2).forEach((l,j)=>txt(g,l,70,1240+j*50,38,'rgba(255,255,255,.75)',{body:1,w:500}));
+        // a little bar chart of the days
+        const mx=best[1], bw=Math.min(70,(W-140)/D.steps.length-10); D.steps.slice().sort((a,b)=>a[0].localeCompare(b[0])).forEach(([d,n],i)=>{ const h=330*n/mx; g.fillStyle=d===best[0]?'#F72585':'rgba(255,255,255,.55)'; g.fillRect(70+i*(bw+10),1730-h,bw,h); });
+        foot(g); }); }
+    // 5 sport
+    const sp=Object.entries(D.sport); if(sp.length) cards.push(async g=>{ grad(g,'#F94144','#F8961E'); blobs(g,'#fff');
+      txt(g,'KEPT MOVING',70,300,90,'#fff'); let y=560;
+      for(const [k,b] of sp){ txt(g,catIcon(k)+' '+b.n,70,y,200,'#fff'); txt(g,(CAT_LABEL[k]||k).toUpperCase()+(b.n===1?'':'S')+(b.km?' · '+(b.km<100?b.km.toFixed(1):Math.round(b.km))+' KM':''),70,y+100,70,'#FFF3B0',{max:W-140}); y+=380; }
+      foot(g); });
+    // 6 food
+    if(D.meals.length) cards.push(async g=>{ grad(g,'#FFB703','#FB5607'); blobs(g,'#fff');
+      txt(g,'WE ATE WELL',70,300,90,'#3D1308'); txt(g,String(D.meals.length),70,580,300,'#fff'); txt(g,'MEALS & TREATS',70,680,100,'#3D1308',{max:W-140});
+      let y=840; Object.entries(D.byMeal).sort((a,b)=>b[1]-a[1]).slice(0,5).forEach(([k,n])=>{ txt(g,(CAT_ICON[k]||'🍴')+'  '+n+' × '+(CAT_LABEL[k]||k).toLowerCase(),70,y,56,'#fff',{body:1,w:700}); y+=86; });
+      if(D.topMeal){ y+=40; txt(g,'TOP RATED',70,y,56,'#3D1308'); y+=80; wrapLines(g,D.topMeal.name,60,W-140,{w:800}).slice(0,2).forEach(l=>{ txt(g,l,70,y,60,'#fff',{body:1,w:800}); y+=70; }); txt(g,'★'.repeat(D.topMeal.rating),70,y+10,60,'#3D1308',{body:1}); }
+      foot(g); });
+    // 7 most photographed town
+    if(D.topTown) cards.push(async g=>{ g.fillStyle='#FFF6E2'; g.fillRect(0,0,W,H);
+      txt(g,'MOST PHOTOGRAPHED',70,250,80,'#E4572E'); txt(g,D.topTown.city.toUpperCase(),70,400,140,'#15202B',{max:W-140}); txt(g,D.topTown.ids.length+' photos',70,470,48,'#4C5967',{body:1,w:600});
+      const ids=D.topTown.ids.slice(0,4), pos=[[70,560,450,560,-3],[560,600,450,520,4],[90,1180,450,520,3],[570,1140,440,560,-4]];
+      for(let i=0;i<ids.length;i++){ const [x,y,w,h,r]=pos[i]; g.save(); g.translate(x+w/2,y+h/2); g.rotate(r*Math.PI/180); g.fillStyle='#fff'; g.shadowColor='rgba(0,0,0,.25)'; g.shadowBlur=24; g.fillRect(-w/2-16,-h/2-16,w+32,h+60); g.shadowBlur=0;
+        await cover(g,ids[i],-w/2,-h/2,w,h,4); g.restore(); }
+      foot(g,'rgba(21,32,43,.6)'); });
+    // 8 biggest day
+    if(D.big) cards.push(async g=>{ const [d,v]=D.big; grad(g,'#06D6A0','#118AB2'); blobs(g,'#fff');
+      txt(g,'THE BIG DAY',70,300,90,'#073B4C'); txt(g,fmtDate(d,{weekday:'long'}).toUpperCase(),70,470,150,'#fff',{max:W-140}); txt(g,fmtDate(d,{month:'long',day:'numeric'}),70,560,70,'#073B4C');
+      let y=720; if(v.km) { txt(g,fmtKm(Math.round(v.km))+' km',70,y,140,'#fff'); y+=110; } if(v.n){ txt(g,v.n+' things done',70,y,70,'#073B4C'); y+=110; }
+      const towns=dayCities(t,d); towns.slice(0,7).forEach((c,i)=>{ txt(g,(i?'→ ':'')+c,70,y+i*80,58,'#fff',{body:1,w:700,max:W-140}); }); foot(g); });
+    // 9 nights
+    if(D.nights) cards.push(async g=>{ grad(g,'#1D3557','#0B132B'); g.fillStyle='rgba(255,255,255,.8)'; for(let i=0;i<70;i++){ const x=(i*733)%W, y=(i*397)%(H*.6); g.fillRect(x,y,i%5?3:5,i%5?3:5); }
+      txt(g,'🌙',70,420,200,'#fff'); txt(g,D.nights+' NIGHTS',70,640,180,'#fff',{max:W-140}); txt(g,'in '+D.stayN+' '+(D.stayN===1?'place':'different places'),70,730,60,'#A8DADC',{body:1,w:600});
+      let y=880; tripStays(t.id).slice(0,8).forEach(x=>{ txt(g,stayIcon(x)+'  '+x.name,70,y,46,'#fff',{body:1,w:600,max:W-140}); y+=74; }); foot(g); });
+    // 10 outro: the fridge
+    cards.push(async g=>{ const gr=g.createLinearGradient(0,0,W,H); gr.addColorStop(0,'#E9EDF0'); gr.addColorStop(.5,'#CDD4DA'); gr.addColorStop(1,'#EEF1F3'); g.fillStyle=gr; g.fillRect(0,0,W,H);
+      txt(g,'SEE YOU',70,260,130,'#15202B'); txt(g,'NEXT TRIP ✈️',70,390,130,'#E4572E');
+      const cs=D.marks.slice(0,16); cs.forEach((m,i)=>{ const col=MAG_C[i%MAG_C.length], cx=70+(i%2)*480, cy=520+Math.floor(i/2)*150, r=((i*37)%9-4)*Math.PI/180;
+        g.save(); g.translate(cx+210,cy+55); g.rotate(r); g.shadowColor='rgba(0,0,0,.3)'; g.shadowBlur=14; g.shadowOffsetY=6; g.fillStyle=col; g.beginPath(); g.roundRect?g.roundRect(-210,-55,420,110,18):g.rect(-210,-55,420,110); g.fill(); g.shadowBlur=0; g.shadowOffsetY=0;
+        txt(g,m.emoji,-190,22,60,'#fff',{body:1}); txt(g,m.city.toUpperCase(),-110,22,62,'#fff',{max:300}); g.restore(); });
+      foot(g,'rgba(21,32,43,.6)'); });
+    // ---- the player ----
+    const ov=document.createElement('div'); ov.className='wr-ov';
+    ov.innerHTML='<div class="wr-bars">'+cards.map(()=>'<i><b></b></i>').join('')+'</div><canvas width="'+W+'" height="'+H+'"></canvas><div class="wr-hint">Tap for next · left side to go back</div>'
+      + '<div class="wr-btns"><button type="button" class="btn small" data-w="save">⬇ Save this card</button><button type="button" class="btn small" data-w="share">'+ICON.share+' Share</button><button type="button" class="btn small ghost" data-w="x">✕</button></div>';
+    document.body.appendChild(ov);
+    const cv=ov.querySelector('canvas'), g=cv.getContext('2d'), bars=[...ov.querySelectorAll('.wr-bars b')];
+    let i=0, timer=null, drawing=0;
+    const show=async k=>{ i=Math.max(0,Math.min(cards.length-1,k)); const tok=++drawing; g.clearRect(0,0,W,H); await cards[i](g); if(tok!==drawing) return;
+      bars.forEach((b,j)=>{ b.style.transition='none'; b.style.width=j<i?'100%':'0%'; }); const b=bars[i]; void b.offsetWidth; b.style.transition='width 6s linear'; b.style.width='100%';
+      clearTimeout(timer); timer=setTimeout(()=>{ if(i<cards.length-1) show(i+1); }, 6000); };
+    const close=()=>{ clearTimeout(timer); drawing++; ov.remove(); };
+    cv.onclick=e=>{ const r=cv.getBoundingClientRect(); if(e.clientX-r.left<r.width*.3) show(i-1); else if(i<cards.length-1) show(i+1); };
+    const blob=()=>new Promise(r=>cv.toBlob(r,'image/png'));
+    ov.querySelector('[data-w=x]').onclick=close;
+    ov.querySelector('[data-w=save]').onclick=async()=>{ clearTimeout(timer); const b=await blob(); const name=(t.name||'Trip').replace(/[^\w\- ]+/g,'').trim()+' – wrapped '+(i+1)+'.png';
+      if(downloads){ try{ await downloads.save({filename:name, data:b}); toast('Saved'); }catch(e){ if(!(e&&e.code==='declined')) toast('Couldn\'t save it.'); } } else toast('Saving isn\'t available here.'); };
+    ov.querySelector('[data-w=share]').onclick=async()=>{ clearTimeout(timer); const b=await blob(), f=new File([b],'wrapped-'+(i+1)+'.png',{type:'image/png'});
+      if(navigator.canShare&&navigator.canShare({files:[f]})){ try{ await navigator.share({files:[f]}); }catch(e){} } else ov.querySelector('[data-w=save]').click(); };
+    show(0);
+  }
   // ---------- Guide (recommendations for friends) and Itinerary (for colleagues): text with map links, or a PDF ----------
   // Only what the owner picks: a date range or one city, done places (never "Keep off shares"), no who-paid, no business costs.
   const mapsLink=(name, where, lat, lon)=>'https://www.google.com/maps/search/?api=1&query='+encodeURIComponent(lat!=null&&isFinite(lat)?(+lat).toFixed(5)+','+(+lon).toFixed(5):[name,where].filter(Boolean).join(', '));
@@ -3642,7 +3769,7 @@ const WORLD = __WORLD__;
       .concat(days.filter(d=>d!==today).map(d=>({label:fmtDate(d,{weekday:'short',month:'short',day:'numeric'}), from:d, to:d})));
     const dayOpt=(d,sel)=>'<option value="'+d+'"'+(d===sel?' selected':'')+'>'+fmtDate(d,{weekday:'short',month:'short',day:'numeric'})+'</option>';
     const canShare=!!(navigator.canShare&&navigator.share);
-    openSheet('<h2>Share</h2><button type="button" class="btn small" id="toGuide" style="align-self:flex-start">📘 Guide or itinerary (text · PDF)</button>'
+    openSheet('<h2>Share</h2><div class="row"><button type="button" class="btn small" id="toGuide">📘 Guide or itinerary</button><button type="button" class="btn small" id="toWrap">✨ Wrapped</button></div>'
       + '<div id="cardBox" style="flex-shrink:0;display:flex;justify-content:center;background:var(--surface-2);border-radius:12px;padding:8px;min-height:120px;align-items:center"><span class="faint">Drawing…</span></div>'
       + '<div class="field"><label>1 · Which days</label><div class="chips" id="shPre">'+presets.map((p,i)=>'<button type="button" class="chip" data-pre="'+i+'">'+esc(p.label)+'</button>').join('')+'</div>'
       + '<div class="grid2"><div class="field"><label for="shFrom">From</label><select id="shFrom">'+days.map(d=>dayOpt(d,o.from)).join('')+'</select></div><div class="field"><label for="shTo">To</label><select id="shTo">'+days.map(d=>dayOpt(d,o.to)).join('')+'</select></div></div></div>'
@@ -3722,6 +3849,7 @@ const WORLD = __WORLD__;
       $('#shTitle').oninput=()=>{ titleTouched=true; o.title=val('shTitle'); if(!capTouched) $('#cap').value=caption(t,o); later(); };
       $('#cap').oninput=()=>{ capTouched=true; };
       $('#toGuide').onclick=()=>guideSheet(t, {from:o.from, to:o.to});
+      $('#toWrap').onclick=()=>{ closeSheet(); openWrapped(t); };
       $('#copyCap').onclick=async()=>{ const txt=val('cap'); try{ await navigator.clipboard.writeText(txt); toast('Caption copied'); }catch(e){ const ta=$('#cap'); ta.focus(); ta.select(); $('#shareHint').textContent='Press copy on your keyboard to copy the selected caption.'; } };
       const base=()=>(o.title||t.name).replace(/→/g,'-').replace(/[^\w\- ]+/g,'').replace(/\s+/g,' ').trim()||'trip', fname=()=>base()+'.png';
       const vidName=()=>base()+(vidBlob&&/mp4/.test(vidBlob.type)?'.mp4':'.webm');
