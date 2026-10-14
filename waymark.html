@@ -1,5 +1,5 @@
 <title>Waymark</title>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700;800&family=Figtree:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700;800&family=Playfair+Display:ital,wght@0,700;1,400;1,700&family=Figtree:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/topojson/3.0.2/topojson.min.js"></script>
 <style>
@@ -204,6 +204,7 @@
   .wr-ov canvas{max-width:100%;max-height:calc(100% - 96px);width:auto;height:auto;aspect-ratio:9/16;border-radius:14px;cursor:pointer;}
   .wr-bars{display:flex;gap:4px;width:100%;max-width:480px;}
   .wr-bars i{flex:1;height:4px;border-radius:2px;background:rgba(255,255,255,.3);overflow:hidden;} .wr-bars b{display:block;height:100%;width:0;background:#fff;}
+  .poster-img{max-width:100%;max-height:calc(100% - 110px);width:auto;height:auto;border-radius:6px;box-shadow:0 10px 30px rgba(0,0,0,.5);}
   .wr-hint{color:rgba(255,255,255,.5);font-size:12px;}
   .wr-btns{display:flex;gap:8px;} .wr-btns .btn.ghost{color:#fff;}
   .kb-done{position:fixed;top:10px;right:12px;z-index:60;border:0;border-radius:999px;padding:9px 16px;font-weight:700;font-size:15px;background:var(--ink);color:var(--surface);box-shadow:var(--shadow);cursor:pointer;}
@@ -2582,6 +2583,101 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
     }
     return ids;
   }
+  // ---------- Poster: the trip as an illustrated vintage map (parchment, watercolour land, rippled coasts, dotted route,
+  // each town's landmark emoji), drawn on a 2400×3200 canvas for printing ----------
+  async function drawPoster(t){
+    const W=2400, H=3200, c=document.createElement('canvas'); c.width=W; c.height=H; const g=c.getContext('2d');
+    const SERIF='"Playfair Display", Georgia, "Times New Roman", serif', COND='"Barlow Condensed", "Arial Narrow", sans-serif';
+    try{ await Promise.all([document.fonts.load('700 120px "Barlow Condensed"'), document.fonts.load('700 110px "Playfair Display"'), document.fonts.load('italic 700 54px "Playfair Display"'), document.fonts.load('italic 400 54px "Playfair Display"')]); }catch(e){}
+    // parchment
+    const bg=g.createRadialGradient(W/2,H/2,W*.2,W/2,H/2,W*.85); bg.addColorStop(0,'#F7EBD3'); bg.addColorStop(1,'#E2CBA0'); g.fillStyle=bg; g.fillRect(0,0,W,H);
+    let seed=7; const rnd=()=>{ seed=(seed*16807)%2147483647; return seed/2147483647; };
+    for(let i=0;i<9000;i++){ g.fillStyle='rgba(120,80,30,'+(rnd()*.06)+')'; g.fillRect(rnd()*W,rnd()*H,2+rnd()*3,2+rnd()*3); }
+    // the map box
+    const M={x:150,y:560,w:W-300,h:H-1050};
+    const stops=tripStops(t.id).filter(s=>!s.home&&s.lat!=null), legs=tripLegs(t.id).filter(l=>l.mode!=='plane');
+    const pts=stops.map(s=>[+s.lon,+s.lat]); legs.forEach(l=>{ const tr=legTrack(l); if(tr) tr.forEach(p=>pts.push(p)); });
+    if(!pts.length){ return null; }
+    const proj=d3.geoMercator().fitExtent([[M.x+170,M.y+170],[M.x+M.w-170,M.y+M.h-170]],{type:'MultiPoint',coordinates:pts});
+    const path=d3.geoPath(proj,g);
+    g.save(); g.beginPath(); g.rect(M.x,M.y,M.w,M.h); g.clip();
+    // sea wash
+    const sea=g.createLinearGradient(M.x,M.y,M.x+M.w,M.y+M.h); sea.addColorStop(0,'#BFD9D6'); sea.addColorStop(1,'#9FC4C6'); g.fillStyle=sea; g.fillRect(M.x,M.y,M.w,M.h);
+    // coastline ripples: the land's outline stroked wide and pale, then narrower and darker
+    const land=worldFeat;
+    g.lineJoin='round'; [96,72,50,30].forEach(w=>{ g.beginPath(); path(land); g.lineWidth=w; g.strokeStyle='rgba(255,255,255,.55)'; g.stroke(); g.beginPath(); path(land); g.lineWidth=w-7; g.strokeStyle='#AFCFCF'; g.stroke(); });
+    // watercolour land: a few soft layers, each country tinted a little differently
+    const tints=['#E9D9A6','#DCCB8E','#E4C99A','#D7D3A0','#E6D2A8'];
+    land.features.forEach((f,i)=>{ g.beginPath(); path(f); g.fillStyle=tints[i%tints.length]; g.fill(); });
+    g.save(); g.globalAlpha=.35; for(let k=0;k<3;k++){ g.translate(rnd()*6-3,rnd()*6-3); land.features.forEach(f=>{ g.beginPath(); path(f); g.fillStyle='rgba(160,130,70,.18)'; g.fill(); }); } g.restore();
+    // visited countries a touch greener
+    const vis=new Set(stops.map(s=>String(s.countryN3))); land.features.filter(f=>vis.has(String(f.id))).forEach(f=>{ g.beginPath(); path(f); g.fillStyle='rgba(120,160,90,.28)'; g.fill(); });
+    // borders: dashed brown
+    g.setLineDash([10,10]); g.lineWidth=3; g.strokeStyle='rgba(110,70,30,.45)'; land.features.forEach(f=>{ g.beginPath(); path(f); g.stroke(); }); g.setLineDash([]);
+    g.lineWidth=4; g.strokeStyle='rgba(80,60,30,.55)'; g.beginPath(); path(land); g.stroke();
+    // the route: roads where recorded, else a gentle arc; dotted red with a soft shadow
+    const P=s=>proj([+s.lon,+s.lat]);
+    const routeLine=l=>{ const tr=legTrack(l); if(tr) return tr.map(p=>proj(p)); const a=stopOf(l.fromId), b=stopOf(l.toId); if(!a||!b||a.lat==null||b.lat==null) return null;
+      const p=P(a), q=P(b), mx=(p[0]+q[0])/2, my=(p[1]+q[1])/2, dx=q[0]-p[0], dy=q[1]-p[1], k=.12; return [p,[mx-dy*k,my+dx*k],q]; };
+    const lines=legs.map(routeLine).filter(Boolean);
+    const strokeLine=ln=>{ g.beginPath(); g.moveTo(ln[0][0],ln[0][1]); if(ln.length===3&&!ln.big) g.quadraticCurveTo(ln[1][0],ln[1][1],ln[2][0],ln[2][1]); else ln.forEach(p=>g.lineTo(p[0],p[1])); g.stroke(); };
+    lines.forEach(ln=>{ if(ln.length>3) ln.big=true; });
+    g.lineCap='round'; g.lineJoin='round';
+    g.strokeStyle='rgba(60,30,10,.18)'; g.lineWidth=16; lines.forEach(strokeLine);
+    g.strokeStyle='#C0392B'; g.lineWidth=9; g.setLineDash([2,22]); lines.forEach(strokeLine); g.setLineDash([]);
+    // towns: a pin, the landmark emoji above, the name in a little label (staggered so neighbours don't collide)
+    const seen=new Map(); stops.forEach(s=>{ const k=cityKey(s.city); if(!seen.has(k)) seen.set(k,s); else if(s.mark&&!seen.get(k).mark) seen.set(k,s); });
+    // the towns that matter most get their labels first; a label (or charm) with no free spot shrinks, then is left out (the pin stays)
+    const weight=x=>S.places.filter(p=>p.tripId===t.id&&stopOf(p.stopId)&&cityKey(stopOf(p.stopId).city)===cityKey(x.city)).length+tripStays(t.id).filter(y=>cityKey(y.city||'')===cityKey(x.city)).length*3;
+    const towns=[...seen.values()].map(s=>({s, p:P(s), w:weight(s)})).sort((a,b)=>b.w-a.w);
+    const taken=towns.map(({p})=>[p[0]-16,p[1]-16,32,32]);
+    const free=r=>r[0]>M.x+12&&r[0]+r[2]<M.x+M.w-12&&r[1]>M.y+12&&r[1]+r[3]<M.y+M.h-12&&!taken.some(q=>r[0]<q[0]+q[2]&&r[0]+r[2]>q[0]&&r[1]<q[1]+q[3]&&r[1]+r[3]>q[1]);
+    towns.forEach(({p})=>{ g.fillStyle='#7A2E1E'; g.beginPath(); g.arc(p[0],p[1],13,0,7); g.fill(); g.fillStyle='#F7EBD3'; g.beginPath(); g.arc(p[0],p[1],6,0,7); g.fill(); });
+    towns.forEach(({s,p})=>{ const em=s.mark&&s.mark.emoji||'';
+      for(const fs of [56,44,36]){ g.font='italic 700 '+fs+'px '+SERIF; const tw=g.measureText(s.city).width, hh=fs*1.05;
+        const opts=[[p[0]-tw/2,p[1]+22],[p[0]+24,p[1]-hh/2],[p[0]-tw-24,p[1]-hh/2],[p[0]-tw/2,p[1]-hh-22],[p[0]+20,p[1]+14],[p[0]-tw-20,p[1]+14],[p[0]+20,p[1]-hh-14],[p[0]-tw-20,p[1]-hh-14]];
+        const r=opts.map(([x,y])=>[x,y,tw,hh]).find(free); if(!r) continue; taken.push(r);
+        g.lineWidth=12; g.strokeStyle='rgba(247,235,211,.92)'; g.textAlign='left'; g.textBaseline='top'; g.strokeText(s.city,r[0],r[1]); g.fillStyle='#3B2414'; g.fillText(s.city,r[0],r[1]); g.textBaseline='alphabetic'; break; }
+      if(em){ for(const es of [84,64,48]){ const eo=[[p[0]-es/2,p[1]-es-20],[p[0]+18,p[1]-es-10],[p[0]-es-18,p[1]-es-10],[p[0]+18,p[1]+8],[p[0]-es-18,p[1]+8]].map(([x,y])=>[x,y,es,es]).find(free);
+        if(!eo) continue; taken.push(eo); g.font=es+'px '+COND; g.textAlign='left'; g.textBaseline='top'; g.fillText(em,eo[0],eo[1]); g.textBaseline='alphabetic'; break; } } });
+    g.restore();
+    // frame: double line around the map
+    g.strokeStyle='#5A3A1E'; g.lineWidth=10; g.strokeRect(M.x,M.y,M.w,M.h); g.lineWidth=3; g.strokeRect(M.x-24,M.y-24,M.w+48,M.h+48);
+    // compass rose, bottom right of the map
+    const cx=M.x+M.w-190, cy=M.y+M.h-210, R=120; g.save(); g.translate(cx,cy);
+    g.fillStyle='rgba(247,235,211,.85)'; g.beginPath(); g.arc(0,0,R+30,0,7); g.fill(); g.strokeStyle='#5A3A1E'; g.lineWidth=3; g.beginPath(); g.arc(0,0,R+30,0,7); g.stroke();
+    for(let k=0;k<8;k++){ const a=k*Math.PI/4, r=k%2?R*.55:R; g.save(); g.rotate(a); g.beginPath(); g.moveTo(0,-r); g.lineTo(14,0); g.lineTo(0,0); g.closePath(); g.fillStyle=k%2?'#B9935A':'#7A2E1E'; g.fill();
+      g.beginPath(); g.moveTo(0,-r); g.lineTo(-14,0); g.lineTo(0,0); g.closePath(); g.fillStyle=k%2?'#E2CBA0':'#C0392B'; g.fill(); g.restore(); }
+    g.fillStyle='#3B2414'; g.font='700 56px '+SERIF; g.textAlign='center'; g.fillText('N',0,-R-44); g.restore();
+    // title ribbon
+    const title=(t.name||'Our trip'); g.textAlign='center';
+    const ry=250, rw=W-420; g.fillStyle='#8E2C1F'; g.beginPath(); g.moveTo(W/2-rw/2-120,ry-40); g.lineTo(W/2-rw/2,ry-40); g.lineTo(W/2-rw/2,ry+150); g.lineTo(W/2-rw/2-120,ry+150); g.lineTo(W/2-rw/2-60,ry+55); g.closePath(); g.fill();
+    g.beginPath(); g.moveTo(W/2+rw/2+120,ry-40); g.lineTo(W/2+rw/2,ry-40); g.lineTo(W/2+rw/2,ry+150); g.lineTo(W/2+rw/2+120,ry+150); g.lineTo(W/2+rw/2+60,ry+55); g.closePath(); g.fill();
+    g.fillStyle='#B83A2A'; g.fillRect(W/2-rw/2,ry-70,rw,190); g.fillStyle='rgba(0,0,0,.15)'; g.fillRect(W/2-rw/2,ry+105,rw,15);
+    let fs=110; g.font='700 '+fs+'px '+SERIF; while(g.measureText(title).width>rw-120&&fs>50){ fs-=4; g.font='700 '+fs+'px '+SERIF; }
+    g.fillStyle='#FBEFD8'; g.fillText(title, W/2, ry+fs*.35+25);
+    g.fillStyle='#5A3A1E'; g.font='italic 56px '+SERIF; g.fillText(fmtDate(t.startDate,{month:'long',day:'numeric'})+' – '+fmtDate(t.endDate,{month:'long',day:'numeric',year:'numeric'}), W/2, 470);
+    // the stats line and the towns in travel order
+    const st=tripStats(t.id), order=[]; for(let d=t.startDate; d<=t.endDate; d=addDays(d,1)) dayCities(t,d).forEach(x=>{ if(!order.some(y=>norm(y)===norm(x))) order.push(x); });
+    g.fillStyle='#3B2414'; g.font='700 74px '+COND; g.fillText((fmtKm(Math.round(st.km))+' KM  ·  '+order.length+' TOWNS  ·  '+st.countries+' '+(st.countries===1?'COUNTRY':'COUNTRIES')+'  ·  '+st.days+' DAYS'), W/2, M.y+M.h+150);
+    g.font='italic 44px '+SERIF; g.fillStyle='#5A3A1E'; const line=order.join('  ›  '); const words=line.split('  ›  '); let ln='', y=M.y+M.h+240; const lines2=[];
+    words.forEach(w=>{ const tl=ln?ln+'  ›  '+w:w; if(g.measureText(tl).width>W-360&&ln){ lines2.push(ln); ln=w; } else ln=tl; }); if(ln) lines2.push(ln);
+    lines2.slice(0,3).forEach((l,i)=>g.fillText(l, W/2, y+i*64));
+    g.font='600 34px '+COND; g.fillStyle='rgba(90,58,30,.6)'; g.fillText('WAYMARK', W/2, H-46);
+    return c;
+  }
+  async function openPoster(t){
+    const ov=document.createElement('div'); ov.className='wr-ov'; ov.innerHTML='<div class="wr-hint">Drawing your map…</div>'; document.body.appendChild(ov);
+    let c=null; try{ c=await drawPoster(t); }catch(e){ console.error(e); }
+    if(!c){ ov.remove(); toast('The trip needs towns on the map first.'); return; }
+    const url=c.toDataURL('image/jpeg',.82);
+    ov.innerHTML='<img class="poster-img" alt="Map poster of '+esc(t.name||'the trip')+'" src="'+url+'"><div class="wr-btns"><button type="button" class="btn small" data-p="save">⬇ Save poster</button><button type="button" class="btn small" data-p="share">'+ICON.share+' Share</button><button type="button" class="btn small ghost" data-p="x">✕</button></div><div class="wr-hint">2400 × 3200 px · prints sharp up to 30 × 40 cm</div>';
+    const blob=()=>new Promise(r=>c.toBlob(r,'image/jpeg',.92)), name=(t.name||'Trip').replace(/[^\w\- ]+/g,'').trim()+' – map poster.jpg';
+    ov.querySelector('[data-p=x]').onclick=()=>ov.remove();
+    ov.querySelector('[data-p=save]').onclick=async()=>{ const b=await blob(); if(downloads){ try{ await downloads.save({filename:name, data:b}); toast('Saved'); }catch(e){ if(!(e&&e.code==='declined')) toast('Couldn\'t save it.'); } } else toast('Saving isn\'t available here.'); };
+    ov.querySelector('[data-p=share]').onclick=async()=>{ const b=await blob(), f=new File([b],'map-poster.jpg',{type:'image/jpeg'});
+      if(navigator.canShare&&navigator.canShare({files:[f]})){ try{ await navigator.share({files:[f]}); }catch(e){} } else ov.querySelector('[data-p=save]').click(); };
+  }
   // ---------- Wrapped: the trip as a story of bold 9:16 cards (each drawn on a canvas, so it saves as an image) ----------
   // Built only from the log; private activities and money stay out (a card is meant to be shared).
   function wrappedData(t){
@@ -3770,7 +3866,7 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
       .concat(days.filter(d=>d!==today).map(d=>({label:fmtDate(d,{weekday:'short',month:'short',day:'numeric'}), from:d, to:d})));
     const dayOpt=(d,sel)=>'<option value="'+d+'"'+(d===sel?' selected':'')+'>'+fmtDate(d,{weekday:'short',month:'short',day:'numeric'})+'</option>';
     const canShare=!!(navigator.canShare&&navigator.share);
-    openSheet('<h2>Share</h2><div class="row"><button type="button" class="btn small" id="toGuide">📘 Guide or itinerary</button><button type="button" class="btn small" id="toWrap">✨ Wrapped</button></div>'
+    openSheet('<h2>Share</h2><div class="row"><button type="button" class="btn small" id="toGuide">📘 Guide or itinerary</button><button type="button" class="btn small" id="toWrap">✨ Wrapped</button><button type="button" class="btn small" id="toPoster">🗺 Map poster</button></div>'
       + '<div id="cardBox" style="flex-shrink:0;display:flex;justify-content:center;background:var(--surface-2);border-radius:12px;padding:8px;min-height:120px;align-items:center"><span class="faint">Drawing…</span></div>'
       + '<div class="field"><label>1 · Which days</label><div class="chips" id="shPre">'+presets.map((p,i)=>'<button type="button" class="chip" data-pre="'+i+'">'+esc(p.label)+'</button>').join('')+'</div>'
       + '<div class="grid2"><div class="field"><label for="shFrom">From</label><select id="shFrom">'+days.map(d=>dayOpt(d,o.from)).join('')+'</select></div><div class="field"><label for="shTo">To</label><select id="shTo">'+days.map(d=>dayOpt(d,o.to)).join('')+'</select></div></div></div>'
@@ -3851,6 +3947,7 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
       $('#cap').oninput=()=>{ capTouched=true; };
       $('#toGuide').onclick=()=>guideSheet(t, {from:o.from, to:o.to});
       $('#toWrap').onclick=()=>{ closeSheet(); openWrapped(t); };
+      $('#toPoster').onclick=()=>{ closeSheet(); openPoster(t); };
       $('#copyCap').onclick=async()=>{ const txt=val('cap'); try{ await navigator.clipboard.writeText(txt); toast('Caption copied'); }catch(e){ const ta=$('#cap'); ta.focus(); ta.select(); $('#shareHint').textContent='Press copy on your keyboard to copy the selected caption.'; } };
       const base=()=>(o.title||t.name).replace(/→/g,'-').replace(/[^\w\- ]+/g,'').replace(/\s+/g,' ').trim()||'trip', fname=()=>base()+'.png';
       const vidName=()=>base()+(vidBlob&&/mp4/.test(vidBlob.type)?'.mp4':'.webm');
