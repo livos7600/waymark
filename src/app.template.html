@@ -311,6 +311,10 @@
   .mag-photo .ph{display:block;width:126px;height:96px;border-radius:6px;object-fit:cover;background:var(--c);}
   .mag-photo .ban{margin:-14px -10px 0;position:relative;background:var(--c);color:#fff;border-radius:6px;padding:5px 8px;text-align:center;box-shadow:0 2px 3px rgba(0,0,0,.25);}
   .mag-photo .sub{font-size:11px;font-weight:700;color:#4C5967;padding:5px 0 6px;text-align:center;}
+  .mag .charm{position:absolute;top:-16px;right:-12px;font-size:34px;line-height:1;z-index:2;transform:rotate(calc(var(--r) * -2 + 8deg));
+    filter:drop-shadow(0 3px 2px rgba(0,0,0,.35));pointer-events:none;}
+  .mag .lm{font-size:11.5px;font-weight:700;font-style:italic;margin-top:3px;line-height:1.15;}
+  .mag-retro .lm{color:#15202B;} .mag-photo .lm{color:#15202B;padding-top:4px;}
   .mag-round{width:118px;height:118px;border-radius:50%;background:var(--c);color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:10px;
     box-shadow:inset 0 0 0 5px rgba(255,255,255,.85),inset 0 -6px 0 5px rgba(0,0,0,.15);}
   .mag-round .em{font-size:30px;line-height:1;}
@@ -1062,18 +1066,33 @@ const WORLD = __WORLD__;
   const STAMP_INK=['#D9822B','#C2412D','#4C9A2A','#2F6FED','#8E55C9','#0E9BAD'];
   // fridge magnets: one per city you've been to, in a style, colour and tilt picked from its name (it keeps them)
   const MAG_C=['#E4572E','#17A398','#F2A541','#2E86AB','#5FA548','#B83B7D','#6C4AB6','#D7263D'];
+  // each city's "twist": the landmark or thing it's best known for (🍷 Bordeaux, Guggenheim in Bilbao), asked of Claude once
+  // for the cities that don't have one yet and kept on their stops as mark {emoji, landmark}
+  const markOf=c=>{ const s=c.ids.map(stopOf).find(x=>x&&x.mark&&x.mark.emoji); return s?s.mark:null; };
+  let marking=false; const markTried=new Set();
+  async function ensureMarks(cities){ if(marking||!sample) return;
+    const need=cities.filter(c=>!markOf(c)&&!markTried.has(cityKey(c.s.city))).slice(0,40); if(!need.length) return;
+    marking=true; need.forEach(c=>markTried.add(cityKey(c.s.city)));
+    try{ const r=await sample.json('For each place below, give the one landmark, monument or thing it is best known for, the way a souvenir fridge magnet from there would show it. '
+        + 'Reply with only a JSON array in the same order, one object per place: {"city": string, "emoji": the single emoji that best pictures it (e.g. 🗼 🏰 ⛪ 🌉 🏖️ 🌊 🍷 🥖 🏄 🐂 ⛰️ 🎡 🗽), "landmark": 1 to 3 words naming it (e.g. "Eiffel Tower", "Guggenheim", "Dune du Pilat", "Surf beaches", "Wine")}.\nPlaces: '
+        + JSON.stringify(need.map(c=>c.s.city+(c.s.country?', '+c.s.country:''))));
+      const list=Array.isArray(r)?r:[];
+      for(let i=0;i<need.length;i++){ const m=list[i]; if(!m||!m.emoji) continue; const mark={emoji:String(m.emoji).trim().slice(0,8), landmark:String(m.landmark||'').trim().slice(0,28)};
+        for(const id of need[i].ids) await patch('stops', id, {mark}); } }
+    catch(e){} marking=false; }
   function fridgeHtml(cities){ if(!cities.length) return '';
     const h=x=>[...x].reduce((a,c)=>(a*33+c.charCodeAt(0))>>>0,5381);
     return '<div class="sec-title"><h2>On the fridge</h2><span class="faint">'+cities.length+' magnet'+(cities.length===1?'':'s')+'</span></div><div class="fridge">'
       + cities.map(c=>{ const name=c.s.city, n=h(name), col=MAG_C[n%MAG_C.length], r=((n>>>3)%11-5)*1.3, ph=placeCover(c.ids), fl=flag(c.s.countryA2), yr=yearsTxt(c);
           // the longest word must fit on one line (condensed caps ≈ 0.62em a letter): no "BORDEA-UX"
           const lw=Math.max(...name.split(/[\s-]+/).map(w=>w.length),1), fit=(w,max)=>Math.max(12, Math.min(max, Math.floor(w/(lw*0.62))));
-          const fs=fit(140,34), nm='<div class="nm" style="font-size:'+fs+'px">'+esc(name)+'</div>';
+          const fs=fit(140,34), nm='<div class="nm" style="font-size:'+fs+'px">'+esc(name)+'</div>', mk=markOf(c), lm=mk&&mk.landmark?'<div class="lm">'+esc(mk.landmark)+'</div>':'';
           let kind=ph&&n%3===0?'photo':['label','retro','round','label','retro'][(n>>>5)%5]; if(kind==='round'&&name.length>13) kind='label'; // a long name doesn't fit a circle
-          const inner=kind==='photo'?'<img class="ph" alt="" loading="lazy" src="/_blob/'+ph+'"><div class="ban">'+nm.replace('font-size:'+fs,'font-size:'+fit(126,26))+'</div><div class="sub">'+fl+' '+esc(yr)+'</div>'
-            :kind==='round'?'<div class="em">'+topCat(c.s)+'</div>'+nm.replace('font-size:'+fs,'font-size:'+fit(92,22))+'<div class="sub">'+fl+' '+esc(yr)+'</div>'
-            :nm+'<div class="sub">'+fl+' '+topCat(c.s)+' '+esc(yr)+'</div>';
-          return '<button type="button" class="mag mag-'+kind+'" style="--c:'+col+';--r:'+r.toFixed(1)+'deg" data-mag="'+c.s.id+'" aria-label="'+esc(name)+'">'+inner+'<i class="gl"></i></button>'; }).join('')+'</div>'; }
+          const charm=mk&&kind!=='round'?'<span class="charm">'+esc(mk.emoji)+'</span>':'';
+          const inner=kind==='photo'?'<img class="ph" alt="" loading="lazy" src="/_blob/'+ph+'"><div class="ban">'+nm.replace('font-size:'+fs,'font-size:'+fit(126,26))+'</div>'+lm+'<div class="sub">'+fl+' '+esc(yr)+'</div>'
+            :kind==='round'?'<div class="em">'+(mk?esc(mk.emoji):topCat(c.s))+'</div>'+nm.replace('font-size:'+fs,'font-size:'+fit(92,22))+'<div class="sub">'+fl+' '+esc(yr)+'</div>'
+            :nm+lm+'<div class="sub">'+fl+' '+(mk?'':topCat(c.s)+' ')+esc(yr)+'</div>';
+          return '<button type="button" class="mag mag-'+kind+'" style="--c:'+col+';--r:'+r.toFixed(1)+'deg" data-mag="'+c.s.id+'" aria-label="'+esc(name+(mk&&mk.landmark?', '+mk.landmark:''))+'">'+inner+'<i class="gl"></i>'+charm+'</button>'; }).join('')+'</div>'; }
   // shrink a magnet's name until its longest word fits on one line (whatever font the phone ends up using)
   function fitMagnets(root){ (root||document).querySelectorAll('.mag .nm').forEach(el=>{ const box=el.parentElement.classList.contains('ban')?el.parentElement:el;
     let f=parseFloat(el.style.fontSize)||24; let guard=0; while(el.scrollWidth>box.clientWidth+1&&f>11&&guard++<30){ f-=1; el.style.fontSize=f+'px'; } }); }
@@ -1182,6 +1201,7 @@ const WORLD = __WORLD__;
         when:v.cities.length+' cit'+(v.cities.length===1?'y':'ies')+' · '+whenTxt(v), open:()=>go({country:v.a2})}; }).filter(x=>x.lat!=null), visitedN3:[...visited.values()].map(v=>v.n3), width:720, height:560, label:'World map of your travels',
       onStop:s=>go({tab:'trips', tripId:s.tripId, stopId:s.id, placeCat:'all'})});
     main.querySelectorAll('[data-country]').forEach(b=>b.onclick=()=>go({country:b.dataset.country}));
+    ensureMarks(beenCities());
     fitMagnets(main); if(document.fonts&&document.fonts.ready) document.fonts.ready.then(()=>fitMagnets(main));
     main.querySelectorAll('.stamps [data-stamp], [data-mag]').forEach(b=>b.onclick=()=>{ const s=stopOf(b.dataset.stamp||b.dataset.mag); if(s) go({tab:'trips', tripId:s.tripId, stopId:s.id, placeCat:'all'}); });
     const ap=$('#addPast'); if(ap) ap.onclick=pastTripsSheet;
