@@ -458,8 +458,10 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
     if(/^\d{1,2}$/.test(x)) return +x;
     if(/^\d{3,4}$/.test(x)) return (+x.slice(0,-2))*60+(+x.slice(-2));
     return null; };
-  // the time box keyboard: text with ":" (iPhone's number pad has none); a typed time is rewritten as it was understood when you leave the box
-  function bindClock(inp, hintEl){ const show=()=>{ const v=sportSecs(inp.value); if(hintEl) hintEl.textContent=inp.value.trim()?(v?'= '+sportSay(v):'⚠️ Type it like 55:16 or 1:05:30'):''; };
+  // time boxes use the km keypad (digits + "."; iPhones can't show a ":" key): the "." key types ":" as you go
+  function colonKey(inp){ inp.addEventListener('input',()=>{ if(/[.,]/.test(inp.value)) inp.value=inp.value.replace(/[.,]/g,':'); }); }
+  // a typed time is rewritten as it was understood when you leave the box
+  function bindClock(inp, hintEl){ colonKey(inp); const show=()=>{ const v=sportSecs(inp.value); if(hintEl) hintEl.textContent=inp.value.trim()?(v?'= '+sportSay(v):'⚠️ Type it like 55:16 or 1:05:30'):''; };
     inp.addEventListener('input', show); inp.addEventListener('change',()=>{ const v=sportSecs(inp.value); if(v) inp.value=sportClock(v); show(); }); show(); }
   const nowHM = () => { const d=new Date(); return pad2(d.getHours())+':'+pad2(d.getMinutes()); };
   const hhmm = x => (x&&/^\d\d:\d\d/.test(x.time||''))?x.time.slice(0,5):'';
@@ -1487,7 +1489,7 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
       + '<div class="field"><label for="lDate">Date</label><input id="lDate" type="date" value="'+esc(l?l.date:dDate)+'"></div>'
       + '<div class="grid2"><div class="field"><label for="lTime" id="lTimeL">Departs (optional)</label><input id="lTime" type="time" value="'+esc(rec&&rec.time?rec.time:l?hhmm(l):'')+'"></div>'
       + '<div class="field"><label for="lArr" id="lArrL">Arrives (optional)</label><input id="lArr" type="time" value="'+esc(rec&&rec.time&&rec.durationS?addHM(rec.time,rec.durationS):l?(l.arrTime||(hhmm(l)&&l.durationS?addHM(hhmm(l),l.durationS):'')):'')+'"></div></div>'
-      + '<div class="field"><label for="lDur">Time on the way (h:mm, optional)</label><input id="lDur" autocomplete="off" autocorrect="off" spellcheck="false" placeholder="e.g. 7:40 — the arrival time fills itself" value="'+(l&&l.durationS?Math.floor(l.durationS/3600)+':'+pad2(Math.round(l.durationS%3600/60)):rec&&rec.durationS?Math.floor(rec.durationS/3600)+':'+pad2(Math.round(rec.durationS%3600/60)):'')+'"></div>'
+      + '<div class="field"><label for="lDur">Time on the way (h:mm, optional)</label><input id="lDur" inputmode="decimal" autocomplete="off" autocorrect="off" spellcheck="false" placeholder="e.g. 7:40 — the arrival time fills itself" value="'+(l&&l.durationS?Math.floor(l.durationS/3600)+':'+pad2(Math.round(l.durationS%3600/60)):rec&&rec.durationS?Math.floor(rec.durationS/3600)+':'+pad2(Math.round(rec.durationS%3600/60)):'')+'"></div>'
       + '<div class="hint" id="lDurH"></div>'
       + '<div class="field"><label for="lKm">Distance km (optional)</label><input id="lKm" inputmode="numeric" value="'+esc(rec&&rec.km?rec.km:l&&!l.kmEstimated?l.km:'')+'" placeholder="'+(l&&l.kmEstimated?'≈'+fmtKm(l.km):'Auto')+'"></div>'
       + '<div class="grid3"><div class="field"><label for="lCost">Cost (optional)</label><input id="lCost" inputmode="decimal" value="'+esc(l&&l.cost?l.cost:'')+'"></div><div class="field"><label for="lCur">Currency</label>'+curSelect('lCur', l?l.currency:trip.currency)+'</div></div>'
@@ -1517,6 +1519,7 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
         let next=''; if(m!=null&&dep){ const land=localToUtc(za,d,dep)+m*60000, ld=utcToLocalDate(zb,land); if(ld>d) next=' · lands the next day'; }
         h.textContent=m!=null?'⏱ '+fmtDur(m*60)+' on the way'+next+(diff?' · '+diff:''):(rec&&rec.durationS?'⏱ '+fmtDur(rec.durationS)+' recorded':(diff?'🕐 '+diff+': enter each time on its own city\'s clock':'')); };
       // a duration typed with a departure fills the local arrival
+      colonKey($('#lDur'));
       $('#lDur').addEventListener('input',()=>{ durTyped=true; const m=parseDur(val('lDur')), dep=val('lTime'); if(m!=null&&dep){ const {za,zb}=zones(), d=val('lDate')||todayStr(); $('#lArr').value=utcToLocalHM(zb, localToUtc(za,d,dep)+m*60000); } showDur(); });
       $('#lArr').addEventListener('input',()=>{ durTyped=false; showDur(); });
       $('#lTime').addEventListener('input',()=>{ const m=parseDur(val('lDur')); if(durTyped&&m!=null&&val('lTime')){ const {za,zb}=zones(), d=val('lDate')||todayStr(); $('#lArr').value=utcToLocalHM(zb, localToUtc(za,d,val('lTime'))+m*60000); } showDur(); });
@@ -1641,7 +1644,7 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
       + '<div class="field"><label>Rating</label><div class="rating" id="rating">'+[1,2,3,4,5].map(i=>'<button type="button" data-r="'+i+'" aria-label="'+i+' stars" class="'+(i<=rating?'on':'')+'">★</button>').join('')+'</div></div>'
       + (()=>{ const x=p||(pre&&pre.extra)||{}, sp=SPORTS.has(p?p.category:(pre&&pre.category)||'');
           return '<div class="grid2" id="pSportF"'+(sp?'':' hidden')+'><div class="field"><label for="pKm">Distance km</label><input id="pKm" inputmode="decimal" placeholder="e.g. 8.4" value="'+(x.distanceKm?esc(x.distanceKm):'')+'"></div>'
-            + '<div class="field"><label for="pDur">Time</label><input id="pDur" autocomplete="off" autocorrect="off" spellcheck="false" placeholder="e.g. 55:16 or 1:05:30" value="'+sportClock(x.movingS)+'"><div class="faint" id="pDurH"></div></div></div>'
+            + '<div class="field"><label for="pDur">Time</label><input id="pDur" inputmode="decimal" autocomplete="off" autocorrect="off" spellcheck="false" placeholder="e.g. 55:16 or 1:05:30" value="'+sportClock(x.movingS)+'"><div class="faint" id="pDurH"></div></div></div>'
             + '<div class="field" id="pViaF"'+(sp?'':' hidden')+'><label for="pVia">Through (towns along the way)</label><input id="pVia" autocomplete="off" placeholder="e.g. Capbreton, Hossegor, Seignosse" value="'+esc((x.via||[]).join(', '))+'"></div>'; })()
       + '<div class="grid3"><div class="field"><label for="pCost">Price (optional)</label><input id="pCost" inputmode="decimal" value="'+esc(p&&p.cost?p.cost:'')+'"></div><div class="field"><label for="pCur">Currency</label>'+curSelect('pCur', p?p.currency:trip.currency)+'</div></div>'
       + '<div class="field" id="pPaidF"'+(p&&+p.cost?'':' hidden')+'><label for="pPaid">Paid by</label>'+'<input id="pPaid" list="pPayers" autocomplete="off" value="'+esc(p&&p.paidBy||lastPayer(trip.id))+'"><datalist id="pPayers">'+payers(trip.id).map(n=>'<option value="'+esc(n)+'">').join('')+'</datalist>'+bizBox('pBiz', trip, p, date0)+'</div>'
@@ -2162,7 +2165,7 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
     const label=CAT_LABEL[k]||k, xs=S.places.filter(p=>p.tripId===t.id&&p.status!=='want'&&p.category===k).sort((a,b)=>((a.date||'')+(a.time||'')).localeCompare((b.date||'')+(b.time||'')));
     openSheet('<h2>'+catIcon(k)+' '+label+(xs.length===1?'':'s')+'</h2><div class="hint">Type the distance and time of each one (from your watch, Strava or Health). They add up in the box on the trip page.</div>'
       + '<div style="display:flex;flex-direction:column;gap:10px">'+xs.map(p=>'<div class="card" style="padding:10px 12px;display:flex;flex-direction:column;gap:6px"><div class="between"><b style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(p.name)+'</b><span class="faint" style="flex-shrink:0">'+(p.date?fmtDate(p.date,{weekday:'short',month:'short',day:'numeric'}):'')+'</span></div>'
-        + '<div class="grid2" style="align-items:start"><input data-km="'+p.id+'" inputmode="decimal" placeholder="km" value="'+(p.distanceKm?esc(p.distanceKm):'')+'" aria-label="Distance in km"><div style="min-width:0"><input data-dur="'+p.id+'" style="width:100%;box-sizing:border-box" autocomplete="off" autocorrect="off" spellcheck="false" placeholder="time (min:sec)" value="'+sportClock(p.movingS)+'" aria-label="Time, like 55:16 or 1:05:30"><div class="faint" data-durh="'+p.id+'" style="font-size:12px"></div></div></div></div>').join('')+'</div>'
+        + '<div class="grid2" style="align-items:start"><input data-km="'+p.id+'" inputmode="decimal" placeholder="km" value="'+(p.distanceKm?esc(p.distanceKm):'')+'" aria-label="Distance in km"><div style="min-width:0"><input data-dur="'+p.id+'" inputmode="decimal" style="width:100%;box-sizing:border-box" autocomplete="off" autocorrect="off" spellcheck="false" placeholder="time (min:sec)" value="'+sportClock(p.movingS)+'" aria-label="Time, like 55:16 or 1:05:30"><div class="faint" data-durh="'+p.id+'" style="font-size:12px"></div></div></div></div>').join('')+'</div>'
       + '<button type="button" class="btn" id="spAdd" style="align-self:flex-start">＋ Add a '+label.toLowerCase()+'</button>'
       + '<div class="err" id="fErr" hidden></div><div class="row"><button class="btn primary" type="submit" id="spSave">Save</button><button class="btn" type="button" id="xCancel">Cancel</button></div>',
     form=>{
