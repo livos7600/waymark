@@ -3459,12 +3459,15 @@ const WORLD = __WORLD__;
       if(keep.size) stops=[...keep.values()]; }
     if(hide) for(let i=acts.length-1;i>=0;i--) if(hide[acts[i].id]) acts.splice(i,1);
     acts.sort((a,b)=>(a.status==='done'?0:1)-(b.status==='done'?0:1)); // stable: plans go last, the rest stay in trip order
-    // photos: each activity's, in trip order, then the cities' own photos
-    const owner={}; acts.forEach(p=>(p.photoIds||[]).forEach(id=>{ if(!owner[id]) owner[id]=p.name; }));
+    // photos: each activity's and each drive's or flight's (the window view, the boarding pass), in Days order, then the cities' own
+    const withPh=[]; for(let d=from; d<=to; d=addDays(d,1)) dayOrder(d, legs.filter(l=>l.date===d), acts.filter(p=>p.date===d), []).forEach(({k,x})=>{ if((x.photoIds||[]).length&&(k==='act'||k==='leg')) withPh.push(x); });
+    acts.filter(p=>!withPh.includes(p)&&(p.photoIds||[]).length).forEach(p=>withPh.push(p));
+    const label=x=>x.name||((MODE_EMOJI[x.mode]||'')+' '+((stopOf(x.fromId)||{}).city||'')+' → '+((stopOf(x.toId)||{}).city||'')).trim();
+    const owner={}; withPh.forEach(x=>(x.photoIds||[]).forEach(id=>{ if(!owner[id]) owner[id]=label(x); }));
     stops.forEach(s=>(s.photoIds||[]).forEach(id=>{ if(!owner[id]) owner[id]=s.city; }));
     const photos=Object.keys(owner);
-    // a starting pick that covers the slice: the cover photo of each activity first, then seconds, …
-    const pick=[]; for(let r=0;pick.length<4&&r<6;r++) acts.forEach(p=>{ const id=(p.photoIds||[])[r]; if(id&&pick.length<4&&!pick.includes(id)) pick.push(id); });
+    // a starting pick that covers the slice: the cover photo of each activity or leg first, then seconds, …
+    const pick=[]; for(let r=0;pick.length<4&&r<6;r++) withPh.forEach(p=>{ const id=(p.photoIds||[])[r]; if(id&&pick.length<4&&!pick.includes(id)) pick.push(id); });
     photos.forEach(id=>{ if(pick.length<Math.min(3,photos.length)&&!pick.includes(id)) pick.push(id); });
     // cities in the order you went (the Days order of what you did), then any others
     const seen=new Map(); acts.filter(p=>p.status==='done').map(p=>stopOf(p.stopId)).forEach(s=>{ if(s&&!s.home&&!seen.has(norm(s.city))) seen.set(norm(s.city),s.city); });
@@ -3718,8 +3721,10 @@ const WORLD = __WORLD__;
     const pics=(await Promise.all(o.photoIds.slice(0,4).map(async id=>{ const im=await sharePic(id,o); if(!im) return null;
       const act=d.acts.find(p=>(p.photoIds||[]).includes(id)), st=act?stopOf(act.stopId):d.stops.find(s=>(s.photoIds||[]).includes(id));
       let ev=act?evs.find(e=>e.act===act||e.item===act):null;
+      // a drive's or flight's own photo shows with that leg (the window view while the plane crosses)
+      const legEv=!act?evs.find(e=>e.kind==='leg'&&e.leg&&(e.leg.photoIds||[]).includes(id)):null; if(legEv) ev=legEv;
       if(!ev){ const pd=(act&&act.date)||(st&&st.arrive)||o.from; evs.forEach(e=>{ if(e.date<=pd) ev=e; }); }
-      return {id, im, ev:ev||null, label:act?shareName(act,o):st?st.city:''}; }))).filter(Boolean);
+      return {id, im, ev:ev||null, label:act?shareName(act,o):legEv?(MODE_EMOJI[legEv.mode]||'')+' '+legEv.label:st?st.city:''}; }))).filter(Boolean);
     const scenes=[{id:'intro', label:'🎬 Title'}], picScene=p=>({id:'ph:'+p.id, label:'📷 '+(p.label||'Photo'), photo:p.id});
     pics.filter(p=>!p.ev).forEach(p=>scenes.push(picScene(p)));
     evs.forEach(e=>{ scenes.push({id:e.id, label:(e.kind==='leg'?MODE_EMOJI[e.mode]||'🚗':e.kind==='track'?'🏃':e.icon)+' '+(e.kind==='moment'?e.name:e.label)}); pics.filter(p=>p.ev===e).forEach(p=>scenes.push(picScene(p))); });
