@@ -1033,14 +1033,11 @@ const WORLD = __WORLD__;
   }
 
   // ---------- world ----------
-  // A trip's cover: the first photo of its last activities (newest memories first), else a city photo
-  function tripCover(tid){ const ps=S.places.filter(p=>p.tripId===tid&&(p.photoIds||[]).length&&!p.private).sort((a,b)=>(b.date||'').localeCompare(a.date||''));
-    return ps.length?ps[0].photoIds[0]:(tripStops(tid).find(s=>(s.photoIds||[]).length)||{photoIds:[]}).photoIds[0]||''; }
   // where a trip sits on the world map: the city with the most going on
   function tripPins(){ return S.trips.map(t=>{ const st=tripStops(t.id).filter(s=>!s.home&&s.lat!=null); if(!st.length) return null;
       const score=s=>S.places.filter(p=>p.stopId===s.id).length+S.stays.filter(x=>x.stopId===s.id).length;
       const c=st.slice().sort((a,b)=>score(b)-score(a))[0];
-      return {id:t.id, name:t.name, lat:c.lat, lon:c.lon, photo:tripCover(t.id), label:fmtDate(t.startDate,{month:'short',year:'numeric'}),
+      return {id:t.id, name:t.name, lat:c.lat, lon:c.lon, photo:tripCover(t), label:fmtDate(t.startDate,{month:'short',year:'numeric'}),
         when:fmtDate(t.startDate,{month:'short',day:'numeric'})+' – '+fmtDate(t.endDate,{month:'short',day:'numeric',year:'numeric'})}; }).filter(Boolean); }
   // Places you've been, grouped: countries (for the world page) and the cities inside one country
   // the trip's cover photo: the one picked (coverId), else the best-rated shareable activity photo
