@@ -208,7 +208,7 @@
   .wr-hint{color:rgba(255,255,255,.5);font-size:12px;}
   .wr-btns{display:flex;gap:8px;} .wr-btns .btn.ghost{color:#fff;}
   .sh-acts{display:flex;flex-direction:column;gap:8px;}
-  .sh-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;} .sh-row .btn{width:100%;justify-content:center;} .sh-row [hidden]{display:none;}
+  .sh-row{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;gap:8px;} .sh-row .btn{width:100%;justify-content:center;padding-left:8px;padding-right:8px;white-space:nowrap;font-size:15px;} .sh-row [hidden]{display:none;}
   .sh-vid{position:relative;overflow:hidden;width:100%;height:50px;white-space:nowrap;justify-content:center;font-size:16px;}
   .sh-vid span{position:relative;} .sh-prog{position:absolute;left:0;top:0;bottom:0;width:0;background:var(--accent);opacity:.22;transition:width .25s linear;pointer-events:none;}
   .kb-done{position:fixed;top:10px;right:12px;z-index:60;border:0;border-radius:999px;padding:9px 16px;font-weight:700;font-size:15px;background:var(--ink);color:var(--surface);box-shadow:var(--shadow);cursor:pointer;}
@@ -3898,7 +3898,7 @@ const WORLD = __WORLD__;
     const buf=await ac.startRendering(); tuneCache.set(key, buf); return buf;
   }
   // Plays the plan on `cv` in real time while recording it; resolves to the video Blob (null if stopped).
-  // audio (optional): {ctx: AudioContext, buf: AudioBuffer, start: s, vol: 0–1, fade: bool}; it plays out loud too.
+  // audio (optional): {ctx: AudioContext, buf: AudioBuffer, start: s, vol: 0–1, fade: bool}; recorded only, not played out loud (owner's call)
   async function recordRouteVideo(plan, cv, onTick, alive, audio){
     const R=720/plan.W; cv.width=720; cv.height=Math.round(plan.H*R); const g=cv.getContext('2d');
     const vstream=cv.captureStream(30); let stream=vstream, src=null, gn=null;
@@ -3906,7 +3906,7 @@ const WORLD = __WORLD__;
       src=ac.createBufferSource(); src.buffer=audio.buf;
       const from=Math.min(audio.start||0, Math.max(0,audio.buf.duration-1));
       if(audio.buf.duration-from<plan.T+.5){ src.loop=true; src.loopStart=from; src.loopEnd=audio.buf.duration; }
-      src.connect(gn); gn.connect(dest); gn.connect(ac.destination);
+      src.connect(gn); gn.connect(dest);
       stream=new MediaStream([...vstream.getVideoTracks(), ...dest.stream.getAudioTracks()]); audio.from=from; }
     const type=videoType(!!src);
     const rec=new MediaRecorder(stream, type?Object.assign({mimeType:type, videoBitsPerSecond:5000000}, src?{audioBitsPerSecond:128000}:{}):undefined);
@@ -3932,6 +3932,14 @@ const WORLD = __WORLD__;
     const o={from:init.from||days[0], to:init.to||days[days.length-1], city:'', hide:Object.fromEntries(S.places.filter(p=>p.tripId===t.id&&p.private).map(p=>[p.id,true])), priv:{spots:false, names:false, times:false, dates:false}, format:'post', showMap:true, showStats:true, showActs:true, showCosts:false, photoIds:[], title:'', edit:{off:{}, mult:{}, pace:1}, photoFx:{}};
     const music={kind:'none', buf:null, name:'', start:0, vol:.8, fade:true};
     let titleTouched=false, capTouched=false, picksTouched=false, drawTok=0, canvas=null, presetTitle='';
+    // choices made for these days are remembered on this phone (look, privacy, photos, title, caption, video edits, music)
+    const skey=()=>'wm.share.'+t.id+'|'+o.from+'|'+o.to+'|'+(o.city||'');
+    const saved=(()=>{ try{ return JSON.parse(localStorage.getItem(skey())||'null'); }catch(e){ return null; } })();
+    if(saved){ ['format','showMap','showStats','showActs','showCosts','priv','hide','photoIds','title','edit','photoFx'].forEach(k=>{ if(saved[k]!=null) o[k]=saved[k]; });
+      picksTouched=!!saved.picksTouched; titleTouched=!!saved.titleTouched; capTouched=!!saved.capTouched;
+      if(saved.music&&saved.music.kind&&saved.music.kind!=='file') Object.assign(music,{kind:saved.music.kind, vol:saved.music.vol!=null?saved.music.vol:.8, fade:saved.music.fade!==false}); }
+    const saveShare=()=>{ try{ localStorage.setItem(skey(), JSON.stringify({format:o.format, showMap:o.showMap, showStats:o.showStats, showActs:o.showActs, showCosts:o.showCosts, priv:o.priv, hide:o.hide,
+      photoIds:o.photoIds, picksTouched, title:o.title, titleTouched, cap:$('#cap')?val('cap'):'', capTouched, edit:o.edit, photoFx:o.photoFx, music:{kind:music.kind==='file'?'none':music.kind, vol:music.vol, fade:music.fade}})); }catch(e){} };
     const today=todayStr(), cityChips=[];
     tripStops(t.id).filter(s=>!s.home&&s.arrive).forEach(s=>{ const k=norm(s.city); const ex=cityChips.find(x=>x.k===k);
       if(ex){ if(s.arrive<ex.from) ex.from=s.arrive; if((s.depart||s.arrive)>ex.to) ex.to=s.depart||s.arrive; } else cityChips.push({k, city:s.city, from:s.arrive, to:s.depart||s.arrive}); });
@@ -3961,7 +3969,7 @@ const WORLD = __WORLD__;
           + '<div class="ed-range" id="edStartRow" hidden>Start at <input type="range" id="edStart" min="0" max="60" step="1" value="0"><span class="mono" id="edStartV">0:00</span></div>'
           + '<div class="ed-range">Volume <input type="range" id="edVol" min="0" max="100" step="5" value="80"><span class="mono" id="edVolV">80%</span></div>'
           + '<div class="row"><button type="button" class="chip on" id="edFade">Fade out at the end</button><button type="button" class="btn small" id="edListen">▶ Listen</button></div>'
-          + '<div class="hint">Plays while it records, so turn your sound on. Instagram and TikTok can also add their own music after you post.</div></div></div>'
+          + '<div class="hint">Mixed into the video silently while it records (tap ▶ Listen to hear it). Instagram and TikTok can also add their own music after you post.</div></div></div>'
         + '<div class="field"><label>Pace</label><div class="chips" id="edPace"><button type="button" class="chip" data-pace="0.75">Quick</button><button type="button" class="chip on" data-pace="1">Normal</button><button type="button" class="chip" data-pace="1.35">Relaxed</button></div></div>'
         + '<div class="field"><label>Scenes <span style="text-transform:none;letter-spacing:0;font-weight:500">(untick to cut, or make one longer)</span></label><div id="edScenes" class="faint">…</div></div>'
         + '<div class="field" id="edPhF"><label>Photo edits <span style="text-transform:none;letter-spacing:0;font-weight:500">(only on what you share; your photos stay as they are)</span></label><div id="edPhotos"></div></div>'
@@ -3979,11 +3987,11 @@ const WORLD = __WORLD__;
       const sheet=$('#sheet');
       let vidBlob=null, vidTok=0, vidUrl=null;
       const mkSet=(txt, pct)=>{ const tx=$('#mkVidT'), pr=$('#mkVid .sh-prog'); if(tx) tx.textContent=txt; if(pr) pr.style.width=(pct==null?0:pct)+'%'; };
-      const showVidBtns=on=>{ $('#saveVid').hidden=!on||!downloads; $('#saveImg').hidden=on||!downloads; const st=$('#shareNowT'); if(st) st.textContent=on?'Share video…':'Share…'; };
+      const showVidBtns=on=>{ $('#saveVid').hidden=!on||!downloads; $('#saveImg').hidden=!downloads; const st=$('#shareNowT'); if(st) st.textContent=on?'Share video…':'Share…'; };
       const dropVideo=()=>{ vidTok++; vidBlob=null; if(vidUrl){ URL.revokeObjectURL(vidUrl); vidUrl=null; } showVidBtns(false); const m=$('#mkVid'); if(m){ m.disabled=false; mkSet('🎬 Create video'); } };
       const redraw=async()=>{ const tok=++drawTok; dropVideo(); const cv=await makeCard(t, o); if(tok!==drawTok||!sheet.isConnected) return; canvas=cv;
         $('#cardBox').innerHTML='<img class="share-preview" style="max-height:46vh;width:auto;max-width:100%" alt="Share image preview" src="'+cv.toDataURL('image/jpeg',.85)+'">';
-        const s=$('#shareNow'); if(s) s.disabled=false; const b=$('#saveImg'); if(b) b.disabled=!downloads; };
+        const s=$('#shareNow'); if(s) s.disabled=false; const b=$('#saveImg'); if(b) b.disabled=!downloads; saveShare(); };
       let timer=null; const later=()=>{ clearTimeout(timer); timer=setTimeout(redraw,200); const e=$('#shEd'); if(e&&e.open) setTimeout(drawScenes,400); };
       const sync=()=>{ // range changed: refresh title, photos, caption
         if(o.to<o.from){ const x=o.to; o.to=o.from; o.from=x; }
@@ -4021,7 +4029,7 @@ const WORLD = __WORLD__;
         if(!capTouched) $('#cap').value=caption(t,o); later(); });
       $('#shShow').querySelectorAll('[data-show]').forEach(b=>b.onclick=()=>{ const k=b.dataset.show; o[k]=!o[k]; b.classList.toggle('on',o[k]); later(); });
       $('#shTitle').oninput=()=>{ titleTouched=true; o.title=val('shTitle'); if(!capTouched) $('#cap').value=caption(t,o); later(); };
-      $('#cap').oninput=()=>{ capTouched=true; };
+      $('#cap').oninput=()=>{ capTouched=true; saveShare(); };
       $('#toGuide').onclick=()=>guideSheet(t, {from:o.from, to:o.to});
       $('#toWrap').onclick=()=>{ closeSheet(); openWrapped(t); };
       $('#toPoster').onclick=()=>{ closeSheet(); openPoster(t); };
@@ -4095,7 +4103,7 @@ const WORLD = __WORLD__;
         $('#edPhotos').querySelectorAll('[data-rot]').forEach(b=>b.onclick=()=>{ const f=fx(b.dataset.rot); f.rot=((f.rot||0)+90)%360; drawPhotoEd(); later(); });
         $('#edPhotos').querySelectorAll('[data-fx]').forEach(c=>c.onchange=()=>{ fx(c.dataset.fx).fx=c.value; drawPhotoEd(); later(); });
         $('#edPhotos').querySelectorAll('[data-focus]').forEach(c=>c.onchange=()=>{ fx(c.dataset.focus).focus=c.value; drawPhotoEd(); later(); }); }
-      function changed(){ dropVideo(); restoreImage(); edLater(); }
+      function changed(){ dropVideo(); restoreImage(); edLater(); saveShare(); }
       function restoreImage(){ if(canvas&&!$('#cardBox img')) $('#cardBox').innerHTML='<img class="share-preview" style="max-height:46vh;width:auto;max-width:100%" alt="Share image preview" src="'+canvas.toDataURL('image/jpeg',.85)+'">'; }
       if(ed){
         ed.addEventListener('toggle',()=>{ if(ed.open) drawScenes(); });
@@ -4133,7 +4141,13 @@ const WORLD = __WORLD__;
         try{ await downloads.save({filename:vidName(), data:vidBlob}); toast('Saved'); }
         catch(e){ if(e&&e.code!=='declined') $('#shareHint').textContent='Couldn\'t save the video.'; }
         finally{ sv.disabled=false; } };
+      // put back what was chosen last time for these days
+      $('#shShow').querySelectorAll('[data-show]').forEach(b=>b.classList.toggle('on',!!o[b.dataset.show]));
+      $('#shPriv').querySelectorAll('[data-priv]').forEach(b=>b.classList.toggle('on',!!o.priv[b.dataset.priv]));
+      if(ed){ ed.querySelectorAll('[data-pace]').forEach(b=>b.classList.toggle('on',+b.dataset.pace===+(o.edit.pace||1))); drawMusic();
+        const vs=$('#edVol'); if(vs){ vs.value=String(Math.round(music.vol*100)); const vv=$('#edVolV'); if(vv) vv.textContent=vs.value+'%'; } }
       sync();
+      if(saved){ if(titleTouched) $('#shTitle').value=o.title; if(capTouched&&saved.cap) $('#cap').value=saved.cap; }
     });
   }
 
