@@ -1413,6 +1413,31 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
   }
 
   // rec: a drive recorded with a GPS app ({track, km, durationS, date, time, from, to}), from gpxDrive or the form's own file button
+  // ---------- time zones: leg times are each city's own clock (depart in Bordeaux time, land in Montreal time) ----------
+  const COUNTRY_TZ={FR:'Europe/Paris',ES:'Europe/Madrid',PT:'Europe/Lisbon',GB:'Europe/London',IE:'Europe/Dublin',IT:'Europe/Rome',DE:'Europe/Berlin',NL:'Europe/Amsterdam',BE:'Europe/Brussels',LU:'Europe/Luxembourg',CH:'Europe/Zurich',AT:'Europe/Vienna',
+    MC:'Europe/Monaco',AD:'Europe/Andorra',GR:'Europe/Athens',CY:'Asia/Nicosia',MT:'Europe/Malta',DK:'Europe/Copenhagen',SE:'Europe/Stockholm',NO:'Europe/Oslo',FI:'Europe/Helsinki',IS:'Atlantic/Reykjavik',PL:'Europe/Warsaw',CZ:'Europe/Prague',SK:'Europe/Bratislava',
+    HU:'Europe/Budapest',SI:'Europe/Ljubljana',HR:'Europe/Zagreb',RS:'Europe/Belgrade',RO:'Europe/Bucharest',BG:'Europe/Sofia',EE:'Europe/Tallinn',LV:'Europe/Riga',LT:'Europe/Vilnius',UA:'Europe/Kyiv',TR:'Europe/Istanbul',MA:'Africa/Casablanca',TN:'Africa/Tunis',
+    EG:'Africa/Cairo',ZA:'Africa/Johannesburg',KE:'Africa/Nairobi',IL:'Asia/Jerusalem',JO:'Asia/Amman',AE:'Asia/Dubai',QA:'Asia/Qatar',IN:'Asia/Kolkata',LK:'Asia/Colombo',NP:'Asia/Kathmandu',TH:'Asia/Bangkok',VN:'Asia/Ho_Chi_Minh',KH:'Asia/Phnom_Penh',
+    MY:'Asia/Kuala_Lumpur',SG:'Asia/Singapore',PH:'Asia/Manila',CN:'Asia/Shanghai',HK:'Asia/Hong_Kong',TW:'Asia/Taipei',KR:'Asia/Seoul',JP:'Asia/Tokyo',NZ:'Pacific/Auckland',CO:'America/Bogota',PE:'America/Lima',CR:'America/Costa_Rica',PA:'America/Panama',
+    CU:'America/Havana',DO:'America/Santo_Domingo',JM:'America/Jamaica',PR:'America/Puerto_Rico',GT:'America/Guatemala',BZ:'America/Belize',AR:'America/Argentina/Buenos_Aires',UY:'America/Montevideo',CL:'America/Santiago',BS:'America/Nassau'};
+  // countries with several zones: a stop's own tz (asked of Claude once, kept on the stop) wins; until then a guess from the longitude
+  const lonTz=(a2,lon)=>{ if(a2==='US') return lon<-150?'Pacific/Honolulu':lon<-130?'America/Anchorage':lon<-114.5?'America/Los_Angeles':lon<-101?'America/Denver':lon<-86?'America/Chicago':'America/New_York';
+    if(a2==='CA') return lon<-120?'America/Vancouver':lon<-110?'America/Edmonton':lon<-90?'America/Winnipeg':lon<-64?'America/Toronto':lon<-57?'America/Halifax':'America/St_Johns';
+    if(a2==='MX') return lon<-114?'America/Tijuana':lon<-105?'America/Mazatlan':lon<-88.5?'America/Mexico_City':'America/Cancun';
+    if(a2==='BR') return lon<-60?'America/Manaus':'America/Sao_Paulo'; if(a2==='AU') return lon<129?'Australia/Perth':lon<141?'Australia/Adelaide':'Australia/Sydney'; return null; };
+  const stopTz=s=>s?(s.tz||COUNTRY_TZ[s.countryA2]||lonTz(s.countryA2,+s.lon)):null;
+  let tzAsking=false;
+  async function ensureTz(stops){ const need=stops.filter(s=>s&&!s.tz&&!COUNTRY_TZ[s.countryA2]&&s.lat!=null); if(!need.length||tzAsking||!sample) return; tzAsking=true;
+    try{ const r=await sample.json('Give the IANA time zone of each place. Reply with only a JSON array of strings in the same order (e.g. ["America/Toronto"]). Places: '+JSON.stringify(need.map(s=>s.city+', '+(s.country||'')+' ('+(+s.lat).toFixed(2)+','+(+s.lon).toFixed(2)+')')));
+      if(Array.isArray(r)) for(let i=0;i<need.length;i++){ const z=String(r[i]||''); try{ new Intl.DateTimeFormat('en',{timeZone:z}); }catch(e){ continue; }
+        for(const x of S.stops.filter(y=>cityKey(y.city)===cityKey(need[i].city))) await patch('stops', x.id, {tz:z}); } }
+    catch(e){} tzAsking=false; }
+  // minutes east of UTC for a zone at a UTC instant; local wall time (date + HH:MM) in a zone → UTC ms
+  function tzOffset(tz, ms){ const p={}; new Intl.DateTimeFormat('en-US',{timeZone:tz,hourCycle:'h23',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}).formatToParts(new Date(ms)).forEach(x=>p[x.type]=x.value);
+    return (Date.UTC(+p.year,+p.month-1,+p.day,+p.hour%24,+p.minute)-Math.floor(ms/60000)*60000)/60000; }
+  function localToUtc(tz, date, hm){ const g=Date.parse(date+'T'+hm+':00Z'); if(!tz) return g; const o1=tzOffset(tz,g), u=g-o1*60000, o2=tzOffset(tz,u); return g-o2*60000; }
+  function utcToLocalHM(tz, ms){ const o=tz?tzOffset(tz,ms):0, d=new Date(ms+o*60000); return pad2(d.getUTCHours())+':'+pad2(d.getUTCMinutes()); }
+  function utcToLocalDate(tz, ms){ const o=tz?tzOffset(tz,ms):0; return new Date(ms+o*60000).toISOString().slice(0,10); }
   function legSheet(trip, l, rec){
     const a=l?stopOf(l.fromId):null, b=l?stopOf(l.toId):null;
     // a new leg defaults to today during the trip (not the date of the trip's last leg, often the flight home),
@@ -1430,8 +1455,9 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
       + '<div class="grid2"><div class="field"><label for="lFrom">From</label><input id="lFrom" list="kc" value="'+esc(defaultFrom)+'" placeholder="City"></div><div class="field"><label for="lTo">To</label><input id="lTo" list="kc" value="'+esc(b?b.city:(rec&&rec.to)||'')+'" placeholder="City"></div></div>'
       + '<datalist id="kc">'+known.map(c=>'<option value="'+esc(c)+'">').join('')+'</datalist>'
       + '<div class="field"><label for="lDate">Date</label><input id="lDate" type="date" value="'+esc(l?l.date:dDate)+'"></div>'
-      + '<div class="grid2"><div class="field"><label for="lTime">Departs (optional)</label><input id="lTime" type="time" value="'+esc(rec&&rec.time?rec.time:l?hhmm(l):'')+'"></div>'
-      + '<div class="field"><label for="lArr">Arrives (optional)</label><input id="lArr" type="time" value="'+esc(rec&&rec.time&&rec.durationS?addHM(rec.time,rec.durationS):l?(l.arrTime||(hhmm(l)&&l.durationS?addHM(hhmm(l),l.durationS):'')):'')+'"></div></div>'
+      + '<div class="grid2"><div class="field"><label for="lTime" id="lTimeL">Departs (optional)</label><input id="lTime" type="time" value="'+esc(rec&&rec.time?rec.time:l?hhmm(l):'')+'"></div>'
+      + '<div class="field"><label for="lArr" id="lArrL">Arrives (optional)</label><input id="lArr" type="time" value="'+esc(rec&&rec.time&&rec.durationS?addHM(rec.time,rec.durationS):l?(l.arrTime||(hhmm(l)&&l.durationS?addHM(hhmm(l),l.durationS):'')):'')+'"></div></div>'
+      + '<div class="field"><label for="lDur">Time on the way (h:mm, optional)</label><input id="lDur" inputmode="numeric" placeholder="e.g. 7:40 — the arrival time fills itself" value="'+(l&&l.durationS?Math.floor(l.durationS/3600)+':'+pad2(Math.round(l.durationS%3600/60)):rec&&rec.durationS?Math.floor(rec.durationS/3600)+':'+pad2(Math.round(rec.durationS%3600/60)):'')+'"></div>'
       + '<div class="hint" id="lDurH"></div>'
       + '<div class="field"><label for="lKm">Distance km (optional)</label><input id="lKm" inputmode="numeric" value="'+esc(rec&&rec.km?rec.km:l&&!l.kmEstimated?l.km:'')+'" placeholder="'+(l&&l.kmEstimated?'≈'+fmtKm(l.km):'Auto')+'"></div>'
       + '<div class="grid3"><div class="field"><label for="lCost">Cost (optional)</label><input id="lCost" inputmode="decimal" value="'+esc(l&&l.cost?l.cost:'')+'"></div><div class="field"><label for="lCur">Currency</label>'+curSelect('lCur', l?l.currency:trip.currency)+'</div></div>'
@@ -1445,9 +1471,26 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
       $('#modes').querySelectorAll('[data-mode]').forEach(btn=>btn.onclick=()=>{ mode=btn.dataset.mode; $('#modes').querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===btn)); });
       $('#lCost').addEventListener('input',()=>{ $('#lPaidF').hidden=!(parseFloat(val('lCost').replace(',','.'))>0); });
       // how long it took, from the two times (an arrival "earlier" than the departure is the next day)
-      const legMins=()=>{ const a=val('lTime'), b=val('lArr'); if(!a||!b) return null; let m=(+b.slice(0,2)*60+ +b.slice(3))-(+a.slice(0,2)*60+ +a.slice(3)); if(m<0) m+=1440; return m; };
-      const showDur=()=>{ const m=legMins(), h=$('#lDurH'); h.textContent=m!=null?'⏱ '+fmtDur(m*60)+' on the way':(rec&&rec.durationS?'⏱ '+fmtDur(rec.durationS)+' recorded':''); };
-      ['lTime','lArr'].forEach(id=>$('#'+id).addEventListener('input',showDur)); showDur();
+      // each time is that city's own clock: the duration comes from the two time zones (Bordeaux 9:27 → Montreal 11:05 is 7h38),
+      // and typing a duration fills the local arrival instead
+      const stopNamed=n=>{ n=String(n||'').trim(); if(!n) return null; const own=tripStops(trip.id).find(s=>sameCity(s.city,n)); return own||S.stops.find(s=>sameCity(s.city,n))||null; };
+      const zones=()=>{ const a=stopNamed(val('lFrom')), b=stopNamed(val('lTo')); return {a, b, za:stopTz(a), zb:stopTz(b)}; };
+      const parseDur=v=>{ const m=String(v||'').trim().match(/^(\d+)(?:[:h.](\d{1,2}))?$/); return m?(m[2]!=null?(+m[1])*60+(+m[2]):(+m[1])*60):null; };
+      const legMins=()=>{ const a=val('lTime'), b=val('lArr'), d=val('lDate')||todayStr(); if(!a||!b) return parseDur(val('lDur'));
+        const {za,zb}=zones(); let m=Math.round((localToUtc(zb,d,b)-localToUtc(za,d,a))/60000); while(m<=0) m+=1440; return m; };
+      let durTyped=false;
+      const showDur=()=>{ const {a,b,za,zb}=zones(), h=$('#lDurH'), d=val('lDate')||todayStr(), dep=val('lTime');
+        $('#lTimeL').textContent='Departs'+(a?' · '+a.city+' time':'')+' (optional)'; $('#lArrL').textContent='Arrives'+(b?' · '+b.city+' time':'')+' (optional)';
+        const m=legMins(); if(m!=null&&!durTyped&&val('lTime')&&val('lArr')) $('#lDur').value=Math.floor(m/60)+':'+pad2(m%60);
+        let diff=''; if(za&&zb&&za!==zb){ const t0=localToUtc(za,d,dep||'12:00'), dh=(tzOffset(za,t0)-tzOffset(zb,t0))/60; if(dh) diff=(a?a.city:'')+' is '+Math.abs(dh)+' h '+(dh>0?'ahead of ':'behind ')+(b?b.city:''); }
+        let next=''; if(m!=null&&dep){ const land=localToUtc(za,d,dep)+m*60000, ld=utcToLocalDate(zb,land); if(ld>d) next=' · lands the next day'; }
+        h.textContent=m!=null?'⏱ '+fmtDur(m*60)+' on the way'+next+(diff?' · '+diff:''):(rec&&rec.durationS?'⏱ '+fmtDur(rec.durationS)+' recorded':(diff?'🕐 '+diff+': enter each time on its own city\'s clock':'')); };
+      // a duration typed with a departure fills the local arrival
+      $('#lDur').addEventListener('input',()=>{ durTyped=true; const m=parseDur(val('lDur')), dep=val('lTime'); if(m!=null&&dep){ const {za,zb}=zones(), d=val('lDate')||todayStr(); $('#lArr').value=utcToLocalHM(zb, localToUtc(za,d,dep)+m*60000); } showDur(); });
+      $('#lArr').addEventListener('input',()=>{ durTyped=false; showDur(); });
+      $('#lTime').addEventListener('input',()=>{ const m=parseDur(val('lDur')); if(durTyped&&m!=null&&val('lTime')){ const {za,zb}=zones(), d=val('lDate')||todayStr(); $('#lArr').value=utcToLocalHM(zb, localToUtc(za,d,val('lTime'))+m*60000); } showDur(); });
+      ['lFrom','lTo','lDate'].forEach(id=>$('#'+id).addEventListener('change',()=>{ showDur(); const z=zones(); ensureTz([z.a,z.b]).then(showDur); }));
+      showDur(); { const z=zones(); ensureTz([z.a,z.b]).then(()=>{ if(form.isConnected) showDur(); }); }
       const bindNoTrk=()=>{ const x=$('#lNoTrk'); if(x) x.onclick=()=>{ dropTrack=true; $('#lRec').textContent='Recorded route will be removed'; }; }; bindNoTrk();
       const gf=$('#lGpx'); gf.onchange=async()=>{ const f=gf.files&&gf.files[0]; gf.value=''; if(!f) return;
         try{ const r=await readDrive(trip, f); rec=r; dropTrack=false;
