@@ -246,6 +246,8 @@
   .lb-bar .btn.danger{color:#FF9A85;border-color:#FF9A85;background:transparent;}
   .ph-ed{position:relative;flex-shrink:0;}
   .ph-ed img{cursor:pointer;}
+  .ph-ed.sel img{outline:3px solid var(--accent);outline-offset:2px;}
+  .ph-move{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px;}
   .ph-x{position:absolute;top:4px;right:4px;width:24px;height:24px;border-radius:999px;border:none;background:rgba(0,0,0,.65);color:#fff;font-size:12px;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;}
   .ph-cover{position:absolute;left:4px;bottom:4px;background:var(--accent);color:var(--accent-ink);font-size:10.5px;font-weight:700;padding:1px 6px;border-radius:5px;}
   .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(84px + env(safe-area-inset-bottom,0px));z-index:70;background:var(--ink);color:var(--bg);padding:9px 14px;border-radius:10px;font-size:14px;font-weight:600;box-shadow:var(--shadow);}
@@ -3413,12 +3415,24 @@ const WORLD = __WORLD__;
     draw();
   }
   // Photo strip inside a form: tap = make cover, ✕ = remove. Works on the form's own copy of the ids.
+  // a form's photos: tap one to select it, then move it left/right or make it the cover (first); ✕ removes
   function photoEditor(el, get, set, onChange){
-    const draw=()=>{ const ids=get();
-      el.innerHTML=ids.map((id,n)=>'<span class="ph-ed"><img alt="'+(n?'':'Cover photo')+'" src="/_blob/'+id+'" data-cov="'+id+'">'+(n===0&&ids.length>1?'<b class="ph-cover">Cover</b>':'')
+    let sel=null;
+    const draw=()=>{ const ids=get(); if(sel&&!ids.includes(sel)) sel=null; const i=sel?ids.indexOf(sel):-1;
+      el.innerHTML=ids.map((id,n)=>'<span class="ph-ed'+(id===sel?' sel':'')+'"><img alt="'+(n?'Photo '+(n+1):'Cover photo')+'" src="/_blob/'+id+'" data-cov="'+id+'">'+(n===0&&ids.length>1?'<b class="ph-cover">Cover</b>':'')
         + '<button type="button" class="ph-x" data-rm="'+id+'" aria-label="Remove photo">✕</button></span>').join('');
+      let bar=el.nextElementSibling&&el.nextElementSibling.classList.contains('ph-move')?el.nextElementSibling:null;
+      if(ids.length>1){ if(!bar){ bar=document.createElement('div'); bar.className='ph-move'; el.after(bar); }
+        bar.innerHTML=sel?'<button type="button" class="btn small" data-mv="-1"'+(i<=0?' disabled':'')+'>◀ Move left</button><button type="button" class="btn small" data-mv="1"'+(i>=ids.length-1?' disabled':'')+'>Move right ▶</button>'
+          +(i>0?'<button type="button" class="btn small" data-mv="cover">★ Make cover</button>':'')+'<button type="button" class="btn small ghost" data-mv="done">Done</button>'
+          :'<span class="faint" style="font-size:13px">Tap a photo to move it or make it the cover.</span>';
+        bar.querySelectorAll('[data-mv]').forEach(b=>b.onclick=()=>{ const v=b.dataset.mv, cur=get().slice(), k=cur.indexOf(sel);
+          if(v==='done'){ sel=null; draw(); return; }
+          if(v==='cover'){ cur.splice(k,1); cur.unshift(sel); } else { const j=k+(+v); if(j<0||j>=cur.length) return; [cur[k],cur[j]]=[cur[j],cur[k]]; }
+          set(cur); draw(); onChange&&onChange(); }); }
+      else if(bar) bar.remove();
       el.querySelectorAll('[data-rm]').forEach(b=>b.onclick=()=>{ set(get().filter(x=>x!==b.dataset.rm)); draw(); onChange&&onChange(); });
-      el.querySelectorAll('[data-cov]').forEach(im=>im.onclick=()=>{ const id=im.dataset.cov; set([id].concat(get().filter(x=>x!==id))); draw(); onChange&&onChange(); });
+      el.querySelectorAll('[data-cov]').forEach(im=>im.onclick=()=>{ sel=sel===im.dataset.cov?null:im.dataset.cov; draw(); });
     };
     draw(); return draw;
   }
