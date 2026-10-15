@@ -207,6 +207,10 @@
   .poster-img{max-width:100%;max-height:calc(100% - 110px);width:auto;height:auto;border-radius:6px;box-shadow:0 10px 30px rgba(0,0,0,.5);}
   .wr-hint{color:rgba(255,255,255,.5);font-size:12px;}
   .wr-btns{display:flex;gap:8px;} .wr-btns .btn.ghost{color:#fff;}
+  .sh-acts{display:flex;flex-direction:column;gap:8px;}
+  .sh-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;} .sh-row .btn{width:100%;justify-content:center;} .sh-row [hidden]{display:none;}
+  .sh-vid{position:relative;overflow:hidden;width:100%;height:50px;white-space:nowrap;justify-content:center;font-size:16px;}
+  .sh-vid span{position:relative;} .sh-prog{position:absolute;left:0;top:0;bottom:0;width:0;background:var(--accent);opacity:.22;transition:width .25s linear;pointer-events:none;}
   .kb-done{position:fixed;top:10px;right:12px;z-index:60;border:0;border-radius:999px;padding:9px 16px;font-weight:700;font-size:15px;background:var(--ink);color:var(--surface);box-shadow:var(--shadow);cursor:pointer;}
   .sheet.kb-open{padding-bottom:min(55vh,420px);}
   .backdrop{position:fixed;inset:0;z-index:50;background:rgba(10,15,20,.55);display:flex;align-items:flex-end;justify-content:center;}
@@ -3963,18 +3967,21 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
         + '<div class="field"><label>Scenes <span style="text-transform:none;letter-spacing:0;font-weight:500">(untick to cut, or make one longer)</span></label><div id="edScenes" class="faint">…</div></div>'
         + '<div class="field" id="edPhF"><label>Photo edits <span style="text-transform:none;letter-spacing:0;font-weight:500">(only on what you share; your photos stay as they are)</span></label><div id="edPhotos"></div></div>'
         + '</div></details>':'')
-      + '<div class="field"><label for="cap">Caption</label><textarea id="cap"></textarea></div>'
-      + '<div class="row">'+(canShare?'<button class="btn primary" type="button" id="shareNow" disabled>'+ICON.share+' Share…</button>':'')
-      + '<button class="btn primary" type="button" id="saveVid" hidden>Save video</button>'
+      + '<div class="field"><div class="between"><label for="cap">Caption</label><button class="btn small ghost" type="button" id="copyCap">Copy</button></div><textarea id="cap"></textarea></div>'
+      // one fixed-size video button (its own progress bar) above two fixed slots: share + save (image or video), so nothing jumps
+      + '<div class="sh-acts">'+(videoType()!==null?'<button class="btn sh-vid" type="button" id="mkVid"><i class="sh-prog"></i><span id="mkVidT">🎬 Create video</span></button>':'')
+      + '<div class="sh-row">'+(canShare?'<button class="btn primary" type="button" id="shareNow" disabled>'+ICON.share+' <span id="shareNowT">Share…</span></button>':'')
       + '<button class="btn'+(canShare?'':' primary')+'" type="button" id="saveImg" disabled>Save image</button>'
-      + (videoType()!==null?'<button class="btn" type="button" id="mkVid">🎬 Video</button>':'')
-      + '<button class="btn" type="button" id="copyCap">Copy caption</button><button class="btn" type="button" id="xCancel">Close</button></div>'
+      + '<button class="btn'+(canShare?'':' primary')+'" type="button" id="saveVid" hidden>Save video</button></div>'
+      + '<button class="btn small ghost" type="button" id="xCancel" style="align-self:center">Close</button></div>'
       + '<div class="hint" id="shareHint"></div>',
     ()=>{
       $('#xCancel').onclick=closeSheet;
       const sheet=$('#sheet');
       let vidBlob=null, vidTok=0, vidUrl=null;
-      const dropVideo=()=>{ vidTok++; vidBlob=null; if(vidUrl){ URL.revokeObjectURL(vidUrl); vidUrl=null; } $('#saveVid').hidden=true; const m=$('#mkVid'); if(m){ m.disabled=false; m.textContent='🎬 Video'; } };
+      const mkSet=(txt, pct)=>{ const tx=$('#mkVidT'), pr=$('#mkVid .sh-prog'); if(tx) tx.textContent=txt; if(pr) pr.style.width=(pct==null?0:pct)+'%'; };
+      const showVidBtns=on=>{ $('#saveVid').hidden=!on||!downloads; $('#saveImg').hidden=on||!downloads; const st=$('#shareNowT'); if(st) st.textContent=on?'Share video…':'Share…'; };
+      const dropVideo=()=>{ vidTok++; vidBlob=null; if(vidUrl){ URL.revokeObjectURL(vidUrl); vidUrl=null; } showVidBtns(false); const m=$('#mkVid'); if(m){ m.disabled=false; mkSet('🎬 Create video'); } };
       const redraw=async()=>{ const tok=++drawTok; dropVideo(); const cv=await makeCard(t, o); if(tok!==drawTok||!sheet.isConnected) return; canvas=cv;
         $('#cardBox').innerHTML='<img class="share-preview" style="max-height:46vh;width:auto;max-width:100%" alt="Share image preview" src="'+cv.toDataURL('image/jpeg',.85)+'">';
         const s=$('#shareNow'); if(s) s.disabled=false; const b=$('#saveImg'); if(b) b.disabled=!downloads; };
@@ -4039,22 +4046,22 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
       const mk=$('#mkVid');
       // while it builds, the same button stops it and goes back to the image
       if(mk) mk.onclick=async()=>{ if(mk.dataset.rec){ delete mk.dataset.rec; $('#shareHint').textContent='Video stopped.'; redraw(); return; }
-        dropVideo(); stopListen(); const tok=vidTok; mk.dataset.rec='1'; mk.textContent='■ Stop'; $('#shareHint').textContent='';
+        dropVideo(); stopListen(); const tok=vidTok; mk.dataset.rec='1'; mkSet('■ Stop · Creating video…', 0); $('#shareHint').textContent='';
         const alive=()=>tok===vidTok&&sheet.isConnected;
         // the audio context has to start inside the tap
         let actx=null; if(music.kind!=='none'){ playbackSession(); try{ actx=new (window.AudioContext||window.webkitAudioContext)(); actx.resume(); }catch(e){ actx=null; } }
         try{
           const plan=await routeVideoPlan(t, JSON.parse(JSON.stringify(o))); if(!alive()) return;
           let audio=null;
-          if(actx){ mk.textContent='Making music…'; const buf=music.kind==='file'?music.buf:await makeTune(music.kind, plan.T+2); if(!alive()) return;
+          if(actx){ mkSet('■ Stop · Making the music…', 0); const buf=music.kind==='file'?music.buf:await makeTune(music.kind, plan.T+2); if(!alive()) return;
             if(buf) audio={ctx:actx, buf, start:music.kind==='file'?music.start:0, vol:music.vol, fade:music.fade}; }
           const cv=document.createElement('canvas'); cv.className='share-preview'; cv.style.cssText='max-height:46vh;width:auto;max-width:100%';
           $('#cardBox').innerHTML=''; $('#cardBox').appendChild(cv);
-          const vb=await recordRouteVideo(plan, cv, tau=>{ if(alive()) mk.textContent='■ Stop · '+Math.min(100,Math.round(tau/plan.T*100))+'%'; }, alive, audio);
+          const vb=await recordRouteVideo(plan, cv, tau=>{ if(alive()){ const pc=Math.min(100,Math.round(tau/plan.T*100)); mkSet('■ Stop · Creating video '+pc+'%', pc); } }, alive, audio);
           if(!vb||!alive()) return;
           vidBlob=vb; vidUrl=URL.createObjectURL(vb);
           $('#cardBox').innerHTML='<video class="share-preview" style="max-height:46vh;width:auto;max-width:100%" src="'+vidUrl+'" controls playsinline muted loop autoplay></video>';
-          $('#saveVid').hidden=!downloads; mk.textContent='🎬 Again';
+          showVidBtns(true); mkSet('🎬 Create it again');
           $('#shareHint').textContent=Math.round(plan.T)+' s video'+(audio?' with music (unmute the player to hear it)':'')+(/mp4/.test(vb.type)?'':' (WebM)')+'. Change any option to go back to the image.';
         }catch(e){ if(alive()) $('#shareHint').textContent='Couldn\'t record a video here: '+((e&&e.message)||e); }
         finally{ if(tok===vidTok){ delete mk.dataset.rec; mk.disabled=false; } if(actx) actx.close().catch(()=>{}); } };
