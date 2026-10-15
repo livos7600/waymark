@@ -435,6 +435,32 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
   const esc = s => String(s==null?'':s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const now = () => new Date().toISOString();
   const pad2 = n => String(n).padStart(2,'0');
+  // run/walk times typed on a phone (iPhone number pads have no ":"): 55:16, 55.16, 55,16 or 5516 = 55 min 16 s; 1:05:30 or 10530 = 1 h 05 min 30 s;
+  // 1h05 = 1 h 05; a 2-part time under 6 is h:mm (2:30 hike), else mm:ss; up to 3 digits alone = minutes. Returns seconds or null.
+  const sportSecs=v=>{ const x=String(v||'').trim().toLowerCase().replace(/\s+/g,''); if(!x) return null; let m;
+    if((m=x.match(/^(\d+)h(\d{1,2})?(?:m(?:in)?)?(?:(\d{1,2})s?)?$/))) return (+m[1])*3600+(+(m[2]||0))*60+(+(m[3]||0));
+    if((m=x.match(/^(\d+)(?:m|min)(?:(\d{1,2})s?)?$/))) return (+m[1])*60+(+(m[2]||0));
+    if((m=x.match(/^(\d+)[:.,'](\d{1,2})[:.,'](\d{1,2})$/))) return (+m[1])*3600+(+m[2])*60+(+m[3]);
+    if((m=x.match(/^(\d+)[:.,'](\d{1,2})$/))) return +m[1]<6?(+m[1])*3600+(+m[2])*60:(+m[1])*60+(+m[2]);
+    if(/^\d{1,3}$/.test(x)) return (+x)*60;
+    if(/^\d{4}$/.test(x)) return (+x.slice(0,2))*60+(+x.slice(2));
+    if(/^\d{5,6}$/.test(x)) return (+x.slice(0,-4))*3600+(+x.slice(-4,-2))*60+(+x.slice(-2));
+    return null; };
+  // shown back the way sportSecs reads it: 55:16, 1:05:30, 0:05:30 (a short one can't look like h:mm)
+  const sportClock=sec=>{ if(!sec) return ''; sec=Math.round(sec); const h=Math.floor(sec/3600), m=Math.floor(sec%3600/60), s=sec%60;
+    return h||m<6?h+':'+pad2(m)+':'+pad2(s):m+':'+pad2(s); };
+  const sportSay=sec=>{ if(!sec) return ''; sec=Math.round(sec); const h=Math.floor(sec/3600), m=Math.floor(sec%3600/60), s=sec%60;
+    return [h?h+' h':'', m?m+' min':'', s?s+' s':''].filter(Boolean).join(' '); };
+  // a leg's time on the way: 7:40, 7.40, 7h40 or 740 = 7 h 40; up to 2 digits alone = minutes. Returns minutes or null.
+  const legDur=v=>{ const x=String(v||'').trim().toLowerCase().replace(/\s+/g,''); let m;
+    if((m=x.match(/^(\d+)[:h.,](\d{1,2})?(?:m(?:in)?)?$/))) return (+m[1])*60+(+(m[2]||0));
+    if((m=x.match(/^(\d+)(?:m|min)$/))) return +m[1];
+    if(/^\d{1,2}$/.test(x)) return +x;
+    if(/^\d{3,4}$/.test(x)) return (+x.slice(0,-2))*60+(+x.slice(-2));
+    return null; };
+  // the time box keyboard: text with ":" (iPhone's number pad has none); a typed time is rewritten as it was understood when you leave the box
+  function bindClock(inp, hintEl){ const show=()=>{ const v=sportSecs(inp.value); if(hintEl) hintEl.textContent=inp.value.trim()?(v?'= '+sportSay(v):'⚠️ Type it like 55:16 or 1:05:30'):''; };
+    inp.addEventListener('input', show); inp.addEventListener('change',()=>{ const v=sportSecs(inp.value); if(v) inp.value=sportClock(v); show(); }); show(); }
   const nowHM = () => { const d=new Date(); return pad2(d.getHours())+':'+pad2(d.getMinutes()); };
   const hhmm = x => (x&&/^\d\d:\d\d/.test(x.time||''))?x.time.slice(0,5):'';
   const todayStr = () => { const d=new Date(); return d.getFullYear()+'-'+pad2(d.getMonth()+1)+'-'+pad2(d.getDate()); };
@@ -1461,7 +1487,7 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
       + '<div class="field"><label for="lDate">Date</label><input id="lDate" type="date" value="'+esc(l?l.date:dDate)+'"></div>'
       + '<div class="grid2"><div class="field"><label for="lTime" id="lTimeL">Departs (optional)</label><input id="lTime" type="time" value="'+esc(rec&&rec.time?rec.time:l?hhmm(l):'')+'"></div>'
       + '<div class="field"><label for="lArr" id="lArrL">Arrives (optional)</label><input id="lArr" type="time" value="'+esc(rec&&rec.time&&rec.durationS?addHM(rec.time,rec.durationS):l?(l.arrTime||(hhmm(l)&&l.durationS?addHM(hhmm(l),l.durationS):'')):'')+'"></div></div>'
-      + '<div class="field"><label for="lDur">Time on the way (h:mm, optional)</label><input id="lDur" inputmode="numeric" placeholder="e.g. 7:40 — the arrival time fills itself" value="'+(l&&l.durationS?Math.floor(l.durationS/3600)+':'+pad2(Math.round(l.durationS%3600/60)):rec&&rec.durationS?Math.floor(rec.durationS/3600)+':'+pad2(Math.round(rec.durationS%3600/60)):'')+'"></div>'
+      + '<div class="field"><label for="lDur">Time on the way (h:mm, optional)</label><input id="lDur" autocomplete="off" autocorrect="off" spellcheck="false" placeholder="e.g. 7:40 — the arrival time fills itself" value="'+(l&&l.durationS?Math.floor(l.durationS/3600)+':'+pad2(Math.round(l.durationS%3600/60)):rec&&rec.durationS?Math.floor(rec.durationS/3600)+':'+pad2(Math.round(rec.durationS%3600/60)):'')+'"></div>'
       + '<div class="hint" id="lDurH"></div>'
       + '<div class="field"><label for="lKm">Distance km (optional)</label><input id="lKm" inputmode="numeric" value="'+esc(rec&&rec.km?rec.km:l&&!l.kmEstimated?l.km:'')+'" placeholder="'+(l&&l.kmEstimated?'≈'+fmtKm(l.km):'Auto')+'"></div>'
       + '<div class="grid3"><div class="field"><label for="lCost">Cost (optional)</label><input id="lCost" inputmode="decimal" value="'+esc(l&&l.cost?l.cost:'')+'"></div><div class="field"><label for="lCur">Currency</label>'+curSelect('lCur', l?l.currency:trip.currency)+'</div></div>'
@@ -1480,7 +1506,7 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
       // and typing a duration fills the local arrival instead
       const stopNamed=n=>{ n=String(n||'').trim(); if(!n) return null; const own=tripStops(trip.id).find(s=>sameCity(s.city,n)); return own||S.stops.find(s=>sameCity(s.city,n))||null; };
       const zones=()=>{ const a=stopNamed(val('lFrom')), b=stopNamed(val('lTo')); return {a, b, za:stopTz(a), zb:stopTz(b)}; };
-      const parseDur=v=>{ const m=String(v||'').trim().match(/^(\d+)(?:[:h.](\d{1,2}))?$/); return m?(m[2]!=null?(+m[1])*60+(+m[2]):(+m[1])*60):null; };
+      const parseDur=legDur;
       const legMins=()=>{ const a=val('lTime'), b=val('lArr'), d=val('lDate')||todayStr(); if(!a||!b) return parseDur(val('lDur'));
         const {za,zb}=zones(); let m=Math.round((localToUtc(zb,d,b)-localToUtc(za,d,a))/60000); while(m<=0) m+=1440; return m; };
       let durTyped=false;
@@ -1615,7 +1641,7 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
       + '<div class="field"><label>Rating</label><div class="rating" id="rating">'+[1,2,3,4,5].map(i=>'<button type="button" data-r="'+i+'" aria-label="'+i+' stars" class="'+(i<=rating?'on':'')+'">★</button>').join('')+'</div></div>'
       + (()=>{ const x=p||(pre&&pre.extra)||{}, sp=SPORTS.has(p?p.category:(pre&&pre.category)||'');
           return '<div class="grid2" id="pSportF"'+(sp?'':' hidden')+'><div class="field"><label for="pKm">Distance km</label><input id="pKm" inputmode="decimal" placeholder="e.g. 8.4" value="'+(x.distanceKm?esc(x.distanceKm):'')+'"></div>'
-            + '<div class="field"><label for="pDur">Time (h:mm)</label><input id="pDur" inputmode="numeric" placeholder="e.g. 0:45" value="'+(x.movingS?Math.floor(x.movingS/3600)+':'+pad2(Math.round(x.movingS%3600/60)):'')+'"></div></div>'
+            + '<div class="field"><label for="pDur">Time</label><input id="pDur" autocomplete="off" autocorrect="off" spellcheck="false" placeholder="e.g. 55:16 or 1:05:30" value="'+sportClock(x.movingS)+'"><div class="faint" id="pDurH"></div></div></div>'
             + '<div class="field" id="pViaF"'+(sp?'':' hidden')+'><label for="pVia">Through (towns along the way)</label><input id="pVia" autocomplete="off" placeholder="e.g. Capbreton, Hossegor, Seignosse" value="'+esc((x.via||[]).join(', '))+'"></div>'; })()
       + '<div class="grid3"><div class="field"><label for="pCost">Price (optional)</label><input id="pCost" inputmode="decimal" value="'+esc(p&&p.cost?p.cost:'')+'"></div><div class="field"><label for="pCur">Currency</label>'+curSelect('pCur', p?p.currency:trip.currency)+'</div></div>'
       + '<div class="field" id="pPaidF"'+(p&&+p.cost?'':' hidden')+'><label for="pPaid">Paid by</label>'+'<input id="pPaid" list="pPayers" autocomplete="off" value="'+esc(p&&p.paidBy||lastPayer(trip.id))+'"><datalist id="pPayers">'+payers(trip.id).map(n=>'<option value="'+esc(n)+'">').join('')+'</datalist>'+bizBox('pBiz', trip, p, date0)+'</div>'
@@ -1715,7 +1741,7 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
         $('#pPos').textContent='📍 Pinned on the map'; });
       // a meal: time of day picks breakfast/lunch/dinner until the type is chosen by hand
       let catTouched=!!p;
-      const sportF=()=>{ const f=$('#pSportF'), v=$('#pViaF'); if(f) f.hidden=!SPORTS.has(val('pCat')); if(v) v.hidden=!SPORTS.has(val('pCat')); }; $('#pCat').addEventListener('change', sportF);
+      const sportF=()=>{ const f=$('#pSportF'), v=$('#pViaF'); if(f) f.hidden=!SPORTS.has(val('pCat')); if(v) v.hidden=!SPORTS.has(val('pCat')); }; $('#pCat').addEventListener('change', sportF); if($('#pDur')) bindClock($('#pDur'), $('#pDurH'));
       $('#pCat').onchange=()=>{ catTouched=true; $('#pTitle').textContent=(p?'Edit ':'Add ')+(isMeal(val('pCat'))?'a meal':'an activity').replace(/^a(n)? /, p?'':'$&'); };
       $('#pTime').addEventListener('change',()=>{ if(!catTouched&&isMeal(val('pCat'))&&val('pTime')) $('#pCat').value=mealFor(val('pTime'),val('pName')); });
       $('#pName').addEventListener('change',()=>{ if(!catTouched&&isMeal(val('pCat'))) $('#pCat').value=mealFor(val('pTime'),val('pName')); });
@@ -1750,9 +1776,9 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
         // a position Claude guessed for another name is stale; a photo's GPS stays
         const keep=pos&&(pos.name==null||pos.name===name);
         const loc=val('pLoc').trim();
-        const sport=SPORTS.has(val('pCat')), kmIn=parseFloat(val('pKm').replace(',','.')), dm=val('pDur').trim().match(/^(\d+)(?:[:h.](\d{1,2}))?$/);
+        const sport=SPORTS.has(val('pCat')), kmIn=parseFloat(val('pKm').replace(',','.')), dm=sportSecs(val('pDur'));
         const viaIn=val('pVia').split(/\s*(?:,|→|->|>|;)\s*/).map(x=>x.trim()).filter(Boolean);
-        const sportData=sport?{via:viaIn.length>1?viaIn:null, distanceKm:isFinite(kmIn)&&kmIn>0?Math.round(kmIn*100)/100:null, movingS:dm?(dm[2]!=null?(+dm[1])*3600+(+dm[2])*60:(+dm[1])*60):null}:{};
+        const sportData=sport?{via:viaIn.length>1?viaIn:null, distanceKm:isFinite(kmIn)&&kmIn>0?Math.round(kmIn*100)/100:null, movingS:dm||(val('pDur').trim()&&p?p.movingS||null:null)}:{};
         const data=Object.assign({}, pre&&pre.extra||{}, sportData, (opts.todo||p&&p.todo)?{todo:true}:{}, {city:wantCity}, {tripId:trip.id, stopId:st.id, name, address:loc, category:val('pCat'), date, time:val('pTime'), private:$('#pPriv').checked, status, rating, cost:isFinite(c)?c:0, paidBy:isFinite(c)&&c>0?val('pPaid').trim():'', currency:val('pCur'), notes:val('pNotes').trim(), photoIds, updatedAt:now()});
         if(keep){ data.lat=pos.lat; data.lon=pos.lon; }
         { const b=bizRead('pBiz', trip, date); if(b!==undefined) data.biz=b; }
@@ -2134,18 +2160,18 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
   // a sport's box opens its list: km and time for every run (or walk…) in one go, plus ＋ to log one that's missing
   function sportSheet(t, k){
     const label=CAT_LABEL[k]||k, xs=S.places.filter(p=>p.tripId===t.id&&p.status!=='want'&&p.category===k).sort((a,b)=>((a.date||'')+(a.time||'')).localeCompare((b.date||'')+(b.time||'')));
-    const hm=sec=>sec?Math.floor(sec/3600)+':'+pad2(Math.round(sec%3600/60)):'';
     openSheet('<h2>'+catIcon(k)+' '+label+(xs.length===1?'':'s')+'</h2><div class="hint">Type the distance and time of each one (from your watch, Strava or Health). They add up in the box on the trip page.</div>'
       + '<div style="display:flex;flex-direction:column;gap:10px">'+xs.map(p=>'<div class="card" style="padding:10px 12px;display:flex;flex-direction:column;gap:6px"><div class="between"><b style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(p.name)+'</b><span class="faint" style="flex-shrink:0">'+(p.date?fmtDate(p.date,{weekday:'short',month:'short',day:'numeric'}):'')+'</span></div>'
-        + '<div class="grid2"><input data-km="'+p.id+'" inputmode="decimal" placeholder="km" value="'+(p.distanceKm?esc(p.distanceKm):'')+'" aria-label="Distance in km"><input data-dur="'+p.id+'" inputmode="numeric" placeholder="time h:mm" value="'+hm(p.movingS)+'" aria-label="Time h:mm"></div></div>').join('')+'</div>'
+        + '<div class="grid2" style="align-items:start"><input data-km="'+p.id+'" inputmode="decimal" placeholder="km" value="'+(p.distanceKm?esc(p.distanceKm):'')+'" aria-label="Distance in km"><div style="min-width:0"><input data-dur="'+p.id+'" style="width:100%;box-sizing:border-box" autocomplete="off" autocorrect="off" spellcheck="false" placeholder="time (min:sec)" value="'+sportClock(p.movingS)+'" aria-label="Time, like 55:16 or 1:05:30"><div class="faint" data-durh="'+p.id+'" style="font-size:12px"></div></div></div></div>').join('')+'</div>'
       + '<button type="button" class="btn" id="spAdd" style="align-self:flex-start">＋ Add a '+label.toLowerCase()+'</button>'
       + '<div class="err" id="fErr" hidden></div><div class="row"><button class="btn primary" type="submit" id="spSave">Save</button><button class="btn" type="button" id="xCancel">Cancel</button></div>',
     form=>{
       $('#xCancel').onclick=closeSheet;
+      form.querySelectorAll('[data-dur]').forEach(i=>bindClock(i, form.querySelector('[data-durh="'+i.dataset.dur+'"]')));
       $('#spAdd').onclick=()=>{ closeSheet(); const d=todayStr()>=t.startDate&&todayStr()<=t.endDate?todayStr():t.endDate; placeSheet(null, null, {trip:t, date:d, prefill:{category:k, date:d}}); };
       form.onsubmit=async e=>{ e.preventDefault(); const b=$('#spSave'); b.disabled=true;
         try{ for(const p of xs){ const kmIn=parseFloat(String(form.querySelector('[data-km="'+p.id+'"]').value).replace(',','.')), dv=String(form.querySelector('[data-dur="'+p.id+'"]').value).trim();
-            const m=dv.match(/^(\d+)(?:[:h.](\d{1,2}))?$/), mv=m?(m[2]!=null?(+m[1])*3600+(+m[2])*60:(+m[1])*60):null;
+            const mv=dv&&sportSecs(dv)==null?(p.movingS||null):sportSecs(dv);
             const km=isFinite(kmIn)&&kmIn>0?Math.round(kmIn*100)/100:null;
             if(km!==(p.distanceKm||null)||mv!==(p.movingS||null)) await patch('places', p.id, {distanceKm:km, movingS:mv, updatedAt:now()}); }
           closeSheet(); toast('Saved'); }
