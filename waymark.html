@@ -918,6 +918,7 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
     bindTodo(t);
     const cp=$('#coverPick'); if(cp) cp.onclick=()=>coverSheet(t);
     const wb=$('#wrapBtn'); if(wb) wb.onclick=()=>openWrapped(t);
+    main.querySelectorAll('[data-sportkpi]').forEach(b=>b.onclick=()=>sportSheet(t, b.dataset.sportkpi));
     const sk=$('#stepsKpi'); if(sk) sk.onclick=()=>stepsSheet(t, todayStr()>=t.startDate&&todayStr()<=t.endDate?todayStr():t.endDate);
     $('#addAct').onclick=()=>placeSheet(null, null, {trip:t, date:(todayStr()>=t.startDate&&todayStr()<=t.endDate)?todayStr():t.startDate});
     const fs0=$('#fromStrava'); if(fs0) fs0.onclick=()=>stravaSheet(t);
@@ -2128,8 +2129,29 @@ const WORLD = {"type":"Topology","objects":{"countries":{"type":"GeometryCollect
     // steps first: total, daily average, rough distance (≈0.75 m a step)
     return '<div class="active-row">'+(sv.length?'<div class="cell" id="stepsKpi" style="cursor:pointer"><div class="k">👟 Steps</div><div class="v mono">'+(tot>=10000?Math.round(tot/1000).toLocaleString()+'<small>k</small>':tot.toLocaleString())+'</div>'
         + '<div class="faint">'+Math.round(tot/sv.length).toLocaleString()+' a day<br>≈'+fmtKm(Math.round(tot*0.00075))+' km on foot</div></div>':'')+ks.map(k=>{ const b=by[k];
-      return '<div class="cell"><div class="k">'+catIcon(k)+' '+CAT_LABEL[k]+'</div><div class="v mono">'+(b.km?(b.km<100?b.km.toFixed(1):fmtKm(Math.round(b.km))):'—')+'<small> km</small></div>'
+      return '<div class="cell" data-sportkpi="'+k+'" style="cursor:pointer"><div class="k">'+catIcon(k)+' '+CAT_LABEL[k]+'</div><div class="v mono">'+(b.km?(b.km<100?b.km.toFixed(1):fmtKm(Math.round(b.km))):'—')+'<small> km</small></div>'
         + '<div class="faint">'+b.n+' '+(k==='run'?'run':k==='ride'?'ride':k==='hike'?'hike':'walk')+(b.n===1?'':'s')+(b.s?' · '+fmtDur(b.s):'')+'</div></div>'; }).join('')+'</div>'; }
+  // a sport's box opens its list: km and time for every run (or walk…) in one go, plus ＋ to log one that's missing
+  function sportSheet(t, k){
+    const label=CAT_LABEL[k]||k, xs=S.places.filter(p=>p.tripId===t.id&&p.status!=='want'&&p.category===k).sort((a,b)=>((a.date||'')+(a.time||'')).localeCompare((b.date||'')+(b.time||'')));
+    const hm=sec=>sec?Math.floor(sec/3600)+':'+pad2(Math.round(sec%3600/60)):'';
+    openSheet('<h2>'+catIcon(k)+' '+label+(xs.length===1?'':'s')+'</h2><div class="hint">Type the distance and time of each one (from your watch, Strava or Health). They add up in the box on the trip page.</div>'
+      + '<div style="display:flex;flex-direction:column;gap:10px">'+xs.map(p=>'<div class="card" style="padding:10px 12px;display:flex;flex-direction:column;gap:6px"><div class="between"><b style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(p.name)+'</b><span class="faint" style="flex-shrink:0">'+(p.date?fmtDate(p.date,{weekday:'short',month:'short',day:'numeric'}):'')+'</span></div>'
+        + '<div class="grid2"><input data-km="'+p.id+'" inputmode="decimal" placeholder="km" value="'+(p.distanceKm?esc(p.distanceKm):'')+'" aria-label="Distance in km"><input data-dur="'+p.id+'" inputmode="numeric" placeholder="time h:mm" value="'+hm(p.movingS)+'" aria-label="Time h:mm"></div></div>').join('')+'</div>'
+      + '<button type="button" class="btn" id="spAdd" style="align-self:flex-start">＋ Add a '+label.toLowerCase()+'</button>'
+      + '<div class="err" id="fErr" hidden></div><div class="row"><button class="btn primary" type="submit" id="spSave">Save</button><button class="btn" type="button" id="xCancel">Cancel</button></div>',
+    form=>{
+      $('#xCancel').onclick=closeSheet;
+      $('#spAdd').onclick=()=>{ closeSheet(); const d=todayStr()>=t.startDate&&todayStr()<=t.endDate?todayStr():t.endDate; placeSheet(null, null, {trip:t, date:d, prefill:{category:k, date:d}}); };
+      form.onsubmit=async e=>{ e.preventDefault(); const b=$('#spSave'); b.disabled=true;
+        try{ for(const p of xs){ const kmIn=parseFloat(String(form.querySelector('[data-km="'+p.id+'"]').value).replace(',','.')), dv=String(form.querySelector('[data-dur="'+p.id+'"]').value).trim();
+            const m=dv.match(/^(\d+)(?:[:h.](\d{1,2}))?$/), mv=m?(m[2]!=null?(+m[1])*3600+(+m[2])*60:(+m[1])*60):null;
+            const km=isFinite(kmIn)&&kmIn>0?Math.round(kmIn*100)/100:null;
+            if(km!==(p.distanceKm||null)||mv!==(p.movingS||null)) await patch('places', p.id, {distanceKm:km, movingS:mv, updatedAt:now()}); }
+          closeSheet(); toast('Saved'); }
+        catch(err){ b.disabled=false; const er=$('#fErr'); er.hidden=false; er.textContent=(err&&err.message)||'Couldn\'t save.'; } };
+    });
+  }
   const addHM=(hm,sec)=>{ const m=(+hm.slice(0,2)*60+ +hm.slice(3)+Math.round((+sec||0)/60))%1440; return pad2(Math.floor(m/60))+':'+pad2(m%60); };
   const legTrack=l=>Array.isArray(l.track)&&l.track.length>1?l.track.map(q=>[q[1],q[0]]):null;
   function parseGpx(text){
