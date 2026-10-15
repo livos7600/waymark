@@ -1461,6 +1461,7 @@ const WORLD = __WORLD__;
       + '<div class="field"><label for="lKm">Distance km (optional)</label><input id="lKm" inputmode="numeric" value="'+esc(rec&&rec.km?rec.km:l&&!l.kmEstimated?l.km:'')+'" placeholder="'+(l&&l.kmEstimated?'≈'+fmtKm(l.km):'Auto')+'"></div>'
       + '<div class="grid3"><div class="field"><label for="lCost">Cost (optional)</label><input id="lCost" inputmode="decimal" value="'+esc(l&&l.cost?l.cost:'')+'"></div><div class="field"><label for="lCur">Currency</label>'+curSelect('lCur', l?l.currency:trip.currency)+'</div></div>'
       + '<div class="field" id="lPaidF"'+(l&&+l.cost?'':' hidden')+'><label for="lPaid">Paid by</label>'+'<input id="lPaid" list="lPayers" autocomplete="off" value="'+esc(l&&l.paidBy||lastPayer(trip.id))+'"><datalist id="lPayers">'+payers(trip.id).map(n=>'<option value="'+esc(n)+'">').join('')+'</datalist>'+bizBox('lBiz', trip, l, (l?l.date:dDate))+'</div>'
+      + (assets?'<div class="field"><label>Photos</label><div class="photos" id="lPhotos"></div><div class="row"><label class="btn small" for="lPhotoIn">'+ICON.camera+' Add photos</label><input id="lPhotoIn" type="file" accept="image/*" multiple hidden></div><div class="hint">The view from the window, a stop on the road, the boarding pass…</div></div>':'')
       + '<div class="field"><label for="lNotes">Notes (optional)</label><input id="lNotes" value="'+esc(l?l.notes||'':'')+'" placeholder="Flight number, rental car, scenic route…"></div>'
       + '<div class="hint">Leave distance blank: flights use straight‑line km, drives and trains an estimate (≈) you can correct later.</div>'
       + '<div class="err" id="fErr" hidden></div>'
@@ -1491,13 +1492,20 @@ const WORLD = __WORLD__;
       ['lFrom','lTo','lDate'].forEach(id=>$('#'+id).addEventListener('change',()=>{ showDur(); const z=zones(); ensureTz([z.a,z.b]).then(showDur); }));
       showDur(); { const z=zones(); ensureTz([z.a,z.b]).then(()=>{ if(form.isConnected) showDur(); }); }
       const bindNoTrk=()=>{ const x=$('#lNoTrk'); if(x) x.onclick=()=>{ dropTrack=true; $('#lRec').textContent='Recorded route will be removed'; }; }; bindNoTrk();
+      // photos on a drive or flight: uploaded on pick, kept on Save, released on Cancel or when removed
+      let photoIds=(l&&l.photoIds||[]).slice(), uploading=false; const origPh=photoIds.slice(), addedPh=[];
+      const syncPh=()=>{ const b=$('#lSave'); if(b) b.disabled=uploading; };
+      const lpEl=$('#lPhotos'), drawLp=lpEl?photoEditor(lpEl, ()=>photoIds, v=>{ photoIds=v; }, syncPh):null; if(drawLp) drawLp();
+      const lpIn=$('#lPhotoIn'); if(lpIn) lpIn.onchange=async()=>{ const fs=Array.from(lpIn.files||[]); lpIn.value=''; if(!fs.length) return;
+        uploading=true; syncPh(); const up=await uploadPhotos(fs); addedPh.push(...up); photoIds=photoIds.concat(up); uploading=false; if(!form.isConnected) return; if(drawLp) drawLp(); syncPh(); };
+      $('#xCancel').onclick=()=>{ closeSheet(); addedPh.forEach(id=>forgetAsset(id)); };
       const gf=$('#lGpx'); gf.onchange=async()=>{ const f=gf.files&&gf.files[0]; gf.value=''; if(!f) return;
         try{ const r=await readDrive(trip, f); rec=r; dropTrack=false;
           $('#lKm').value=r.km||''; if(r.time) $('#lTime').value=r.time; if(r.date) $('#lDate').value=r.date; if(r.time&&r.durationS) $('#lArr').value=addHM(r.time,r.durationS); showDur();
           if(r.from&&!val('lFrom').trim()) $('#lFrom').value=r.from; if(r.to&&!val('lTo').trim()) $('#lTo').value=r.to;
           $('#lRec').innerHTML=recHint(); }
         catch(e){ toast(e.message||'Couldn\'t read that file'); } };
-      if(l) $('#xDel').onclick=()=>confirmDelete(form,'this leg', async()=>{ await del('legs', l.id); await dropEmptyStops([l.fromId, l.toId], l.id); });
+      if(l) $('#xDel').onclick=()=>confirmDelete(form,'this leg', async()=>{ await del('legs', l.id); await dropEmptyStops([l.fromId, l.toId], l.id); (l.photoIds||[]).forEach(id=>forgetAsset(id, l)); });
       form.onsubmit=async e=>{ e.preventDefault();
         const er=$('#fErr'); er.hidden=true;
         const from=val('lFrom').trim(), to=val('lTo').trim(), date=val('lDate');
@@ -1517,8 +1525,10 @@ const WORLD = __WORLD__;
           if(rec&&rec.track){ data.track=rec.track; data.durationS=mins!=null?mins*60:(rec.durationS||null); if(isFinite(kmIn)&&kmIn>0) data.kmEstimated=false; }
           else if(dropTrack){ data.track=null; data.durationS=null; }
           if(l&&l.date!==date) data.dayPos=null;
+          if(lpEl) data.photoIds=photoIds;
           if(l) await patch('legs', l.id, data); else await put('legs', null, Object.assign({order:Date.now(), createdAt:now()}, data));
           closeSheet();
+          for(const x of origPh.concat(addedPh)) if(!photoIds.includes(x)) forgetAsset(x, l);
         }catch(err){ er.hidden=false; er.textContent=(err&&err.message)||'Couldn\'t save. Try again.'; btn.disabled=false; btn.textContent='Save'; }
       };
     });
@@ -2554,7 +2564,9 @@ const WORLD = __WORLD__;
       if(folded){ html+='</div>'; continue; }
       html+='<div class="day-list" data-day="'+d+'">'+dayOrder(d, legs, acts, exps).map(({k,x})=>{ const tv=hhmm(x), tm='<label class="tset'+(tv?'':' empty')+'" data-tcol="'+(k==='leg'?'legs':k==='act'?'places':'expenses')+'" data-tid="'+x.id+'">'+(tv||'+ time')+'<input type="time" value="'+tv+'" aria-label="Time"></label>';
             if(k==='leg'){ const l=x; const a=stopOf(l.fromId)||{}, b=stopOf(l.toId)||{};
-            return '<div class="day-i" data-leg="'+l.id+'">'+tm+emo(MODE_EMOJI[l.mode]||'🚗')+'<span style="flex:1">'+esc(a.city||'?')+' → '+esc(b.city||'?')+'</span><span class="faint mono">'+(l.kmEstimated?'≈':'')+fmtKm(l.km||0)+' km</span></div>'; }
+            const lph=(l.photoIds||[]).slice(0,8);
+            return '<div class="day-i'+(lph.length?' has-ph':'')+'" data-leg="'+l.id+'">'+tm+emo(MODE_EMOJI[l.mode]||'🚗')+'<span style="flex:1">'+esc(a.city||'?')+' → '+esc(b.city||'?')+'</span><span class="faint mono">'+(l.kmEstimated?'≈':'')+fmtKm(l.km||0)+' km</span>'
+              +(lph.length?'<div class="ph-strip">'+lph.map(id=>'<img alt="" loading="lazy" src="/_blob/'+id+'" data-photo="'+id+'">').join('')+'</div>':'')+'</div>'; }
             if(k==='act'){ const p=x, ph=(p.photoIds||[]).slice(0,8); return '<div class="day-i'+(ph.length?' has-ph':'')+'" data-pl="'+p.id+'">'+tm+emo(catIcon(p.category))+'<span style="flex:1;min-width:0">'+esc(p.name)+(p.status==='want'?' <span class="faint">· planned</span>':'')+(viaTxt(p)?' <span class="faint">· '+esc(viaTxt(p))+'</span>':'')
             +(statsLine(p)?' <span class="faint">'+statsLine(p)+'</span>':'')+'</span>'+(ph.length?'<div class="ph-strip">'+ph.map(id=>'<img alt="" loading="lazy" src="/_blob/'+id+'" data-photo="'+id+'">').join('')+'</div>':'')+'</div>'; }
             const e=x; return '<div class="day-i" data-exp="'+e.id+'">'+tm+emo(expIcon(e.category,e.label))+'<span style="flex:1;min-width:0">'+esc(e.label)+'</span><span class="faint mono">'+fmtMoney(e.amount,e.currency)+'</span></div>'; }).join('')+'</div>'
@@ -3348,7 +3360,7 @@ const WORLD = __WORLD__;
   }
   // ---------- photo viewer: browse, make cover, replace, delete ----------
   // A photo id can sit in stops, places or expenses (photoIds[]). Edits apply to every row holding it.
-  function photoRows(id){ const out=[]; ['stops','places','expenses','stays'].forEach(c=>S[c].forEach(r=>{ if((r.photoIds||[]).includes(id)) out.push({c,r}); })); return out; }
+  function photoRows(id){ const out=[]; ['stops','places','expenses','stays','legs'].forEach(c=>S[c].forEach(r=>{ if((r.photoIds||[]).includes(id)) out.push({c,r}); })); return out; }
   async function editPhotoRows(id, fn){ for(const {c,r} of photoRows(id)) await patch(c, r.id, {photoIds:fn(r.photoIds||[])}); }
   // Delete the stored file once nothing points at it any more. Never throws.
   async function forgetAsset(id, exceptRow){
