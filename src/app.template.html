@@ -95,7 +95,7 @@
   /* satellite map (MapLibre) */
   .map-wrap.gl{background:#0B1A2A;}
   .gl-box{position:relative;height:clamp(320px,62vh,560px);}
-  .gl-map{position:absolute;inset:0;}
+  .gl-map,.gl-map.maplibregl-map{position:absolute;inset:0;} /* .maplibregl-map below would make it position:relative with no height: a blank map */
   .maplibregl-map{position:relative;overflow:hidden;-webkit-tap-highlight-color:transparent;}
   .maplibregl-canvas{position:absolute;left:0;top:0;}
   .maplibregl-canvas-container.maplibregl-interactive{cursor:grab;} .maplibregl-canvas-container.maplibregl-interactive:active{cursor:grabbing;}
