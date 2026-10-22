@@ -1,0 +1,183 @@
+<title>Waymark Video Test</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@700;800&family=Figtree:wght@400;600;700&family=IBM+Plex+Mono:wght@500&display=swap">
+<style>
+  /* Layout: one narrow column — checklist, the animated card, then results to paste back */
+  :root{
+    --bg:#EDF0F3; --surface:#FFFFFF; --ink:#15202B; --soft:#4C5967; --faint:#8693A0; --line:#D3DAE1;
+    --accent:#E2551B; --accent-ink:#FFFFFF; --good:#22946A; --bad:#C2412D;
+    --display:'Barlow Condensed', system-ui, sans-serif; --body:'Figtree', system-ui, -apple-system, sans-serif; --mono:'IBM Plex Mono', ui-monospace, monospace;
+  }
+  @media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
+    --bg:#0F151B; --surface:#172029; --ink:#E7EDF2; --soft:#A6B3BF; --faint:#6E7D8A; --line:#2A3743;
+    --accent:#FF7A3D; --accent-ink:#1A0A02; --good:#4CC795; --bad:#FF8A73; color-scheme:dark; } }
+  :root[data-theme="dark"]{
+    --bg:#0F151B; --surface:#172029; --ink:#E7EDF2; --soft:#A6B3BF; --faint:#6E7D8A; --line:#2A3743;
+    --accent:#FF7A3D; --accent-ink:#1A0A02; --good:#4CC795; --bad:#FF8A73; color-scheme:dark; }
+  *{box-sizing:border-box;}
+  body{background:var(--bg);color:var(--ink);font-family:var(--body);font-size:15px;line-height:1.45;}
+  .wrap{max-width:520px;margin:0 auto;padding-inline:16px;padding-block:20px 40px;display:flex;flex-direction:column;gap:18px;}
+  h1{font-family:var(--display);font-weight:800;font-size:30px;letter-spacing:.02em;text-transform:uppercase;margin:0;text-wrap:balance;}
+  h1 b{color:var(--accent);}
+  h2{font-family:var(--display);font-size:20px;text-transform:uppercase;letter-spacing:.04em;margin:0;}
+  p{margin:0;color:var(--soft);}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:14px 16px;display:flex;flex-direction:column;gap:10px;}
+  .checks{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px;}
+  .checks li{display:flex;gap:10px;align-items:baseline;}
+  .mark{font-family:var(--mono);font-weight:500;width:1.4em;flex-shrink:0;}
+  .ok{color:var(--good);} .no{color:var(--bad);} .wait{color:var(--faint);}
+  .stage{display:flex;justify-content:center;}
+  canvas,video{width:min(100%,270px);aspect-ratio:9/16;border-radius:12px;background:#101820;display:block;}
+  .row{display:flex;gap:8px;flex-wrap:wrap;}
+  button{font:inherit;font-weight:700;border-radius:10px;padding:11px 16px;border:1px solid var(--line);background:var(--surface);color:var(--ink);cursor:pointer;}
+  button.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);}
+  button:disabled{opacity:.5;cursor:default;}
+  button:focus-visible{outline:2px solid var(--accent);outline-offset:2px;}
+  .status{font-size:14px;color:var(--soft);min-height:1.4em;}
+  textarea{width:100%;min-height:150px;font-family:var(--mono);font-size:12.5px;border:1px solid var(--line);border-radius:10px;padding:10px;background:var(--bg);color:var(--ink);resize:vertical;}
+  @media (prefers-reduced-motion: reduce){ * { scroll-behavior:auto; } }
+</style>
+
+<div class="wrap">
+  <h1>Way<b>mark</b> video test</h1>
+  <p>Checks whether your phone can record the trip route as a video inside Claude, save it, and play it back. Takes about 30 seconds.</p>
+
+  <section class="card" aria-labelledby="h-dev">
+    <h2 id="h-dev">1 · Your phone</h2>
+    <ul class="checks" id="checks"><li><span class="mark wait">…</span>Checking…</li></ul>
+  </section>
+
+  <section class="card" aria-labelledby="h-rec">
+    <h2 id="h-rec">2 · Record a 5-second sample</h2>
+    <p>Bordeaux → Arcachon → Messanges, drawn the way the real video would.</p>
+    <div class="stage"><canvas id="cv" width="540" height="960" aria-label="Animated route preview"></canvas></div>
+    <div class="row"><button class="primary" id="rec" type="button">Record test video</button></div>
+    <div class="status" id="recStatus"></div>
+  </section>
+
+  <section class="card" aria-labelledby="h-out" id="outCard" hidden>
+    <h2 id="h-out">3 · Play and save</h2>
+    <p>Press play. Does the line move from city to city?</p>
+    <div class="stage"><video id="vid" controls playsinline muted></video></div>
+    <div class="row"><button class="primary" id="save" type="button">Save video</button></div>
+    <div class="status" id="saveStatus"></div>
+  </section>
+
+  <section class="card" aria-labelledby="h-res">
+    <h2 id="h-res">4 · Send me the result</h2>
+    <p>Copy this and paste it in the chat with Claude.</p>
+    <textarea id="report" readonly aria-label="Test results"></textarea>
+    <div class="row"><button id="copy" type="button">Copy results</button></div>
+    <div class="status" id="copyStatus"></div>
+  </section>
+</div>
+
+<script>
+(function(){
+  const $=id=>document.getElementById(id);
+  const R={ ua:navigator.userAgent, mediaRecorder:typeof MediaRecorder!=='undefined', captureStream:!!HTMLCanvasElement.prototype.captureStream, formats:[], downloads:'checking', recorded:null, played:null, saved:null };
+  const TYPES=['video/mp4;codecs=avc1','video/mp4','video/webm;codecs=vp9','video/webm;codecs=vp8','video/webm'];
+  if(R.mediaRecorder&&MediaRecorder.isTypeSupported) R.formats=TYPES.filter(t=>{ try{ return MediaRecorder.isTypeSupported(t); }catch(e){ return false; } });
+  let downloads=null;
+
+  function report(){
+    $('report').value=[
+      'Waymark video test',
+      'Recording supported: '+(R.mediaRecorder&&R.captureStream?'yes':'no')+' (MediaRecorder '+(R.mediaRecorder?'yes':'no')+', canvas capture '+(R.captureStream?'yes':'no')+')',
+      'Formats: '+(R.formats.join(', ')||'none reported'),
+      'Save available: '+R.downloads,
+      'Recorded: '+(R.recorded||'not yet'),
+      'Saved: '+(R.saved||'not yet'),
+      'Device: '+R.ua
+    ].join('\n');
+  }
+  function checks(){
+    const li=(ok,txt)=>'<li><span class="mark '+(ok===null?'wait':ok?'ok':'no')+'">'+(ok===null?'…':ok?'✓':'✗')+'</span><span>'+txt+'</span></li>';
+    const mp4=R.formats.some(f=>f.startsWith('video/mp4'));
+    $('checks').innerHTML=li(R.mediaRecorder&&R.captureStream,'Record video inside Claude')
+      + li(R.formats.length?true:false,'Video format: '+(R.formats.length?(mp4?'MP4 (best for Instagram)':'WebM only'):'none reported'))
+      + li(R.downloads==='checking'?null:R.downloads==='yes','Save a file from this page');
+    report();
+  }
+  checks();
+  (window.claude&&window.claude.use?window.claude.use('downloads'):Promise.resolve(null)).then(d=>{ downloads=d; R.downloads=d?'yes':'no'; checks(); }).catch(()=>{ R.downloads='no'; checks(); });
+
+  // ---- the animation: a stylised southwest coast and the route drawn along it ----
+  const cv=$('cv'), g=cv.getContext('2d'), W=cv.width, H=cv.height;
+  const box={lon0:-1.85,lon1:-0.05,lat0:43.55,lat1:45.05};
+  const P=(lat,lon)=>[60+(lon-box.lon0)/(box.lon1-box.lon0)*(W-120), 260+(box.lat1-lat)/(box.lat1-box.lat0)*(H-420)];
+  const coast=[[45.05,-1.17],[44.75,-1.2],[44.66,-1.19],[44.6,-1.24],[44.45,-1.27],[44.2,-1.3],[43.95,-1.36],[43.75,-1.42],[43.55,-1.5]];
+  const stops=[{name:'Bordeaux',lat:44.8378,lon:-0.5792,day:'Oct 3'},{name:'Arcachon',lat:44.6586,lon:-1.1689,day:'Oct 4'},{name:'Messanges',lat:43.8147,lon:-1.3889,day:'Oct 5'}];
+  const kms=[0,63,189];
+  const ease=t=>t<.5?2*t*t:1-Math.pow(-2*t+2,2)/2;
+  function frame(t){ // t: 0..1 over the clip
+    t=Math.max(0,Math.min(1,t));
+    g.fillStyle='#101820'; g.fillRect(0,0,W,H);
+    // land
+    g.beginPath(); const c0=P(...coast[0]); g.moveTo(c0[0],c0[1]); coast.forEach(q=>{ const p=P(...q); g.lineTo(p[0],p[1]); }); g.lineTo(W,H); g.lineTo(W,0); g.lineTo(c0[0],0); g.closePath();
+    g.fillStyle='#3B2A22'; g.fill(); g.strokeStyle='#5a4134'; g.lineWidth=3; g.stroke();
+    // header
+    g.fillStyle='#FF7A3D'; g.font='700 30px "Barlow Condensed", sans-serif'; g.fillText('WAYMARK · OCT 3 – 5, 2026',48,90);
+    let fs=64; const title='Bordeaux → the coast'; g.font='800 '+fs+'px "Barlow Condensed", sans-serif';
+    while(fs>30&&g.measureText(title).width>W-96){ fs-=2; g.font='800 '+fs+'px "Barlow Condensed", sans-serif'; }
+    g.fillStyle='#fff'; g.fillText(title,48,160);
+    // route so far
+    const legsT=Math.min(1,t/.85), seg=legsT*(stops.length-1), k=Math.min(Math.floor(seg),stops.length-2), f=ease(Math.min(1,seg-k));
+    g.strokeStyle='#FF7A3D'; g.lineWidth=9; g.lineCap='round'; g.lineJoin='round'; g.beginPath();
+    const p0=P(stops[0].lat,stops[0].lon); g.moveTo(p0[0],p0[1]);
+    for(let i=1;i<=k;i++){ const p=P(stops[i].lat,stops[i].lon); g.lineTo(p[0],p[1]); }
+    const a=P(stops[k].lat,stops[k].lon), b=P(stops[k+1].lat,stops[k+1].lon), head=[a[0]+(b[0]-a[0])*f, a[1]+(b[1]-a[1])*f];
+    g.lineTo(head[0],head[1]); g.stroke();
+    // stops reached
+    const reached=seg>=stops.length-1?stops.length:k+1+(f>=.999?1:0);
+    stops.slice(0,reached).forEach(s=>{ const p=P(s.lat,s.lon); g.beginPath(); g.arc(p[0],p[1],13,0,7); g.fillStyle='#fff'; g.fill(); g.lineWidth=6; g.strokeStyle='#101820'; g.stroke();
+      g.font='700 32px Figtree, sans-serif'; const tw=g.measureText(s.name).width, lx=p[0]+22+tw>W-16?p[0]-22-tw:p[0]+22;
+      g.lineWidth=8; g.strokeStyle='#101820'; g.strokeText(s.name,lx,p[1]+10); g.fillStyle='#fff'; g.fillText(s.name,lx,p[1]+10); });
+    // moving car dot
+    g.beginPath(); g.arc(head[0],head[1],11,0,7); g.fillStyle='#FF7A3D'; g.fill(); g.lineWidth=4; g.strokeStyle='#fff'; g.stroke();
+    // counter
+    const km=Math.round(kms[k]+(kms[k+1]-kms[k])*f), cur=stops[Math.min(reached,stops.length)-1]||stops[0];
+    g.fillStyle='rgba(16,24,32,.85)'; g.fillRect(0,H-170,W,170);
+    g.fillStyle='#fff'; g.font='800 72px "Barlow Condensed", sans-serif'; g.fillText(km+' km',48,H-80);
+    g.fillStyle='#8FA0AF'; g.font='700 26px Figtree, sans-serif'; g.fillText(cur.day.toUpperCase()+' · '+cur.name.toUpperCase(),48,H-38);
+  }
+  frame(1);
+  if(document.fonts&&document.fonts.load) Promise.all([document.fonts.load('800 64px "Barlow Condensed"'),document.fonts.load('700 32px Figtree')]).then(()=>frame(1)).catch(()=>{});
+  const reduce=window.matchMedia&&matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  // ---- record ----
+  $('rec').onclick=async()=>{
+    const btn=$('rec'), st=$('recStatus');
+    if(!(R.mediaRecorder&&R.captureStream)){ st.textContent='This phone can\'t record video here. Copy the results below and send them to me.'; R.recorded='no (not supported)'; report(); return; }
+    btn.disabled=true; st.textContent='Recording… keep this screen open for 5 seconds.';
+    let stream, rec, chunks=[];
+    try{
+      stream=cv.captureStream(30);
+      const type=R.formats[0]||'';
+      rec=new MediaRecorder(stream, type?{mimeType:type, videoBitsPerSecond:4000000}:undefined);
+    }catch(e){ st.textContent='Recording failed to start: '+(e&&e.message||e); R.recorded='no (start failed: '+(e&&e.name||'error')+')'; report(); btn.disabled=false; return; }
+    rec.ondataavailable=e=>{ if(e.data&&e.data.size) chunks.push(e.data); };
+    const done=new Promise(r=>rec.onstop=r);
+    rec.start(250);
+    const DUR=5000, t0=performance.now();
+    await new Promise(res=>{ const tick=now=>{ const t=Math.max(0,Math.min(1,(now-t0)/DUR)); frame(reduce?1:t); if(t<1) requestAnimationFrame(tick); else res(); }; requestAnimationFrame(tick); });
+    await new Promise(r=>setTimeout(r,300)); rec.stop(); await done; stream.getTracks().forEach(tr=>tr.stop());
+    const type=(rec.mimeType||R.formats[0]||'video/webm').split(';')[0];
+    const blob=new Blob(chunks,{type});
+    if(!blob.size){ st.textContent='The recording came out empty.'; R.recorded='no (empty file)'; report(); btn.disabled=false; return; }
+    R.recorded='yes, '+type+', '+Math.round(blob.size/1024)+' KB';
+    st.textContent='Recorded '+Math.round(blob.size/1024)+' KB as '+(type.includes('mp4')?'MP4':'WebM')+'.';
+    const v=$('vid'); v.src=URL.createObjectURL(blob); $('outCard').hidden=false; v.scrollIntoView({behavior:'smooth',block:'center'});
+    $('save').onclick=async()=>{
+      const ss=$('saveStatus');
+      if(!downloads){ ss.textContent='Saving isn\'t available here.'; R.saved='no (save unavailable)'; report(); return; }
+      try{ await downloads.save({filename:'waymark-route-test.'+(type.includes('mp4')?'mp4':'webm'), data:blob}); ss.textContent='Saved. Check your Files or Photos app.'; R.saved='yes'; }
+      catch(e){ ss.textContent=e&&e.code==='declined'?'You cancelled the save.':'Couldn\'t save: '+(e&&(e.code||e.message)||'error'); R.saved='no ('+(e&&e.code||'error')+')'; }
+      report();
+    };
+    btn.disabled=false; btn.textContent='Record again'; report();
+  };
+  $('copy').onclick=async()=>{ const ta=$('report');
+    try{ await navigator.clipboard.writeText(ta.value); $('copyStatus').textContent='Copied. Paste it in the chat.'; }
+    catch(e){ ta.focus(); ta.select(); $('copyStatus').textContent='Text selected. Use Copy from your keyboard menu.'; } };
+})();
+</script>
