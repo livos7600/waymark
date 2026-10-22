@@ -14,8 +14,8 @@ Waymark is a travel-log web app published as a claude.ai artifact. The owner (Ol
 1. **Read the live artifact first** (Artifact tool, `action: "read"`, the URL above). If it differs from `src/app.template.html`, the live version wins; bring the repo up to date before editing.
 2. Edit `src/app.template.html`, run `python3 src/build.py`.
 3. Republish **to the same URL**: Artifact tool, `file_path: waymark.html`, `url: https://claude.ai/artifact/VoEoHtepSYciZXkd8Uvspo`. Omit `capabilities` so the stored ones carry over (db, assets, sample, downloads, mcp/Strava). Omit `icon`.
-4. Commit the change to this repo with a short message **and push it** to the working branch (`claude/claude-md-review-shmmb6` until it's merged into `main`).
-- The owner works from several places (phone sessions in the cloud, terminal sessions on his laptop). Before editing, `git pull` the working branch, then do step 1. Never publish without committing and pushing in the same go: on Oct 18 a laptop session published the satellite map without pushing, and it had to be recovered from the live page.
+4. Commit the change to this repo with a short message **and push it**. `main` is the source branch (merged Oct 22). A session given its own `claude/…` branch pushes there and merges it into `main` with a pull request in the same go, so `main` always matches the live app.
+- The owner works from several places (phone sessions in the cloud, terminal sessions on his laptop). Before editing, `git pull origin main`, then do step 1. Never publish without committing and pushing in the same go: on Oct 18 a laptop session published the satellite map without pushing, and it had to be recovered from the live page.
 
 ## Never
 - Don't write to, reset or reseed the database unless the owner asks. Trips, places, photos and expenses are real data.
